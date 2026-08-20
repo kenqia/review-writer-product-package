@@ -489,6 +489,37 @@ def approve_section(
 ) -> dict[str, Any]:
     """Record a researcher approval, requiring an explicit edit for high-risk text."""
     root = _root(project)
+    try:
+        with project_write_lock(root):
+            return _approve_section_locked(
+                root,
+                section_id,
+                actor,
+                edited_body=edited_body,
+                reason=reason,
+                expected_draft_digest=expected_draft_digest,
+                reconfirm_simulated_approval=reconfirm_simulated_approval,
+            )
+    except PaperEvidenceStoreError as exc:
+        raise ManuscriptV2Error(exc.code) from exc
+
+
+def _approve_section_locked(
+    root: Path,
+    section_id: str,
+    actor: object,
+    *,
+    edited_body: str | None = None,
+    reason: str | None = None,
+    expected_draft_digest: str | None = None,
+    reconfirm_simulated_approval: bool = False,
+) -> dict[str, Any]:
+    """Approve a section while the caller already holds ``project_write_lock``.
+
+    This private helper deliberately never acquires or releases the project
+    lock.  Dashboard callers must perform all prevalidation and mutation in
+    the same outer lock domain; non-Dashboard callers use ``approve_section``.
+    """
     section_id = _identifier(section_id, "SECTION_ID_INVALID")
     rows = _read_jsonl(root)
     row = next((item for item in rows if item.get("section_id") == section_id), None)
@@ -538,11 +569,7 @@ def approve_section(
                 "original_expression": original,
                 "edited_expression": original,
             }
-            try:
-                with project_write_lock(root):
-                    _atomic_bytes(root, DRAFTS_PATH, _jsonl_bytes(rows))
-            except PaperEvidenceStoreError as exc:
-                raise ManuscriptV2Error(exc.code) from exc
+            _atomic_bytes(root, DRAFTS_PATH, _jsonl_bytes(rows))
             return copy.deepcopy(row)
         if unchanged:
             return copy.deepcopy(row)
@@ -573,11 +600,7 @@ def approve_section(
         "edited_expression": replacement,
     }
     row["status"] = "approved"
-    try:
-        with project_write_lock(root):
-            _atomic_bytes(root, DRAFTS_PATH, _jsonl_bytes(rows))
-    except PaperEvidenceStoreError as exc:
-        raise ManuscriptV2Error(exc.code) from exc
+    _atomic_bytes(root, DRAFTS_PATH, _jsonl_bytes(rows))
     return copy.deepcopy(row)
 
 
@@ -955,6 +978,21 @@ def _write_authoritative_pair(
 def merge_authoritative_manuscript(project: Path) -> dict[str, Any]:
     """Merge all current approved section drafts and atomically publish lineage v2."""
     root = _root(project)
+    try:
+        with project_write_lock(root):
+            return _merge_approved_sections_locked(root)
+    except PaperEvidenceStoreError as exc:
+        raise ManuscriptV2Error(exc.code) from exc
+
+
+def _merge_approved_sections_locked(root: Path) -> dict[str, Any]:
+    """Publish the merged manuscript while the caller already holds the lock.
+
+    This private helper deliberately never acquires or releases
+    ``project_write_lock``.  Dashboard callers must keep prevalidation and all
+    manuscript mutations in one outer lock domain; non-Dashboard callers use
+    ``merge_authoritative_manuscript``.
+    """
     evidence, synthesis, contracts = _states(root)
     contract_rows = contracts.get("rows", [])
     if (
@@ -1061,11 +1099,7 @@ def merge_authoritative_manuscript(project: Path) -> dict[str, Any]:
         )
     lineage["lineage_digest"] = canonical_digest(lineage)
     _validate_lineage(lineage)
-    try:
-        with project_write_lock(root):
-            _write_authoritative_pair(root, manuscript_bytes, _json_bytes(lineage))
-    except PaperEvidenceStoreError as exc:
-        raise ManuscriptV2Error(exc.code) from exc
+    _write_authoritative_pair(root, manuscript_bytes, _json_bytes(lineage))
     return {
         "status": "approved",
         "manuscript_path": MANUSCRIPT_PATH.as_posix(),

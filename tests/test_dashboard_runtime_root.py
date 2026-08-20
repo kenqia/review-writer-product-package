@@ -6,6 +6,7 @@ import copy
 import hashlib
 import http.client
 import io
+import inspect
 import json
 import tempfile
 import threading
@@ -655,6 +656,19 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             *sorted((project / ".review-writer/version_context/versions").iterdir()),
         ]
         return {path: self._fingerprint(path) for path in paths}, paths
+
+    def test_public_manuscript_wrappers_delegate_to_single_lock_free_helpers(self) -> None:
+        for public_name, private_name in (
+            ("approve_section", "_approve_section_locked"),
+            ("merge_authoritative_manuscript", "_merge_approved_sections_locked"),
+        ):
+            with self.subTest(public_name=public_name):
+                self.assertTrue(hasattr(manuscript_v2, private_name))
+                public_source = inspect.getsource(getattr(manuscript_v2, public_name))
+                private_source = inspect.getsource(getattr(manuscript_v2, private_name))
+                self.assertIn(f"{private_name}(", public_source)
+                self.assertEqual(public_source.count("with project_write_lock("), 1)
+                self.assertNotIn("with project_write_lock(", private_source)
 
     def _assert_marker_rejection_is_zero_write(self, invalid_body: str, error_code: str) -> None:
         review_root, project, draft, _ = self._project()
