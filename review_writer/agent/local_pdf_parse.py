@@ -1514,7 +1514,11 @@ def prepare_pdf_only_synthesis_workspace(
             session_id=active_session,
             state=state,
             current=current,
-            action="CREATE_SINGLE_STUDY_SYNTHESIS_CANDIDATE",
+            action=(
+                "CREATE_SINGLE_STUDY_SYNTHESIS_CANDIDATE"
+                if plan["synthesis_claim"]["single_study"]
+                else "CREATE_MULTI_STUDY_SYNTHESIS_CANDIDATE"
+            ),
             reason_code=_SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED,
             result={"coverage_map": plan["coverage_map"], "claims": claims},
         )

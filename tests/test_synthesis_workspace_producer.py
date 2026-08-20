@@ -255,6 +255,99 @@ class PdfOnlySynthesisWorkspacePlanTest(unittest.TestCase):
             self.assertFalse((project / "02_synthesis/coverage_map.json").exists())
             self.assertFalse((project / "02_synthesis/synthesis_claim_projection.jsonl").exists())
 
+    def test_second_stage_action_names_multi_study_and_preserves_single_study_label(self) -> None:
+        def run_prepare(study_count: int) -> dict[str, object]:
+            evidence = {
+                "projection_digest": "a" * 64,
+                "workflow_can_continue": True,
+                "rows": [
+                    {
+                        "evidence_id": f"evidence-action-{index}",
+                        "study_id": f"study-action-{index}",
+                        "status": "approved",
+                        "statement": f"Study {index} reports a bounded observation.",
+                        "field_dependencies": [],
+                    }
+                    for index in range(1, study_count + 1)
+                ],
+            }
+            with tempfile.TemporaryDirectory() as temporary:
+                project = Path(temporary) / f"action-n{study_count}"
+                (project / "01_evidence").mkdir(parents=True)
+                (project / "02_synthesis").mkdir()
+                (project / ".paper_evidence.lock").write_bytes(b"\0")
+                (project / "02_synthesis/comparison_protocol.json").write_text(
+                    "{}\n", encoding="utf-8"
+                )
+                state = SimpleNamespace(revision=4, active_head_id="head-action")
+                current = SimpleNamespace(
+                    snapshot={
+                        "agent_parse": {
+                            "session_id": "generator-action",
+                            "tool_trace": [],
+                        }
+                    },
+                    version_id="version-action",
+                    snapshot_digest="b" * 64,
+                )
+                trace = {
+                    "current": {
+                        "version_id": "version-coverage",
+                        "revision": 5,
+                        "snapshot_digest": "c" * 64,
+                    }
+                }
+                with (
+                    patch.object(local_pdf_parse, "_registered_project", return_value=project),
+                    patch.object(
+                        local_pdf_parse,
+                        "_active_parse_session",
+                        return_value=("generator-action", state, current),
+                    ),
+                    patch.object(local_pdf_parse, "paper_evidence_state", return_value=evidence),
+                    patch.object(
+                        local_pdf_parse,
+                        "comparison_protocol_state",
+                        return_value={"workflow_can_continue": True},
+                    ),
+                    patch.object(
+                        local_pdf_parse,
+                        "coverage_map_state",
+                        return_value={"workflow_can_continue": True},
+                    ),
+                    patch.object(
+                        local_pdf_parse,
+                        "synthesis_state",
+                        return_value={"workflow_can_continue": True},
+                    ),
+                    patch.object(local_pdf_parse, "register_coverage_map", return_value={}),
+                    patch.object(
+                        local_pdf_parse,
+                        "register_synthesis_candidates",
+                        return_value={},
+                    ),
+                    patch.object(
+                        local_pdf_parse,
+                        "record_agent_tool_outcome",
+                        return_value=trace,
+                    ),
+                ):
+                    return local_pdf_parse.prepare_pdf_only_synthesis_workspace(
+                        project,
+                        session_id="generator-action",
+                        expected_revision=4,
+                        expected_head_id="head-action",
+                    )
+
+        self.assertEqual(
+            run_prepare(1)["action"],
+            "CREATE_SINGLE_STUDY_SYNTHESIS_CANDIDATE",
+        )
+        self.assertEqual(
+            run_prepare(3)["action"],
+            "CREATE_MULTI_STUDY_SYNTHESIS_CANDIDATE",
+        )
+
     def test_multi_study_plan_round_trips_through_existing_synthesis_producers(self) -> None:
         evidence = {
             "projection_digest": "5" * 64,
