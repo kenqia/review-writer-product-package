@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/delivery/manuscript_lineage.v2.schema.json",
+  "title": "Evidence-bound manuscript lineage v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "route", "project_id", "workflow_digest",
+    "parse_object_digests", "paper_evidence_projection_digest",
+    "synthesis_projection_digest", "section_contract_projection_digest",
+    "section_contract_digests", "source_figure_registry_digest",
+    "synthesis_figure_placeholder_digest",
+    "generation_content_agent_result_digests", "sections",
+    "claim_bindings", "manuscript_sha256", "lineage_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "manuscript-lineage.v2"},
+    "route": {"const": "evidence-to-release.v1"},
+    "project_id": {"$ref": "#/$defs/id"},
+    "workflow_digest": {"$ref": "#/$defs/sha256"},
+    "parse_object_digests": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "paper_evidence_projection_digest": {"$ref": "#/$defs/sha256"},
+    "synthesis_projection_digest": {"$ref": "#/$defs/sha256"},
+    "section_contract_projection_digest": {"$ref": "#/$defs/sha256"},
+    "authoritative_run": {"type": "boolean"},
+    "review_questions": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {"const": "主要键组合、反应模式及活化策略是什么？"},
+        {"const": "条件如何影响表现，哪些结果不可直接比较？"},
+        {"const": "底物范围、耐受性、选择性和局限是什么？"},
+        {"const": "机制证据处于什么层级，作者解释之间有哪些冲突？"},
+        {"const": "通用性、选择性、放大、资源效率和机制确定性还存在哪些缺口？"}
+      ],
+      "items": false
+    },
+    "review_questions_digest": {"$ref": "#/$defs/sha256"},
+    "synthesis_question_bindings": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/synthesis_question_binding"}
+    },
+    "section_contract_digests": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "source_figure_registry_digest": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+    },
+    "synthesis_figure_placeholder_digest": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+    },
+    "generation_content_agent_result_digests": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "sections": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/section"}
+    },
+    "claim_bindings": {
+      "type": "array", "items": {"$ref": "#/$defs/claim_binding"}
+    },
+    "manuscript_sha256": {"$ref": "#/$defs/sha256"},
+    "chemical_paper_import_digests": {
+      "type": "array", "items": {"$ref": "#/$defs/chemical_paper_import_digest"}
+    },
+    "chemical_paper_safe_summary": {"$ref": "#/$defs/chemical_paper_safe_summary"},
+    "chemical_paper_claim_dependencies": {
+      "type": "array", "items": {"$ref": "#/$defs/chemical_paper_claim_dependency"}
+    },
+    "dual_parse_bindings": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/dual_parse_binding"}
+    },
+    "lineage_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"authoritative_run": {"const": true}},
+        "required": ["authoritative_run"]
+      },
+      "then": {
+        "required": [
+          "review_questions", "review_questions_digest",
+          "synthesis_question_bindings"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "id": {
+      "type": "string", "minLength": 1, "maxLength": 240,
+      "pattern": "^(?!\\.\\.?$)(?!.*[/\\\\\\u0000\\r\\n])[^\\s]+$"
+    },
+    "approval": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "actor_type", "actor_label", "action", "reason", "decided_at",
+        "bound_object_digest", "upstream_digest", "original_expression",
+        "edited_expression"
+      ],
+      "properties": {
+        "actor_type": {"enum": ["human_researcher", "simulated_researcher_agent"]},
+        "actor_label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "action": {"const": "approve"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "decided_at": {"type": "string", "minLength": 1},
+        "bound_object_digest": {"$ref": "#/$defs/sha256"},
+        "upstream_digest": {"$ref": "#/$defs/sha256"},
+        "original_expression": {"type": "string"},
+        "edited_expression": {"type": "string"}
+      }
+    },
+    "synthesis_question_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_question_id", "review_question_digest",
+        "review_questions_digest", "synthesis_id", "synthesis_digest",
+        "review_question_lineage_digest", "current", "disposition"
+      ],
+      "properties": {
+        "review_question_id": {
+          "enum": ["RQ1", "RQ2", "RQ3", "RQ4", "RQ5"]
+        },
+        "review_question_digest": {"$ref": "#/$defs/sha256"},
+        "review_questions_digest": {"$ref": "#/$defs/sha256"},
+        "synthesis_id": {"$ref": "#/$defs/id"},
+        "synthesis_digest": {"$ref": "#/$defs/sha256"},
+        "review_question_lineage_digest": {"$ref": "#/$defs/sha256"},
+        "current": {"const": true},
+        "disposition": {
+          "enum": ["approve", "revise_and_approve", "reject"]
+        }
+      }
+    },
+    "section": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "section_id", "contract_digest", "draft_digest",
+        "generation_content_agent_result_digest", "approval"
+      ],
+      "properties": {
+        "section_id": {"$ref": "#/$defs/id"},
+        "contract_digest": {"$ref": "#/$defs/sha256"},
+        "draft_digest": {"$ref": "#/$defs/sha256"},
+        "generation_content_agent_result_digest": {"$ref": "#/$defs/sha256"},
+        "approval": {"$ref": "#/$defs/approval"}
+      }
+    },
+    "claim_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "section_id", "marker", "paper_evidence_ids", "synthesis_ids",
+        "section_approval_digest"
+      ],
+      "properties": {
+        "section_id": {"$ref": "#/$defs/id"},
+        "marker": {"type": "string", "minLength": 1},
+        "paper_evidence_ids": {
+          "type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}
+        },
+        "synthesis_ids": {
+          "type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}
+        },
+        "section_approval_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "chemical_paper_import_digest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["study_id", "import_digest", "state_digest"],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "import_digest": {"$ref": "#/$defs/sha256"},
+        "state_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "chemical_paper_safe_summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "route", "study_count", "molecule_count", "missing_name_count", "missing_resolved_smiles_count", "ai_authored_smiles_count", "element_review_counts", "reaction_data_status"],
+      "properties": {
+        "schema_version": {"const": "chemical-paper-safe-summary.v2"},
+        "route": {"const": "chemical-paper-zip-only"},
+        "study_count": {"type": "integer", "minimum": 0},
+        "molecule_count": {"type": "integer", "minimum": 0},
+        "missing_name_count": {"type": "integer", "minimum": 0},
+        "missing_resolved_smiles_count": {"type": "integer", "minimum": 0},
+        "ai_authored_smiles_count": {"type": "integer", "minimum": 0},
+        "element_review_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["not_reviewed", "confirmed", "corrected", "not_applicable"],
+          "properties": {
+            "not_reviewed": {"type": "integer", "minimum": 0},
+            "confirmed": {"type": "integer", "minimum": 0},
+            "corrected": {"type": "integer", "minimum": 0},
+            "not_applicable": {"type": "integer", "minimum": 0}
+          }
+        },
+        "reaction_data_status": {"const": "unavailable_not_provided"}
+      }
+    },
+    "chemical_paper_claim_dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_id", "study_id", "molecule_index", "required_fields", "requires_element_review", "requires_reaction_data"],
+      "properties": {
+        "claim_id": {"$ref": "#/$defs/id"},
+        "study_id": {"$ref": "#/$defs/id"},
+        "molecule_index": {"type": "integer", "minimum": 0},
+        "required_fields": {
+          "type": "array", "uniqueItems": true,
+          "items": {"const": "resolved_smiles"}
+        },
+        "requires_element_review": {"type": "boolean"},
+        "requires_reaction_data": {"type": "boolean"}
+      }
+    },
+    "dual_parse_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "study_id", "source_tier", "requires_chemical",
+        "dual_source_binding_digest", "generic_version", "chemical_version",
+        "chemical_completion_digest", "reconciliation_digest"
+      ],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "source_tier": {"enum": ["core", "background"]},
+        "requires_chemical": {"type": "boolean"},
+        "dual_source_binding_digest": {"$ref": "#/$defs/sha256"},
+        "generic_version": {"$ref": "#/$defs/sha256"},
+        "chemical_version": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+        },
+        "chemical_completion_digest": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+        },
+        "reconciliation_digest": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+        }
+      }
+    }
+  }
+}

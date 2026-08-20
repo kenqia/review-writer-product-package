@@ -1,0 +1,41 @@
+"""Bounded, topic-neutral research-loop data contracts."""
+
+from .loop import (
+    Corpus,
+    CorpusDocument,
+    CorpusStudy,
+    DOCUMENT_ROLES,
+    DuplicateGroup,
+    EVIDENCE_STATUSES,
+    EvidenceMatrix,
+    EvidenceRecord,
+    EvidenceRow,
+    ResearchLoop,
+    ResearchQuestion,
+    ResearchValidationError,
+    ReviewQuestion,
+    ReviewScope,
+    Scope,
+    SourceDocument,
+    build_research_loop,
+)
+
+__all__ = [
+    "Corpus",
+    "CorpusDocument",
+    "CorpusStudy",
+    "DOCUMENT_ROLES",
+    "DuplicateGroup",
+    "EVIDENCE_STATUSES",
+    "EvidenceMatrix",
+    "EvidenceRecord",
+    "EvidenceRow",
+    "ResearchLoop",
+    "ResearchQuestion",
+    "ResearchValidationError",
+    "ReviewQuestion",
+    "ReviewScope",
+    "Scope",
+    "SourceDocument",
+    "build_research_loop",
+]

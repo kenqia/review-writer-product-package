@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/chemical_completion_gate.v1.schema.json",
+  "title": "Chemical completion gate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "study_id", "molecule_count",
+    "missing_name_count", "missing_smiles_expanded_count",
+    "missing_smiles_unexpanded_count", "missing_fields", "history",
+    "version_token", "gate_digest", "workflow_can_continue"
+  ],
+  "properties": {
+    "schema_version": {"const": "chemical-completion-gate.v1"},
+    "project_id": {"type": "string", "minLength": 1},
+    "study_id": {"type": "string", "minLength": 1},
+    "molecule_count": {"type": "integer", "minimum": 1},
+    "missing_name_count": {"type": "integer", "minimum": 0},
+    "missing_smiles_expanded_count": {"type": "integer", "minimum": 0},
+    "missing_smiles_unexpanded_count": {"type": "integer", "minimum": 0},
+    "missing_fields": {"type": "array", "items": {"type": "object"}},
+    "history": {"type": "array", "items": {"type": "object"}},
+    "version_token": {"type": "string", "pattern": "^cpv1\\.[A-Za-z0-9_-]+$"},
+    "gate_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "workflow_can_continue": {"type": "boolean"}
+  }
+}

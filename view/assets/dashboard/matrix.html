@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Matrix · 比较记录</title>
+  <style>
+    :root { --ink:#1d241f; --muted:#69756d; --line:#dacdb8; --panel:#fffaf0; --green:#1f6b55; --orange:#bd6b35; --shadow:0 18px 46px rgba(55,43,24,.14); }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:linear-gradient(135deg,#f1e7d3,#fbf7ec 48%,#eadcc4); font-family:Georgia,"Times New Roman",serif; height:100vh; overflow:hidden; }
+    button,select,input { font:inherit; }
+    .nav { height:58px; padding:8px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(255,250,240,.94); border-bottom:1px solid var(--line); }
+    .nav-title { font-weight:700; font-size:18px; white-space:nowrap; }
+    .nav-center { flex:1; text-align:center; }
+    .project-select { min-width:280px; max-width:520px; border:1px solid var(--line); background:#fffdf7; border-radius:999px; padding:8px 12px; }
+    .nav-right { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
+    .nav a { text-decoration:none; color:var(--ink); border:1px solid var(--line); border-radius:999px; padding:7px 10px; background:#fffdf7; white-space:nowrap; font-size:14px; }
+    .nav a.active { background:var(--green); border-color:var(--green); color:white; }
+    .app { height:calc(100vh - 58px); display:grid; grid-template-columns:320px minmax(520px,1fr) 390px; gap:14px; padding:14px; }
+    .panel { background:rgba(255,250,240,.94); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); overflow:hidden; min-height:0; display:flex; flex-direction:column; }
+    .head,.toolbar { padding:14px; border-bottom:1px solid var(--line); }
+    h1,h2,h3 { margin:0; letter-spacing:-.02em; }
+    h1 { font-size:22px; } h2 { font-size:18px; }
+    .sub { margin-top:6px; color:var(--muted); font-size:13px; line-height:1.35; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    input { border:1px solid var(--line); background:#fffdf7; border-radius:999px; padding:8px 11px; width:100%; }
+    .list,.main,.side { overflow:auto; min-height:0; }
+    .list { padding:9px; }
+    .card { width:100%; text-align:left; border:1px solid transparent; background:#fffdf7; border-radius:12px; padding:10px; margin-bottom:8px; cursor:pointer; color:var(--ink); }
+    .card:hover,.card.active { border-color:var(--green); background:#f2faf0; }
+    .title { font-weight:700; font-size:14px; line-height:1.25; }
+    .meta { color:var(--muted); font-size:12px; margin-top:5px; line-height:1.35; }
+    .pill { display:inline-block; font-size:11px; padding:3px 7px; border-radius:999px; background:#e4efe4; color:#285a37; margin:5px 4px 0 0; }
+    .main { background:#fffdf7; padding:24px 30px; line-height:1.58; font-size:15px; }
+    .field { margin-bottom:14px; }
+    .label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+    .value { line-height:1.45; white-space:pre-wrap; }
+    .tabs { padding:10px; border-bottom:1px solid var(--line); display:flex; gap:8px; flex-wrap:wrap; }
+    .tab { border:1px solid var(--line); border-radius:999px; background:#fffdf7; padding:7px 10px; cursor:pointer; }
+    .tab.active { background:var(--green); color:white; border-color:var(--green); }
+    table { border-collapse:collapse; width:100%; font-size:13px; background:white; }
+    td,th { border:1px solid #d5c8b3; padding:7px; vertical-align:top; }
+    th { background:#efe6d4; }
+    pre { white-space:pre-wrap; margin:0; font-family:Consolas,monospace; font-size:12px; }
+    .side { padding:14px; }
+  </style>
+  <link rel="stylesheet" href="/assets/dashboard/review-ui.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-title">Review Writer</div>
+    <div class="nav-center"><select id="projectSelect" class="project-select"></select></div>
+    <div class="nav-right" aria-hidden="true"></div>
+  </nav>
+  <main id="canonical-comparison-matrix" class="app">
+    <section class="panel">
+      <div class="head"><h1>比较矩阵</h1><div id="projectInfo" class="sub">正在读取当前项目…</div></div>
+      <div class="toolbar"><input id="filter" placeholder="筛选研究、来源或比较轴" aria-label="筛选比较记录"></div>
+      <div id="paperList" class="list" aria-live="polite"></div>
+    </section>
+    <section class="panel">
+      <div class="head"><h2 id="mainTitle">比较记录</h2><div id="mainMeta" class="sub"></div></div>
+      <div class="tabs">
+        <button class="tab active" data-tab="comparison">可比较记录</button>
+        <button class="tab" data-tab="protocol">比较规则</button>
+        <button class="tab" data-tab="diagnostic">技术详情</button>
+      </div>
+      <div id="main" class="main"></div>
+    </section>
+    <section class="panel">
+      <div class="head"><h2>核对状态</h2><div class="sub">只显示当前 canonical 数据；不可比或缺失内容保持显式未知。</div></div>
+      <div id="summary" class="side"></div>
+    </section>
+  </main>
+  <script src="/assets/dashboard/review-ui.js"></script>
+  <script>
+    let projects=[], selectedProject='', projectState={}, protocolPayload=null, evidencePayload={items:[]}, progressPayload={}, selectedObjectId='', tab='comparison';
+    const $=id=>document.getElementById(id);
+    const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    const read=(id,suffix,fallback)=>fetch(`/api/project/${encodeURIComponent(id)}/${suffix}`).then(response=>response.ok?response.json():fallback).catch(()=>fallback);
+    const protocol=()=>protocolPayload?.protocol||{};
+    const evidenceRows=()=>Array.isArray(evidencePayload?.items)?evidencePayload.items:[];
+    const objects=()=>Array.isArray(protocol().comparison_objects)?protocol().comparison_objects:[];
+    const humanStatus=value=>window.ReviewPresentation?.humanStatus?.(value)||String(value||'待核对').replaceAll('_',' ');
+    const objectEvidence=id=>evidenceRows().find(row=>row.evidence_id===id)||null;
+    const comparableRows=()=>objects().map(id=>({id,row:objectEvidence(id)}));
+    function missingFields(row){
+      if(!row) return ['canonical evidence record'];
+      return [['表述',row.statement],['研究',row.study_id],['来源',row.source_id],['定位',row.locator?.exact_quote||row.locator?.section_or_item||row.locator?.page]]
+        .filter(([,value])=>value==null||value===''||(Array.isArray(value)&&!value.length)).map(([label])=>label);
+    }
+    function renderList(){
+      const query=$('filter').value.trim().toLowerCase();
+      const rows=comparableRows().filter(({id,row})=>[id,row?.statement,row?.study_id,row?.source_id,...(protocol().axes||[])].join(' ').toLowerCase().includes(query));
+      $('paperList').innerHTML=rows.map(({id,row},index)=>`<button class="card ${id===selectedObjectId?'active':''}" data-id="${esc(id)}"><div class="title">比较对象 ${index+1}</div><div class="meta">${esc([row?.study_id,row?.source_id].filter(Boolean).join(' · ')||id)}</div><div class="meta">${esc(row?.statement||'canonical 记录待补充')}</div><span class="pill">${esc(humanStatus(row?.status||protocolPayload?.status))}</span></button>`).join('')||'<div class="empty">当前协议没有可显示的 canonical 比较对象；不会以空行冒充数据。</div>';
+    }
+    function renderComparison(){
+      const selected=comparableRows().find(({id})=>id===selectedObjectId)||comparableRows()[0]||{};
+      const row=selected.row||{};
+      $('mainTitle').textContent=selected.id?'可比较证据记录':'比较记录';
+      $('mainMeta').textContent=selected.id?`${selected.id} · ${humanStatus(row.status||protocolPayload?.status)}`:'当前协议未提供可比较记录';
+      if(!selected.id){$('main').innerHTML='<div class="empty">比较记录尚未形成。请先完成 Evidence 核对，或读取下一提取动作。</div>';return;}
+      const locator=row.locator||{};
+      $('main').innerHTML=`<div class="field"><div class="label">研究与来源</div><div class="value">${esc([row.study_id,row.source_id].filter(Boolean).join(' · ')||'未提供')}</div></div><div class="field"><div class="label">可核对表述</div><div class="value">${esc(row.statement||'未提供')}</div></div><div class="field"><div class="label">定位</div><div class="value">${esc([locator.section_or_item,locator.figure_or_table,locator.page&&`第 ${locator.page} 页`].filter(Boolean).join(' · ')||'未提供')}</div></div><div class="field"><div class="label">当前状态</div><div class="value">${esc(humanStatus(row.status||protocolPayload?.status))}</div></div><div class="field"><div class="label">协议缺失字段</div><div class="value">${esc(missingFields(row).join('、')||'未发现')}</div></div>`;
+    }
+    function renderProtocol(){
+      const value=protocol();
+      $('mainTitle').textContent='比较规则';
+      $('mainMeta').textContent=humanStatus(protocolPayload?.status);
+      const rows=[['比较轴',value.axes],['归一化规则',value.normalization_rules],['缺失值处理',value.missing_value_policy],['不可比规则',value.incomparability_rules],['反证规则',value.counterevidence_rules],['结论强度',value.claim_strength]];
+      $('main').innerHTML=rows.map(([label,value])=>`<div class="field"><div class="label">${esc(label)}</div><div class="value">${esc(Array.isArray(value)?value.join('；'):value||'未提供')}</div></div>`).join('')||'<div class="empty">比较规则未提供。</div>';
+    }
+    function renderMain(){
+      if(tab==='comparison') renderComparison();
+      else if(tab==='protocol') renderProtocol();
+      else {$('mainTitle').textContent='技术详情';$('mainMeta').textContent='仅供核查原始投影';$('main').innerHTML=`<details class="technical-details"><summary>技术详情</summary><pre>${esc(JSON.stringify({protocol:protocolPayload,evidence:evidencePayload,progress:progressPayload},null,2))}</pre></details>`;}
+    }
+    function renderSummary(){
+      const rows=comparableRows(), missing=[...new Set(rows.flatMap(({row})=>missingFields(row)))];
+      const affected=[...new Set(rows.flatMap(({row})=>[row?.study_id,row?.source_id].filter(Boolean)))];
+      const next=progressPayload?.unique_next_action||progressPayload?.recommended_next||(
+        missing.length?'补充缺失字段后重新读取比较记录':'当前没有 canonical 下一提取动作'
+      );
+      $('projectInfo').textContent=`${selectedProject} · ${humanStatus(protocolPayload?.status)}`;
+      $('summary').innerHTML=`<div class="field"><div class="label">当前状态</div><div class="value">${esc(humanStatus(protocolPayload?.status))}</div></div><div class="field"><div class="label">可比较对象</div><div class="value">${rows.length}</div></div><div class="field"><div class="label">比较轴</div><div class="value">${esc((protocol().axes||[]).join('、')||'未提供')}</div></div><div class="field"><div class="label">缺失字段</div><div class="value">${esc(missing.join('、')||'未发现')}</div></div><div class="field"><div class="label">受影响研究/来源</div><div class="value">${esc(affected.join('、')||'当前投影未提供')}</div></div><div id="matrix-next-extraction" class="field"><div class="label">下一提取动作</div><div class="value">${esc(next)}</div></div>`;
+    }
+    async function loadProjects(){ projects=await(await fetch('/api/projects')).json(); $('projectSelect').innerHTML=projects.map(p=>`<option value="${esc(p.project_id)}">${esc(p.project_id)}</option>`).join(''); const requested=window.ReviewPresentation?.projectIdFromLocation?.(); const selected=projects.find(p=>p.project_id===requested)?.project_id||projects[0]?.project_id; if(selected){$('projectSelect').value=selected;window.ReviewPresentation?.setProjectIdInLocation?.(selected);await loadProject(selected);} }
+    async function loadProject(id){
+      selectedProject=id;
+      const state=await read(id,'review-state',{});
+      if(state.route==='evidence-to-release.v1'){
+        [protocolPayload,evidencePayload]=await Promise.all([read(id,'comparison-protocol',{route:state.route,status:'unavailable',protocol:{}}),read(id,'paper-evidence',{items:[]})]);
+        progressPayload={};
+      } else {
+        protocolPayload={route:state.route||'legacy',status:'unavailable',reason:'当前项目没有 canonical comparison protocol',protocol:{}};
+        evidencePayload={items:[]};progressPayload={};
+      }
+      selectedObjectId=objects()[0]||''; render();
+    }
+    function render(){renderList();renderMain();renderSummary();}
+    $('projectSelect').addEventListener('change',e=>{window.ReviewPresentation?.setProjectIdInLocation?.(e.target.value);loadProject(e.target.value)});
+    $('filter').addEventListener('input',renderList);
+    $('paperList').addEventListener('click',e=>{const b=e.target.closest('[data-id]'); if(!b)return; selectedObjectId=b.dataset.id; tab='comparison'; document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab)); render();});
+    document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{tab=t.dataset.tab; document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===t)); renderMain();}));
+    loadProjects();
+  </script>
+</body>
+</html>

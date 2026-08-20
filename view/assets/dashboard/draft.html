@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draft · 研究正文</title>
+  <style>
+    :root {
+      --ink: #1f2024;
+      --muted: #69707b;
+      --panel: #fffaf1;
+      --line: #d7cbb7;
+      --green: #1e6a58;
+      --orange: #c46f33;
+      --shadow: 0 20px 52px rgba(48, 39, 24, .14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(30,106,88,.14), transparent 24rem),
+        radial-gradient(circle at 88% 12%, rgba(196,111,51,.16), transparent 28rem),
+        linear-gradient(135deg, #efe3cc, #fbf6ea 46%, #eadfca);
+      font-family: Georgia, "Times New Roman", serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+    button, select, textarea { font: inherit; }
+    .nav {
+      height: 58px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255,250,241,.94);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-title { font-weight: 700; font-size: 18px; white-space: nowrap; }
+    .nav-center { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; justify-content: center; }
+    .nav-right { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav a {
+      display: inline-block;
+      text-decoration: none;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #fffdf7;
+      white-space: nowrap;
+    }
+    .nav a.active { background: var(--green); border-color: var(--green); color: white; }
+    .project-select {
+      min-width: 280px;
+      max-width: 520px;
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      border-radius: 999px;
+      padding: 8px 12px;
+      outline: none;
+    }
+    .app {
+      height: calc(100vh - 58px);
+      display: grid;
+      grid-template-columns: 320px minmax(520px, 1fr) 380px;
+      gap: 14px;
+      padding: 14px;
+    }
+    .panel {
+      background: rgba(255,250,241,.94);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .head {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1, h2, h3 { margin: 0; letter-spacing: -.02em; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    .sub { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .toolbar, .tabs {
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn, .tab {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 11px;
+      background: #fffdf7;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .btn.primary, .tab.active { color: white; background: var(--green); border-color: var(--green); }
+    .btn.orange { color: white; background: var(--orange); border-color: var(--orange); }
+    .list, .detail-body, .side-body { overflow: auto; min-height: 0; }
+    .list { padding: 9px; }
+    .item {
+      width: 100%;
+      text-align: left;
+      background: #fffdf7;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      padding: 11px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .item:hover, .item.active { border-color: var(--green); background: #f2faf0; }
+    .item-title { font-weight: 700; font-size: 15px; line-height: 1.25; }
+    .item-meta { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.35; }
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #e4efe4;
+      color: #285a37;
+      margin: 5px 4px 0 0;
+    }
+    .draft-view, .markdown {
+      height: 100%;
+      overflow: auto;
+      padding: 28px 34px;
+      background: #fffdf7;
+      line-height: 1.6;
+      font-size: 16px;
+    }
+    .markdown img, .draft-view img { max-width: 100%; border: 1px solid var(--line); border-radius: 10px; }
+    .markdown a, .draft-view a { color: var(--green); text-decoration-thickness: 1px; }
+    .markdown code, .draft-view code {
+      padding: 2px 5px;
+      border-radius: 6px;
+      background: #efe6d4;
+      color: #5c3c20;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .9em;
+    }
+    .markdown p:has(img), .draft-view p:has(img) { text-align: center; }
+    .markdown table, .draft-view table {
+      border-collapse: collapse;
+      width: max-content;
+      max-width: 100%;
+      margin: 18px 0;
+      background: white;
+      font-size: 13px;
+      line-height: 1.35;
+      display: block;
+      overflow-x: auto;
+    }
+    .markdown th, .markdown td, .draft-view th, .draft-view td {
+      border: 1px solid #cfc2aa;
+      padding: 7px 9px;
+      vertical-align: top;
+      min-width: 72px;
+    }
+    .markdown th, .markdown tr:first-child td, .draft-view th, .draft-view tr:first-child td {
+      background: #efe6d4;
+      font-weight: 700;
+    }
+    .markdown details, .draft-view details {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbf4e5;
+    }
+    .markdown summary, .draft-view summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--green);
+    }
+    .markdown .math, .draft-view .math {
+      font-family: "Times New Roman", Georgia, serif;
+      white-space: nowrap;
+    }
+    .markdown .caption, .draft-view .caption {
+      margin: 16px 0 8px;
+      font-weight: 700;
+      color: #4d3923;
+    }
+    .markdown .raw-block, .draft-view .raw-block { margin: 12px 0; }
+    .editor {
+      width: 100%;
+      min-height: 240px;
+      resize: vertical;
+      border: 0;
+      outline: none;
+      padding: 14px;
+      background: #181d1a;
+      color: #e8f4ea;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .side-body { padding: 12px; }
+    .field { margin-bottom: 12px; }
+    .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 4px;
+    }
+    .value { font-size: 14px; line-height: 1.35; }
+    .message {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      padding: 11px 15px;
+      border-radius: 12px;
+      background: #15251f;
+      color: white;
+      box-shadow: var(--shadow);
+      display: none;
+      max-width: 420px;
+    }
+    .message.show { display: block; }
+  </style>
+  <link rel="stylesheet" href="/assets/dashboard/review-ui.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-manuscript.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-title">Review Writer Dashboard</div>
+    <div class="nav-center">
+      <select id="projectSelect" class="project-select"></select>
+    </div>
+    <div class="nav-right" aria-hidden="true"></div>
+  </nav>
+  <main class="app">
+    <section class="panel">
+      <div class="head">
+        <h1>Project Draft</h1>
+        <div id="projectInfo" class="sub">Loading project...</div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="reloadBtn">Reload</button>
+        <button class="btn primary" id="saveBtn">Save Draft</button>
+      </div>
+      <div id="leftList" class="list"></div>
+    </section>
+    <section class="panel">
+      <div class="head">
+        <h2 id="detailTitle">Draft Preview</h2>
+        <div id="detailMeta" class="sub"></div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="preview">Preview</button>
+        <button class="tab" data-tab="edit">Edit</button>
+        <button class="tab" data-tab="report">Merge Report</button>
+        <button class="tab" data-tab="issues">Issues</button>
+      </div>
+      <div class="detail-body">
+        <div id="research-manuscript-reader" class="draft-view manuscript-reader" tabindex="0" aria-label="研究正文阅读区"></div>
+        <div id="edit" style="display:none; height:100%">
+          <div class="editor-intro">
+            <p class="section-label">HUMAN_ACTION</p>
+            <p>正文保持阅读优先；保存前请展开修改理由，说明本次研究者编辑。</p>
+          </div>
+          <textarea id="research-section-editor" class="editor" spellcheck="false" aria-label="Selected section body"></textarea>
+          <details id="edit-reason-disclosure" class="edit-reason">
+            <summary>记录修改理由（保存所需）</summary>
+            <label for="editReason">修改理由</label>
+            <textarea id="editReason" rows="3" aria-label="正文修改理由" placeholder="说明为何修改当前正文，以及核对了哪些证据。"></textarea>
+          </details>
+        </div>
+        <div id="report" class="markdown" style="display:none"></div>
+        <div id="issues" class="markdown" style="display:none"></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="head">
+        <h2>Project Status</h2>
+        <div class="sub">Same project across discovery, drafting, redraw, and merge.</div>
+      </div>
+      <div class="side-body">
+        <div id="summaryBox"></div>
+        <section class="draft-context" aria-labelledby="draft-context-heading">
+          <p class="section-label">Evidence context</p>
+          <h3 id="draft-context-heading">本节关联记录</h3>
+          <div id="draftContext" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <div id="message" class="message"></div>
+  <script src="/assets/dashboard/review-ui.js"></script>
+  <script src="/assets/dashboard/review-manuscript.js"></script>
+  <script>
+    let projects = [];
+    let selectedProject = '';
+    let payload = null;
+    let contextPayload = {evidence: {items: []}, synthesis: {items: []}, figures: {source_figures: []}};
+    let selectedSectionId = '';
+    const els = {
+      projectSelect: document.getElementById('projectSelect'),
+      projectInfo: document.getElementById('projectInfo'),
+      leftList: document.getElementById('leftList'),
+      detailTitle: document.getElementById('detailTitle'),
+      detailMeta: document.getElementById('detailMeta'),
+      preview: document.getElementById('research-manuscript-reader'),
+      sectionEditor: document.getElementById('research-section-editor'),
+      editReason: document.getElementById('editReason'),
+      reasonDisclosure: document.getElementById('edit-reason-disclosure'),
+      report: document.getElementById('report'),
+      issues: document.getElementById('issues'),
+      summaryBox: document.getElementById('summaryBox'),
+      message: document.getElementById('message')
+    };
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
+    function projectIdFromLocation() {
+      return window.ReviewPresentation?.projectIdFromLocation?.()
+        || String(new URLSearchParams(window.location.search).get('project_id') || '').trim();
+    }
+    function setProjectIdInLocation(value) {
+      if (window.ReviewPresentation?.setProjectIdInLocation) {
+        return window.ReviewPresentation.setProjectIdInLocation(value);
+      }
+      const url = new URL(window.location.href);
+      const projectValue = String(value || '').trim();
+      if (projectValue) url.searchParams.set('project_id', projectValue);
+      else url.searchParams.delete('project_id');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      return projectValue;
+    }
+    function textElement(tag, className, value) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      node.textContent = value == null || value === '' ? '—' : String(value);
+      return node;
+    }
+    function msg(text) { els.message.textContent = text; els.message.classList.add('show'); setTimeout(() => els.message.classList.remove('show'), 2600); }
+    function simpleMathToHtml(expr) {
+      let s = String(expr ?? '');
+      s = s.replace(/\\mathrm\s*\{\s*([^{}]+?)\s*\}/g, '$1');
+      s = s.replace(/\\prime/g, '′');
+      s = s.replace(/\\[a-zA-Z]+/g, '');
+      s = s.replace(/\s+/g, ' ').trim();
+      s = esc(s);
+      s = s.replace(/_\s*\{\s*([^{}]+?)\s*\}/g, '<sub>$1</sub>');
+      s = s.replace(/\^\s*\{\s*([^{}]+?)\s*\}/g, '<sup>$1</sup>');
+      s = s.replace(/_([A-Za-z0-9′+-]+)/g, '<sub>$1</sub>');
+      s = s.replace(/\^([A-Za-z0-9′+-]+)/g, '<sup>$1</sup>');
+      return `<span class="math">${s}</span>`;
+    }
+    function renderInline(text) {
+      const parts = String(text ?? '').split(/(\$[^$\n]+\$)/g);
+      return parts.map(part => {
+        if (part.startsWith('$') && part.endsWith('$')) return simpleMathToHtml(part.slice(1, -1));
+        let s = esc(part);
+        s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+        s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, href) => {
+          if (/^https?:\/\//i.test(href)) return `<a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>`;
+          return m;
+        });
+        return s;
+      }).join('');
+    }
+    function sanitizeAllowedHtml(raw) {
+      const allowedTags = new Set(['DIV','DETAILS','SUMMARY','TABLE','THEAD','TBODY','TFOOT','TR','TH','TD','CAPTION','P','BR','B','STRONG','I','EM','SUB','SUP','SPAN','IMG']);
+      const template = document.createElement('template');
+      template.innerHTML = raw;
+      const walk = node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const span = document.createElement('span');
+          span.innerHTML = renderInline(node.textContent || '');
+          node.replaceWith(...Array.from(span.childNodes));
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        if (!allowedTags.has(node.tagName)) {
+          node.replaceWith(document.createTextNode(node.textContent || ''));
+          return;
+        }
+        [...node.attributes].forEach(attr => {
+          const name = attr.name.toLowerCase();
+          if (!['colspan', 'rowspan', 'open', 'class', 'src', 'alt'].includes(name)) node.removeAttribute(attr.name);
+          if (name === 'src' && !/^\/(?:file\?|api\/)/.test(String(attr.value || ''))) node.removeAttribute(attr.name);
+        });
+        [...node.childNodes].forEach(walk);
+      };
+      [...template.content.childNodes].forEach(walk);
+      return template.innerHTML;
+    }
+    function canonicalFigureUrl(alt = '') {
+      const wanted = String(alt || '').trim().toLowerCase();
+      return (contextPayload.figures?.source_figures || []).find(item =>
+        [item.caption, item.figure_label, item.title].filter(Boolean).some(label => String(label).trim().toLowerCase() === wanted)
+      )?.image_url || '';
+    }
+    function fileUrlForMarkdownPath(path, baseDir = '', alt = '') {
+      const raw = String(path || '').trim();
+      if (!raw) return '';
+      const canonical = canonicalFigureUrl(alt);
+      if (canonical) return canonical;
+      if (/^https?:\/\//i.test(raw)) return raw;
+      if (raw.includes('..')) return '';
+      if (raw.startsWith('/')) return `/file?path=${encodeURIComponent(raw)}`;
+      const base = String(baseDir || payload?.paths?.first_draft_base_dir || payload?.paths?.stage_dir || '').replace(/\/+$/, '');
+      return `/file?path=${encodeURIComponent(base ? `${base}/${raw}` : raw)}`;
+    }
+    function figureMarkup(alt, path, baseDir = '') {
+      const src = fileUrlForMarkdownPath(path, baseDir, alt);
+      return src
+        ? `<img alt="${esc(alt)}" src="${esc(src)}">`
+        : `<span class="figure-placeholder">图件来源待核对：${esc(alt || '未命名图件')}</span>`;
+    }
+    function sectionId(section) {
+      return ReviewManuscriptUI.sectionId(section);
+    }
+    function humanStatus(value) {
+      return window.ReviewPresentation?.humanStatus?.(value) || String(value || '待核对').replaceAll('_', ' ');
+    }
+    function renderMarkdown(md, baseDir = '') {
+      const blocks = [];
+      const stash = html => {
+        const key = `@@HTML_BLOCK_${blocks.length}@@`;
+        blocks.push(sanitizeAllowedHtml(html));
+        return key;
+      };
+      let text = String(md ?? '');
+      text = text.replace(/<details[\s\S]*?<\/details>/gi, match => stash(`<div class="raw-block">${match}</div>`));
+      text = text.replace(/<table[\s\S]*?<\/table>/gi, match => stash(match));
+      text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, path) => {
+        return stash(figureMarkup(alt, path, baseDir));
+      });
+      const html = text.split(/\n{2,}/).map(rawBlock => {
+        const block = rawBlock.trim();
+        if (!block) return '';
+        const marker = block.match(/^@@HTML_BLOCK_(\d+)@@$/);
+        if (marker) return blocks[Number(marker[1])] || '';
+        let m = block.match(/^###\s+(.+)$/);
+        if (m) return `<h3>${renderInline(m[1])}</h3>`;
+        m = block.match(/^##\s+(.+)$/);
+        if (m) return `<h2>${renderInline(m[1])}</h2>`;
+        m = block.match(/^#\s+(.+)$/);
+        if (m) return `<h1>${renderInline(m[1])}</h1>`;
+        if (/^(Scheme|Table|Figure)\s+\d+/i.test(block)) return `<div class="caption">${renderInline(block).replace(/\n/g, '<br>')}</div>`;
+        return `<p>${renderInline(block).replace(/\n/g, '<br>')}</p>`;
+      }).join('\n');
+      return html.replace(/@@HTML_BLOCK_(\d+)@@/g, (_, i) => blocks[Number(i)] || '');
+    }
+    async function loadProjects() {
+      projects = await (await fetch('/api/projects')).json();
+      els.projectSelect.innerHTML = projects.map(p => `<option value="${esc(p.project_id)}">${esc(p.project_id)}</option>`).join('');
+      if (projects.length) {
+        const requestedProjectId = projectIdFromLocation();
+        selectedProject = projects.some(project => project.project_id === requestedProjectId)
+          ? requestedProjectId
+          : projects[0].project_id;
+        els.projectSelect.value = selectedProject;
+        setProjectIdInLocation(selectedProject);
+        await loadProject(selectedProject);
+      } else {
+        els.projectInfo.textContent = 'No review projects found.';
+      }
+    }
+    async function loadProject(projectId) {
+      selectedProject = projectId;
+      const encoded = encodeURIComponent(projectId);
+      const read = (suffix, fallback) => fetch(`/api/project/${encoded}/${suffix}`).then(response => response.ok ? response.json() : fallback).catch(() => fallback);
+      const [draft, evidence, synthesis, figures] = await Promise.all([
+        read('draft', {route: 'unavailable', sections: []}),
+        read('paper-evidence', {items: []}),
+        read('synthesis', {items: []}),
+        read('review-figures', {source_figures: []}),
+      ]);
+      payload = {...draft, ...ReviewManuscriptUI.projectManuscript(draft)};
+      contextPayload = {evidence, synthesis, figures};
+      const sections = payload.sections || [];
+      if (!sections.some(section => sectionId(section) === selectedSectionId)) selectedSectionId = sectionId(sections[0]);
+      els.sectionEditor.value = sections.find(section => sectionId(section) === selectedSectionId)?.body || '';
+      els.editReason.value = sections.find(section => sectionId(section) === selectedSectionId)?.decision?.reason || '';
+      renderLeft();
+      renderSummary();
+      renderCurrent();
+    }
+    function renderLeft() {
+      const sections = payload.sections || [];
+      els.leftList.innerHTML = sections.map(section => `
+        <button class="item ${selectedSectionId===sectionId(section)?'active':''}" data-id="${esc(sectionId(section))}">
+          <div class="item-title">${esc(section.heading)}</div>
+          <div class="item-meta">${esc(humanStatus(section.status))} · canonical section</div>
+          ${section.reason ? `<span class="pill warn">${esc(humanStatus(section.reason))}</span>` : ''}
+        </button>
+      `).join('');
+      els.projectInfo.textContent = `${selectedProject} · ${payload?.route === 'evidence-to-release.v1' ? '当前 canonical manuscript' : '正文数据待核对'}`;
+    }
+    function renderSummary() {
+      const sections = payload?.sections || [];
+      const pending = sections.filter(section => ['needs_human_edit', 'needs_review', 'stale'].includes(section.status)).length;
+      els.summaryBox.innerHTML = `
+        <div class="field"><div class="label">Project</div><div class="value">${esc(selectedProject)}</div></div>
+        <div class="field"><div class="label">当前正文状态</div><div class="value">${esc(humanStatus(payload?.status))}</div></div>
+        <div class="field"><div class="label">章节</div><div class="value">${sections.length} 个 canonical sections</div></div>
+        <div class="field"><div class="label">待研究者核对</div><div class="value">${pending} 个章节</div></div>
+        <div class="field"><div class="label">写入说明</div><div class="value">HUMAN_ACTION：页面由研究者决定是否保存；Agent 代理动作仅在决定记录中明确显示。</div></div>
+      `;
+    }
+    function renderContext(section) {
+      const target = document.getElementById('draftContext');
+      target.replaceChildren();
+      const context = ReviewManuscriptUI.contextForSection({
+        route: payload?.route,
+        sections: [section],
+        evidence: contextPayload.evidence?.items,
+        synthesis: contextPayload.synthesis?.items,
+        source_figures: contextPayload.figures?.source_figures,
+      }, section);
+      const rows = [
+        ...context.evidence.map(item => ({kind: 'Evidence', title: item.statement, meta: [item.study_id, item.source_id, item.locator_label, item.locator_page && `第 ${item.locator_page} 页`, humanStatus(item.status)].filter(Boolean).join(' · '), quote: item.exact_quote})),
+        ...context.synthesis.map(item => ({kind: 'Synthesis', title: item.proposition, meta: [item.comparison_axis, item.applicability_boundary, item.uncertainty].filter(Boolean).join(' · ')})),
+        ...context.source_figures.map(item => ({kind: 'Figure', title: item.title, meta: item.page_label || item.caption})),
+      ];
+      if (!rows.length) {
+        target.append(textElement('p', 'context-empty', '本节暂无已绑定的 Evidence、综合判断或原论文图件。'));
+        return;
+      }
+      rows.forEach(row => {
+        const card = document.createElement('article');
+        card.className = 'draft-context-record';
+        card.append(textElement('span', 'context-kind', row.kind));
+        card.append(textElement('strong', '', row.title || '记录待核对'));
+        card.append(textElement('span', '', row.meta || '定位与当前性待核对'));
+        if (row.quote) card.append(textElement('blockquote', '', `原文：${row.quote}`));
+        target.append(card);
+      });
+    }
+    function renderCurrent() {
+      const section = (payload.sections || []).find(row => sectionId(row) === selectedSectionId);
+      if (!section) return;
+      els.detailTitle.textContent = section.heading;
+      els.detailMeta.textContent = `${humanStatus(section.status)} · canonical section · 点击正文段落进入编辑`;
+      const heading = section.heading ? `## ${section.heading}\n\n` : '';
+      els.preview.innerHTML = section.body
+        ? renderMarkdown(`${heading}${section.body}`, payload?.paths?.first_draft_base_dir || payload?.paths?.stage_dir || '')
+        : '<p class="reading-empty">当前章节正文尚未提供；不会用占位内容代替正文。</p>';
+      els.report.innerHTML = renderMarkdown(payload?.merge_report_md || '', payload?.paths?.stage_dir || '');
+      els.issues.innerHTML = renderMarkdown(payload?.remaining_issues_md || '', payload?.paths?.stage_dir || '');
+      renderContext(section);
+    }
+    async function saveDraft() {
+      if (!selectedProject) return;
+      const section = (payload.sections || []).find(row => sectionId(row) === selectedSectionId);
+      if (!section) return;
+      let result;
+      if (payload.route === 'evidence-to-release.v1') {
+        const reason = els.editReason.value.trim();
+        if (!reason) {
+          els.reasonDisclosure.open = true;
+          els.editReason.focus();
+          msg('请记录修改理由后再保存。');
+          return;
+        }
+        result = await ReviewManuscriptUI.saveEdit({
+          request: fetch,
+          url: `/api/project/${encodeURIComponent(selectedProject)}/draft`,
+          payload: ReviewManuscriptUI.buildEditRequest(section, els.sectionEditor.value, reason),
+          onConflict: () => msg('正文已有更新；请重新读取后再保存。'),
+        });
+        if (result.status === 'conflict') return;
+        if (result.status !== 'saved') { msg(`保存失败（HTTP ${result.httpStatus || 'unknown'}）。`); return; }
+      } else {
+        const res = await fetch(`/api/project/${encodeURIComponent(selectedProject)}/draft`, {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({section_id:selectedSectionId,body:els.sectionEditor.value,manuscript_version:payload.manuscript_version})
+        });
+        if (!res.ok) { msg(await res.text()); return; }
+        result = {status: 'saved'};
+      }
+      msg(result.payload?.needs_evidence_review ? '已保存，等待证据复核。' : '已保存当前章节。');
+      await loadProject(selectedProject);
+    }
+    function showTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      const map = {preview:'research-manuscript-reader', edit:'edit', report:'report', issues:'issues'};
+      for (const id of Object.values(map)) document.getElementById(id).style.display = 'none';
+      document.getElementById(map[name]).style.display = 'block';
+      if (name === 'edit') els.sectionEditor.focus();
+      renderCurrent();
+    }
+    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+      showTab(tab.dataset.tab);
+    }));
+    els.preview.addEventListener('click', event => {
+      if (event.target.closest('a, img, details, summary')) return;
+      showTab('edit');
+    });
+    els.leftList.addEventListener('click', e => {
+      const item = e.target.closest('[data-id]');
+      if (!item) return;
+      selectedSectionId = item.dataset.id;
+      const section = (payload.sections || []).find(row => sectionId(row) === selectedSectionId);
+      els.sectionEditor.value = section?.body || '';
+      els.editReason.value = section?.decision?.reason || '';
+      renderLeft();
+      renderCurrent();
+    });
+    els.sectionEditor.addEventListener('input', () => {
+      const section = (payload?.sections || []).find(row => sectionId(row) === selectedSectionId);
+      if (section) section.body = els.sectionEditor.value;
+      renderCurrent();
+    });
+    els.projectSelect.addEventListener('change', e => {
+      setProjectIdInLocation(e.target.value);
+      loadProject(e.target.value);
+    });
+    document.getElementById('reloadBtn').addEventListener('click', () => selectedProject && loadProject(selectedProject));
+    document.getElementById('saveBtn').addEventListener('click', saveDraft);
+    loadProjects().catch(err => msg(err.message));
+  </script>
+</body>
+</html>

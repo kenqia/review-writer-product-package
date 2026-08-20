@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/synthesis/coverage_map.v1.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "comparison_id", "corpus_kind", "axes", "known_omissions", "comparison_protocol_digest"],
+  "properties": {
+    "schema_version": {"const": "coverage-map.v1"},
+    "comparison_id": {"type": "string", "minLength": 1},
+    "corpus_kind": {"const": "calibration_corpus"},
+    "axes": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "known_omissions": {"type": "array", "items": {"type": "string"}},
+    "comparison_protocol_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

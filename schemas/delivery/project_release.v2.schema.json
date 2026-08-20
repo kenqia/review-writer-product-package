@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/delivery/project_release.v2.schema.json",
+  "title": "Evidence-to-release quality report v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "status", "release_level", "workflow_digest",
+    "lineage_digest", "manuscript_sha256", "release_markdown_sha256",
+    "chemical_paper_binding_digest", "chemical_paper_safe_summary",
+    "chemical_paper_dependency_can_release", "docx_sha256",
+    "figure_validation", "integrity"
+  ],
+  "properties": {
+    "schema_version": {"const": "project-release.v2"},
+    "route": {"enum": ["evidence-to-release.v1", "honest_progressive"]},
+    "status": {"enum": ["SELF_REVIEWED_DRAFT", "EXPERT_REVIEWED_RELEASE"]},
+    "release_level": {"enum": ["SELF_REVIEWED_DRAFT", "EXPERT_REVIEWED_RELEASE"]},
+    "workflow_digest": {"$ref": "#/$defs/sha256"},
+    "lineage_digest": {"$ref": "#/$defs/sha256"},
+    "manuscript_sha256": {"$ref": "#/$defs/sha256"},
+    "release_markdown_sha256": {"$ref": "#/$defs/sha256"},
+    "chemical_paper_binding_digest": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+    },
+    "chemical_paper_safe_summary": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/chemical_paper_safe_summary"}]
+    },
+    "chemical_paper_dependency_can_release": {"type": "boolean"},
+    "core_molecule_count": {"type": "integer", "minimum": 0},
+    "confirmed_count": {"type": "integer", "minimum": 0},
+    "ai_provisional_count": {"type": "integer", "minimum": 0},
+    "blocked_count": {"type": "integer", "minimum": 0},
+    "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+    "coverage_threshold": {"const": 0.8},
+    "coverage_sufficient": {"type": "boolean"},
+    "paper_coverage": {"type": "array", "items": {"type": "object"}},
+    "uncertainty_statement": {"type": "string", "minLength": 1},
+    "gap_registry": {"type": "array", "items": {"type": "object"}},
+    "traceability": {"type": "array", "items": {"type": "object"}},
+    "actor_provenance_residual": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/actor_provenance_residual"}
+    },
+    "dual_parse_status": {"const": "current"},
+    "dual_parse_binding_digest": {"$ref": "#/$defs/sha256"},
+    "reaction_data_status": {"enum": ["available", "unavailable_not_provided"]},
+    "reaction_count": {
+      "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]
+    },
+    "credits_status": {"const": "NOT_APPLICABLE_BY_CURRENT_SCOPE"},
+    "docx_sha256": {"$ref": "#/$defs/sha256"},
+    "figure_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "release_level", "source_figures", "human_synthesis_figures", "required_attributions",
+        "expected_media_sha256", "placeholder_count", "pending_placeholder_count"
+      ],
+      "properties": {
+        "schema_version": {"const": "review-writer-figure-validation.v2"},
+        "release_level": {"enum": ["SELF_REVIEWED_DRAFT", "EXPERT_REVIEWED_RELEASE"]},
+        "source_figures": {"type": "array", "items": {"type": "object"}},
+        "human_synthesis_figures": {"type": "array", "items": {"type": "object"}},
+        "required_attributions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "expected_media_sha256": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+        "placeholder_count": {"type": "integer", "minimum": 0},
+        "pending_placeholder_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "integrity": {"type": "object"}
+  },
+  "dependentRequired": {
+    "dual_parse_status": [
+      "dual_parse_binding_digest", "reaction_data_status", "reaction_count",
+      "credits_status"
+    ],
+    "dual_parse_binding_digest": [
+      "dual_parse_status", "reaction_data_status", "reaction_count", "credits_status"
+    ],
+    "reaction_data_status": [
+      "dual_parse_status", "dual_parse_binding_digest", "reaction_count", "credits_status"
+    ],
+    "reaction_count": [
+      "dual_parse_status", "dual_parse_binding_digest", "reaction_data_status",
+      "credits_status"
+    ],
+    "credits_status": []
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reaction_data_status": {"const": "unavailable_not_provided"}
+        },
+        "required": ["reaction_data_status"]
+      },
+      "then": {"properties": {"reaction_count": {"type": "null"}}}
+    },
+    {
+      "if": {
+        "properties": {"route": {"const": "honest_progressive"}},
+        "required": ["route"]
+      },
+      "then": {
+        "required": [
+          "route", "core_molecule_count", "confirmed_count",
+          "ai_provisional_count", "blocked_count", "coverage_ratio",
+          "coverage_threshold", "coverage_sufficient", "paper_coverage",
+          "uncertainty_statement", "gap_registry", "traceability",
+          "actor_provenance_residual",
+          "credits_status"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "actor_provenance_residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "actor_type": {"type": "string", "minLength": 1},
+        "actor_label": {"type": "string", "minLength": 1},
+        "expected_actor_type": {"type": "string", "minLength": 1},
+        "observed_actor_type": {"type": "string", "minLength": 1},
+        "reason_code": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "occurred_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "chemical_paper_safe_summary": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema_version", "route", "study_count", "molecule_count",
+        "missing_name_count", "missing_resolved_smiles_count",
+        "ai_authored_smiles_count", "element_review_counts", "reaction_data_status"
+      ],
+      "properties": {
+        "schema_version": {"const": "chemical-paper-safe-summary.v2"},
+        "route": {"const": "chemical-paper-zip-only"},
+        "study_count": {"type": "integer", "minimum": 1},
+        "molecule_count": {"type": "integer", "minimum": 0},
+        "missing_name_count": {"type": "integer", "minimum": 0},
+        "missing_resolved_smiles_count": {"type": "integer", "minimum": 0},
+        "ai_authored_smiles_count": {"type": "integer", "minimum": 0},
+        "element_review_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["not_reviewed", "confirmed", "corrected", "not_applicable"],
+          "properties": {
+            "not_reviewed": {"type": "integer", "minimum": 0},
+            "confirmed": {"type": "integer", "minimum": 0},
+            "corrected": {"type": "integer", "minimum": 0},
+            "not_applicable": {"type": "integer", "minimum": 0}
+          }
+        },
+        "reaction_data_status": {"enum": ["available", "unavailable_not_provided"]}
+      }
+    }
+  }
+}

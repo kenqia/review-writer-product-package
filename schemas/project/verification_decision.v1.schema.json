@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/project/verification_decision.v1.schema.json",
+  "title": "Verification decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "actor_type",
+    "actor_label",
+    "action",
+    "reason",
+    "decided_at",
+    "bound_object_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "verification-decision.v1"},
+    "actor_type": {
+      "enum": ["human_researcher", "simulated_researcher_agent"]
+    },
+    "actor_label": {"type": "string", "minLength": 1, "maxLength": 200},
+    "action": {"type": "string", "minLength": 1, "maxLength": 120},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "decided_at": {"type": "string", "minLength": 1},
+    "bound_object_digest": {"$ref": "#/$defs/sha256"},
+    "bound_gate_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

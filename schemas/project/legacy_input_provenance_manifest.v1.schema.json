@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/project/legacy_input_provenance_manifest.v1.schema.json",
+  "title": "Legacy three-paper input provenance manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "studies"],
+  "properties": {
+    "schema_version": {"const": "input-provenance-manifest.v1"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "studies": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/study"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "page_count": {"type": "integer", "minimum": 1},
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_path", "sha256", "page_count"],
+      "properties": {
+        "input_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "page_count": {"$ref": "#/$defs/page_count"}
+      }
+    },
+    "main_pdf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "page_count"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "page_count": {"$ref": "#/$defs/page_count"}
+      }
+    },
+    "study": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "source_id", "main_pdf", "si", "chemical_zip"],
+      "properties": {
+        "study_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "source_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "main_pdf": {"$ref": "#/$defs/main_pdf"},
+        "si": {"$ref": "#/$defs/input"},
+        "chemical_zip": {"$ref": "#/$defs/input"}
+      }
+    }
+  }
+}

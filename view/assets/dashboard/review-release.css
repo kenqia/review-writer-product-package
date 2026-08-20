@@ -1,0 +1,38 @@
+.review-release-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.review-release-actions button,
+.review-release-actions a {
+  min-height: 36px;
+  padding: 8px 11px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+}
+#export-verified-release {
+  color: #fff;
+  background: #315c78;
+  border: 1px solid #315c78;
+}
+#export-verified-release:disabled,
+#export-docx:disabled { cursor: not-allowed; opacity: .55; }
+#download-verified-release { color: #dcebf3; border: 1px solid #7897aa; text-decoration: none; }
+.release-status-message { flex: 1 1 100%; margin: 1px 0 0; color: #d8e0dc; font-size: 10px; text-align: right; }
+
+@media (max-width: 760px) {
+  .review-release-actions { justify-content: flex-start; width: 100%; }
+  .review-release-actions button,
+  .review-release-actions a { flex: 1 1 180px; text-align: center; }
+  .release-status-message { text-align: left; }
+}
+
+@media (max-width: 420px) {
+  .review-release-actions { display: grid; grid-template-columns: 1fr; }
+  .review-release-actions button,
+  .review-release-actions a { width: 100%; }
+}

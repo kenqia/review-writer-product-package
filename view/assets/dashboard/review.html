@@ -1,0 +1,3310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>动态科研综述工作台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/dashboard/review-ui.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-evidence.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-manuscript.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-release.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-audit.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-chemical-paper.css">
+  <link rel="stylesheet" href="/assets/dashboard/review-dual-parse.css">
+</head>
+<body class="page-review">
+  <nav class="nav" aria-label="Research workflow">
+    <div class="nav-title">Review Writer Dashboard</div>
+    <div class="nav-right">
+      <a href="/library">Library</a>
+      <a href="/discovery">Discovery</a>
+      <a href="/matrix">Matrix</a>
+      <a href="/blueprint">Blueprint</a>
+      <a href="/sections">Sections</a>
+      <a href="/figures">Figures</a>
+      <a href="/draft">Draft</a>
+      <a href="/final">Final</a>
+    </div>
+  </nav>
+  <a class="skip-link" href="#primary-workspace">跳到主要工作区</a>
+  <main id="primary-workspace" class="review-shell">
+    <header class="review-masthead">
+      <div class="review-identity">
+        <span class="review-seal" aria-hidden="true">R</span>
+        <div>
+          <p class="review-kicker">Dynamic research review</p>
+          <h1 id="project-title">动态科研综述工作台</h1>
+        </div>
+      </div>
+      <div id="project-tools" class="review-project-tools" hidden>
+        <label for="project">当前项目</label>
+        <select id="project" aria-label="选择综述项目"></select>
+      </div>
+      <div id="project-state-line" class="review-state-line" aria-live="polite" hidden>
+        <span id="stage-badge" class="state-badge">读取中</span>
+        <span id="status-badge">正在读取项目状态…</span>
+        <div class="review-release-actions" aria-label="发布操作">
+          <button id="export-docx" class="review-export-button" type="button" data-default-label="导出内部评审 DOCX">导出内部评审 DOCX</button>
+          <a id="download-docx" class="review-download-link" href="#" download hidden>下载内部评审 DOCX</a>
+          <button id="export-verified-release" type="button" data-default-label="生成已验证发布稿">生成已验证发布稿</button>
+          <a id="download-verified-release" href="#" download hidden>下载已验证发布稿</a>
+          <p id="release-status-message" class="release-status-message" aria-live="polite"></p>
+        </div>
+      </div>
+    </header>
+
+    <section id="empty-project-workspace" class="manuscript-empty" aria-labelledby="empty-project-heading">
+      <p class="section-label">QoderWork research review</p>
+      <h2 id="empty-project-heading">请选择项目开始审查</h2>
+      <p>先创建一个空白综述项目，填写 Topic 和研究问题，再按当前唯一下一动作补充来源。</p>
+      <form id="blank-project-form" class="blank-project-form">
+        <label>项目 ID
+          <input id="blank-project-id" name="project_id" type="text" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" autocomplete="off" placeholder="my-review-project">
+        </label>
+        <label>Topic
+      <input id="blank-project-topic" name="topic" type="text" required autocomplete="off" placeholder="例如：一个明确的综述主题">
+        </label>
+        <label>研究问题
+          <textarea id="blank-project-question" name="review_question" required rows="3" placeholder="这篇综述要回答什么问题？"></textarea>
+        </label>
+        <button type="submit">创建空白综述项目</button>
+        <p id="blank-project-message" role="status" aria-live="polite"></p>
+      </form>
+      <p id="project-waiting-message" role="status" aria-live="polite">正在检查可用项目…</p>
+    </section>
+
+    <nav id="workspace-switcher" class="workspace-switcher" aria-label="项目工作区" hidden>
+      <button type="button" data-workspace="cockpit" aria-pressed="true" aria-controls="cockpit-workspace">
+        工作台概览
+      </button>
+      <button type="button" data-workspace="manuscript" aria-pressed="false" aria-controls="manuscript-workspace">
+        正文工作室
+      </button>
+    </nav>
+
+    <nav id="research-workflow-static" class="research-workflow-static" aria-label="Research workflow" hidden>
+      <a href="/review">Scope</a>
+      <a href="/library">Corpus</a>
+      <a href="/review#evidence">Evidence</a>
+      <a href="/matrix">Matrix</a>
+      <a href="/draft">Draft</a>
+      <a href="/figures">Figures</a>
+      <a href="/final">Release</a>
+    </nav>
+
+    <section id="research-workbench-overview" class="research-workbench-overview" aria-labelledby="research-workbench-heading" hidden>
+      <header class="research-workbench-heading">
+        <div>
+          <p class="section-label">Current project</p>
+          <h2 id="research-workbench-heading">研究工作台概览</h2>
+          <p id="overview-scope-line" class="research-workbench-lede">正在读取当前项目范围。</p>
+        </div>
+        <span id="overview-status" class="rw-status rw-status-pending" role="status" aria-live="polite"><span aria-hidden="true">○</span> 待读取</span>
+      </header>
+      <div class="research-workbench-facts" aria-label="当前项目事实">
+        <article>
+          <span class="overview-label">研究范围</span>
+          <strong id="overview-scope">—</strong>
+        </article>
+        <article>
+          <span class="overview-label">语料覆盖</span>
+          <strong id="overview-corpus">—</strong>
+        </article>
+        <article>
+          <span class="overview-label">发布状态</span>
+          <strong id="overview-release">—</strong>
+        </article>
+      </div>
+      <div class="research-workbench-grid">
+        <section class="research-workbench-card" aria-labelledby="overview-gaps-heading">
+          <p class="section-label">Needs attention</p>
+          <h3 id="overview-gaps-heading">主要缺口</h3>
+          <ul id="overview-gaps"></ul>
+        </section>
+        <section class="research-workbench-card" aria-labelledby="overview-next-heading">
+          <p class="section-label">Next action</p>
+          <h3 id="overview-next-heading">唯一下一动作</h3>
+          <p id="overview-next-action" class="overview-next-action">—</p>
+        </section>
+      </div>
+      <section id="resume-hold" class="resume-hold" aria-labelledby="resume-hold-heading" role="status">
+        <div>
+          <p class="section-label">Resume</p>
+          <h3 id="resume-hold-heading">Resume 暂缓</h3>
+          <p>当前公开页面没有 project-scoped VersionContext layout；不会伪造恢复成功。</p>
+        </div>
+        <span class="rw-status rw-status-warn"><span aria-hidden="true">!</span> HOLD</span>
+      </section>
+      <section id="evidence" class="overview-evidence" aria-labelledby="overview-evidence-heading">
+        <header>
+          <div>
+            <p class="section-label">Evidence</p>
+            <h3 id="overview-evidence-heading">当前证据记录</h3>
+          </div>
+          <span id="overview-evidence-count" class="overview-count" aria-live="polite">—</span>
+        </header>
+        <div id="overview-evidence-list" class="overview-evidence-list" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <section id="cockpit-workspace" class="product-workspace" aria-labelledby="cockpit-heading" hidden>
+      <div class="cockpit-layout">
+        <aside class="research-rail" aria-label="项目阶段与证据健康">
+          <div class="rail-heading">
+            <p class="section-label">Project course</p>
+            <h2 id="cockpit-heading">项目阶段</h2>
+          </div>
+          <ol id="stage-list" class="stage-list"></ol>
+          <section class="rail-health" aria-labelledby="health-heading">
+            <p class="section-label">Evidence health</p>
+            <h3 id="health-heading">证据健康</h3>
+            <div id="cockpit-health"></div>
+            <p id="draft-availability-note" class="rail-note"></p>
+          </section>
+          <details class="brief-disclosure">
+            <summary>查看综述简报</summary>
+            <dl class="brief-facts">
+              <div><dt>研究问题</dt><dd id="review-question">—</dd></div>
+              <div><dt>年份范围</dt><dd id="review-years">—</dd></div>
+              <div><dt>目标研究数</dt><dd id="review-target">—</dd></div>
+              <div><dt>必需激活方式</dt><dd id="required-modes">—</dd></div>
+              <div><dt>排除范围</dt><dd id="review-exclusions">—</dd></div>
+              <div><dt>输出语言</dt><dd id="output-language">—</dd></div>
+              <div><dt>交付物</dt><dd id="review-deliverables">—</dd></div>
+            </dl>
+            <button id="confirm-brief" class="quiet-action" type="button" hidden>确认综述简报</button>
+            <p id="brief-confirmation-message" class="inline-message" role="status" aria-live="polite"></p>
+          </details>
+        </aside>
+
+        <div class="cockpit-main">
+          <header class="workspace-heading">
+            <div>
+              <p class="section-label">Research overview</p>
+              <h2>证据进度与下一步</h2>
+            </div>
+            <p id="cockpit-stage-summary" class="workspace-summary">—</p>
+          </header>
+
+          <section id="brief-stage-panel" class="stage-task-panel" hidden>
+            <p class="section-label">Review brief</p>
+            <h3>确认这次综述要回答的问题</h3>
+            <p id="brief-stage-summary" class="stage-task-lead">研究范围正在准备。</p>
+            <button id="confirm-brief-primary" class="stage-primary-action" type="button">确认研究范围</button>
+            <p id="brief-stage-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="source-stage-panel" class="stage-task-panel" hidden>
+            <div class="stage-task-heading">
+              <div>
+                <p class="section-label">Source handoff</p>
+                <h3>补齐待核验论文</h3>
+              </div>
+              <strong id="source-coverage">—</strong>
+            </div>
+            <p class="stage-task-lead">请准备一个包含待补论文 MAIN/SI 的 PDF ZIP。上传成功后立即开始核验。</p>
+            <div id="source-list" class="source-list"></div>
+            <div id="source-preflight" class="source-preflight" hidden>
+              <p class="section-label">Source preflight</p>
+              <p>上传内容已通过文件级核验；请确认来源身份和文献角色后写入当前来源记录。</p>
+              <div id="source-preflight-list" class="source-list"></div>
+            </div>
+            <form id="source-supplement-form" class="source-supplement-form">
+              <div>
+                <p class="section-label">Researcher additions</p>
+                <h4>补充一篇研究</h4>
+                <p>提供 DOI 或论文标题；系统会简要复核，但以您的纳入决定为准。</p>
+              </div>
+              <label>DOI（可选）<input id="source-supplement-doi" name="doi" type="text" inputmode="url" autocomplete="off" placeholder="10.xxxx/xxxxx"></label>
+              <label>论文标题（可选）<input id="source-supplement-title" name="title" type="text" autocomplete="off"></label>
+              <fieldset class="source-supplement-choice">
+                <legend>您的决定</legend>
+                <label><input id="source-supplement-include" name="source-disposition" type="radio" value="include" checked>纳入全文处理</label>
+                <label><input id="source-supplement-exclude" name="source-disposition" type="radio" value="exclude">排除</label>
+              </fieldset>
+              <button class="quiet-action" type="submit">加入来源候选</button>
+            </form>
+            <p id="source-supplement-message" class="inline-message" role="status" aria-live="polite"></p>
+            <div id="source-supplement-list" class="source-supplement-list"></div>
+            <div id="source-unresolved-list" class="source-list">
+              <p class="section-label">确认文件归属</p>
+            </div>
+            <p id="source-mapping-message" class="inline-message" role="status" aria-live="polite"></p>
+            <label id="source-drop-zone" class="source-drop-zone" for="source-archive-input">
+              <strong>拖入一个 PDF ZIP</strong>
+              <span>或点击选择压缩包；无需填写路径或映射表。</span>
+              <input id="source-archive-input" type="file" accept=".zip,application/zip">
+            </label>
+            <p id="source-upload-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="dual-parse-workspace" class="dual-parse-workspace" aria-labelledby="dual-parse-heading">
+            <header class="dual-parse-heading">
+              <div>
+                <p class="section-label">Dual parse review</p>
+                <h3 id="dual-parse-heading">双层解析与化学证据核对</h3>
+              </div>
+              <p>原始 PDF 是唯一科学仲裁来源</p>
+            </header>
+            <section id="honest-progressive-route" class="honest-progressive-route" aria-labelledby="honest-progressive-heading">
+              <header>
+                <div>
+                  <p class="section-label">Honest Progressive Route</p>
+                  <h4 id="honest-progressive-heading">诚实渐进式结构解析</h4>
+                </div>
+                <p>CONFIRMED、AI_PROVISIONAL、BLOCKED 三态独立披露。</p>
+              </header>
+              <div id="honest-progressive-summary" aria-live="polite"></div>
+              <p class="honest-progressive-contract-copy">不确定性说明与 gap registry 会随当前投影更新；BLOCKED 的 value 保持 null。</p>
+            </section>
+            <section id="dual-study-status" aria-label="各研究双层解析状态"></section>
+            <section id="chemical-import-preflight" aria-label="Chemical Paper 导入预检"></section>
+            <section id="chemical-completion-queue" aria-label="Chemical Completion 待办"></section>
+            <section id="reconciliation-list" aria-label="双层解析差异核对"></section>
+          </section>
+
+          <section id="chemical-paper-panel" class="chemical-paper-panel" aria-labelledby="chemical-paper-heading" hidden>
+            <header class="chemical-paper-heading">
+              <div>
+                <p class="section-label">Chemical structure handoff</p>
+                <h3 id="chemical-paper-heading">MinerU Chemical Paper 手工导出</h3>
+              </div>
+              <strong>原始 PDF 仍是科学事实来源</strong>
+            </header>
+            <p class="chemical-paper-lead">这里仅审查已由正式 CLI 导入的完整 Chemical Paper ZIP。候选结构、SMILES 与元素信息不自动批准任何科学结论；更正记录采用不可覆盖历史与当前版本保护。</p>
+            <div id="chemical-paper-root"></div>
+            <p id="chemical-paper-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="processing-stage-panel" class="stage-task-panel" hidden>
+            <div class="stage-task-heading">
+              <div>
+                <p class="section-label">Automatic processing</p>
+                <h3>正在形成可审查证据</h3>
+              </div>
+              <strong id="processing-next">—</strong>
+            </div>
+            <p id="processing-blocker" class="processing-blocker" hidden></p>
+            <ol id="processing-stage-list" class="processing-stage-list"></ol>
+            <section class="parse-import-card" aria-labelledby="parse-import-heading">
+              <p class="section-label">Source-bound parse import</p>
+              <h4 id="parse-import-heading">提交当前 PDF 的解析文本</h4>
+              <p>仅接受当前 MAIN PDF 的用户提供文本；系统会生成可审计的 Source Truth 与解析质量记录。文本不会替代原始 PDF 的科学仲裁。</p>
+              <p id="parse-import-binding" class="parse-import-binding" role="status" aria-live="polite">正在读取当前来源绑定。</p>
+              <p id="parse-import-quality" class="parse-import-binding" role="status" aria-live="polite">Parse Quality：等待来源解析。</p>
+              <form id="parse-import-form">
+                <label for="parse-import-markdown">解析文本</label>
+                <textarea id="parse-import-markdown" name="markdown" rows="8" maxlength="491520" required placeholder="# Section\n\nPaste the source-bound parse text here."></textarea>
+                <button id="parse-import-submit" class="stage-primary-action" type="submit">生成 Source Truth 并进入解析核对</button>
+              </form>
+              <p id="parse-import-message" class="inline-message" role="status" aria-live="polite"></p>
+            </section>
+            <div id="processing-source-list" class="processing-source-list"></div>
+            <div id="processing-study-list" class="processing-study-list"></div>
+          </section>
+
+          <section id="parse-quality-stage-panel" class="stage-task-panel parse-quality-stage-panel" hidden>
+            <div class="stage-task-heading">
+              <div>
+                <p class="section-label">Parse quality review</p>
+                <h3>逐项核对全文解析</h3>
+              </div>
+              <strong id="parse-quality-count">—</strong>
+            </div>
+            <p class="stage-task-lead">先对照原始论文确认正文、图表、公式与参考文献是否可靠，再决定哪些部分可以进入候选证据提取。</p>
+            <p id="parse-quality-binding" class="parse-quality-binding" role="status" aria-live="polite">当前解析来源绑定读取中。</p>
+            <section id="parse-quality-next-action" class="parse-quality-next-action" aria-labelledby="parse-quality-next-action-label">
+              <div>
+                <p class="section-label">Authoritative next action</p>
+                <strong id="parse-quality-next-action-label">正在计算下一步</strong>
+                <span id="parse-quality-next-action-description"></span>
+              </div>
+              <button id="parse-quality-refresh" type="button" hidden>已重新解析，刷新解析状态</button>
+            </section>
+            <ul class="parse-quality-action-key" aria-label="可选决定说明">
+              <li><strong>允许机器从该部分提取候选证据</strong><span>仍需在后续证据工作区逐条核对。</span></li>
+              <li><strong>仅回到原始 PDF 人工定位</strong><span>关闭自动提取，保留人工证据定位路线。</span></li>
+              <li><strong>必须重新解析</strong><span>阻止后续处理，等待新的解析结果。</span></li>
+            </ul>
+            <div class="parse-quality-layout">
+              <div class="parse-quality-review-pane">
+                <nav id="parse-quality-study-list" class="parse-quality-study-list" aria-label="待核对研究"></nav>
+                <header class="parse-quality-selection-heading">
+                  <div>
+                    <p class="section-label">Selected study</p>
+                    <h4 id="parse-quality-study-title">选择一篇研究</h4>
+                  </div>
+                  <span id="parse-quality-study-status" class="parse-quality-status-badge">待读取</span>
+                </header>
+                <div id="parse-quality-object-list" class="parse-quality-object-list"></div>
+              </div>
+              <aside class="parse-quality-preview-pane" aria-labelledby="parse-quality-preview-heading">
+                <header class="parse-quality-preview-toolbar">
+                  <div>
+                    <p class="section-label">Source comparison</p>
+                    <h4 id="parse-quality-preview-heading">原文对照</h4>
+                  </div>
+                  <div class="parse-quality-preview-modes" aria-label="预览来源">
+                    <button id="parse-quality-preview-pdf" type="button" aria-pressed="true">原始 PDF</button>
+                    <button id="parse-quality-preview-markdown" type="button" aria-pressed="false">解析文本</button>
+                  </div>
+                  <label class="parse-quality-preview-page">页码 <input id="parse-quality-preview-page" type="number" min="1" max="999" value="1" inputmode="numeric"></label>
+                  <a id="parse-quality-open-preview" href="#" target="_blank" rel="noopener">新标签打开 ↗</a>
+                </header>
+                <iframe id="parse-quality-preview" title="论文原文与解析文本预览"></iframe>
+                <p class="parse-quality-mobile-preview">当前屏幕不嵌入论文预览，请使用“新标签打开”核对原文。</p>
+              </aside>
+            </div>
+            <p id="parse-quality-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="evidence-synthesis-workspace" class="stage-task-panel evidence-synthesis-workspace" hidden aria-labelledby="evidence-workspace-heading">
+            <header class="stage-task-heading">
+              <div><p class="section-label">Evidence centre</p><h3 id="evidence-workspace-heading">证据与综合判断工作台</h3></div>
+              <span id="evidence-workspace-status" class="state-badge" role="status" aria-live="polite">读取中</span>
+            </header>
+            <p id="evidence-workspace-message" class="stage-task-lead" role="status" aria-live="polite">只显示当前 canonical 记录；当前性、支持 / 反驳 / 缺口 / 冲突 / 待核对均以真实状态为准。</p>
+            <div id="canonical-evidence-records" aria-label="Canonical Evidence records">
+              <div id="evidence-workspace-root"></div>
+            </div>
+            <div id="synthesis-workspace-root"></div>
+          </section>
+
+          <section id="risk-stage-panel" class="stage-task-panel risk-stage-panel" hidden>
+            <div class="stage-task-heading">
+              <div>
+                <p class="section-label">Scientific risk packet</p>
+                <h3>集中检查高风险科学主张</h3>
+              </div>
+              <strong id="risk-target-count">—</strong>
+            </div>
+            <p class="stage-task-lead">逐项核对主张、原文摘录与页码，选择采纳、改写、排除或暂缓，然后一次提交决定。</p>
+            <div id="risk-decision-list" class="risk-decision-list"></div>
+            <div class="risk-submit-row">
+              <p id="risk-unresolved-note">尚有暂缓项，完成决定后才能进入写作</p>
+              <button id="submit-risk-decisions" class="stage-primary-action" type="button">提交全部科学决定</button>
+            </div>
+            <p id="risk-decision-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <div id="cockpit-overview">
+          <section class="next-action" aria-labelledby="next-action-label">
+            <p id="next-action-label">建议下一步</p>
+            <strong id="recommended-next">正在计算当前最必要的工作…</strong>
+            <span>基于当前纳入研究、全文覆盖与已复核证据。</span>
+          </section>
+
+          <section class="metric-ledger" aria-label="项目关键指标">
+            <article>
+              <span>纳入研究</span>
+              <strong id="metric-included">—</strong>
+              <small>进入全文复核的研究</small>
+            </article>
+            <article>
+              <span>MAIN 全文可用</span>
+              <strong id="metric-main-coverage">—</strong>
+              <small>已核验的主文来源</small>
+            </article>
+            <article>
+              <span>已完成 Evidence 复核</span>
+              <strong id="metric-reviewed">—</strong>
+              <small>已记录 approve 或 reject 决定</small>
+            </article>
+            <article>
+              <span>科学风险</span>
+              <strong id="metric-scientific-risks">—</strong>
+              <small>需要集中核对的主张</small>
+            </article>
+          </section>
+
+          <section class="mode-section" aria-labelledby="mode-heading">
+            <div class="section-heading-line">
+              <div>
+                <p class="section-label">Activation modes</p>
+                <h3 id="mode-heading">激活方式覆盖</h3>
+              </div>
+              <span>纳入 / 已复核</span>
+            </div>
+            <div class="mode-table-wrap">
+              <table>
+                <thead><tr><th scope="col">激活方式</th><th scope="col">纳入</th><th scope="col">已复核</th><th scope="col">覆盖</th></tr></thead>
+                <tbody id="mode-coverage"></tbody>
+              </table>
+            </div>
+          </section>
+          </div>
+
+          <section id="review-audit" class="review-audit" aria-labelledby="review-audit-heading" hidden>
+            <header class="review-audit-heading">
+              <div>
+                <p class="section-label">Review closure</p>
+                <h2 id="review-audit-heading">审查闭环与发布评估</h2>
+              </div>
+              <p>持续显示解析、比较协议、综合覆盖、图件披露与发布评估；缺失数据保持显式未知。</p>
+            </header>
+            <div id="review-audit-root" class="review-audit-grid" aria-live="polite"></div>
+          </section>
+
+          <section id="history-panel" class="stage-task-panel" hidden aria-labelledby="history-heading">
+            <header class="stage-task-heading">
+              <div>
+                <p class="section-label">Version history</p>
+                <h3 id="history-heading">版本历史</h3>
+              </div>
+              <strong id="history-current">—</strong>
+            </header>
+            <div id="history-list" class="source-list" aria-live="polite"></div>
+            <form id="history-branch-form" class="source-supplement-form">
+              <label>起始版本<input id="history-branch-source" name="source_version_id" required></label>
+              <label>分支 ID<input id="history-branch-id" name="branch_id" required></label>
+              <label>分支名称<input id="history-branch-name" name="branch_name" required></label>
+              <label>新版本 ID<input id="history-branch-version" name="version_id" required></label>
+              <label><input id="history-branch-activate" name="activate" type="checkbox" checked> 切换到新分支</label>
+              <label><input id="history-branch-confirm" name="confirm" type="checkbox" required> 确认创建分支</label>
+              <button class="quiet-action" type="submit">创建分支</button>
+            </form>
+            <form id="history-undo-form" class="source-supplement-form">
+              <label>回退目标<input id="history-undo-target" name="target_version_id" required></label>
+              <label>新分支 ID<input id="history-undo-branch-id" name="branch_id" required></label>
+              <label>新分支名称<input id="history-undo-branch-name" name="branch_name" required></label>
+              <label>新版本 ID<input id="history-undo-version" name="version_id" required></label>
+              <label><input id="history-undo-confirm" name="confirm" type="checkbox" required> 确认创建回退分支</label>
+              <button class="quiet-action" type="submit">回退到版本</button>
+            </form>
+            <p id="history-message" class="inline-message" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+
+        <aside class="context-column" aria-labelledby="context-heading">
+          <header>
+            <p class="section-label">Current context</p>
+            <h2 id="context-heading">当前证据与风险</h2>
+          </header>
+          <div id="cockpit-context" class="context-feed" aria-live="polite"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="manuscript-workspace" class="product-workspace" aria-labelledby="manuscript-heading" hidden>
+      <section id="manuscript-empty" class="manuscript-empty" hidden>
+        <p class="section-label">Authoritative manuscript</p>
+        <h2>当前还没有综述正文</h2>
+        <p>项目仍处于证据复核阶段。工作台不会用占位内容伪装正文；请按照当前唯一下一动作继续推进。</p>
+        <button type="button" data-workspace="cockpit">返回工作台概览</button>
+      </section>
+
+      <div id="manuscript-layout" class="manuscript-layout">
+        <aside class="manuscript-outline" aria-labelledby="outline-heading">
+          <header>
+            <p class="section-label">Manuscript</p>
+            <h2 id="outline-heading">章节与证据健康</h2>
+          </header>
+          <nav id="section-outline" aria-label="正文章节"></nav>
+          <div id="revision-summary" class="revision-summary"></div>
+          <section class="figure-status-panel" aria-labelledby="figure-status-heading">
+            <p class="section-label">Figures</p>
+            <h3 id="figure-status-heading">图件与许可状态</h3>
+            <p id="figure-summary">图件状态待读取</p>
+            <div id="figure-list" class="figure-status-list"></div>
+          </section>
+        </aside>
+
+        <div class="manuscript-center">
+          <section id="manuscript-conflict-alert" class="manuscript-conflict-alert" role="alert" tabindex="-1" hidden>
+            <h2>正文已在其他位置更新</h2>
+            <p>当前编辑没有覆盖服务器版本。请选择读取最新版本，或保留本地文字并重新核对。</p>
+            <div class="conflict-actions">
+              <button id="reload-conflicted-section" type="button">读取最新版本</button>
+              <button id="keep-conflicted-section" type="button">保留文字并重新核对</button>
+            </div>
+          </section>
+          <section id="pending-review-banner" class="pending-review-banner" aria-live="polite" hidden>
+            <div>
+              <p class="section-label">Scientific review required</p>
+              <h2>需要证据复核</h2>
+              <ul id="pending-reasons"></ul>
+              <p>恢复本节已验证版本将替换当前未复核编辑。</p>
+            </div>
+            <button id="restore-verified" type="button">恢复本节已验证版本</button>
+          </section>
+
+          <article class="manuscript-paper">
+            <header class="paper-heading">
+              <p class="section-label">Authoritative section</p>
+              <h2 id="manuscript-heading">选择一个章节</h2>
+              <p>绿色标记为可追溯主张；点击后在右侧核对完整证据链。</p>
+            </header>
+            <div id="section-reading" class="section-reading" aria-label="可追溯正文视图"></div>
+            <div class="editor-rule" aria-hidden="true"><span>编辑本节正文</span></div>
+            <label class="section-editor-label" for="section-editor">章节正文</label>
+            <textarea id="section-editor" rows="16" spellcheck="true" aria-describedby="high-risk-edit-note"></textarea>
+            <section id="high-risk-review" class="high-risk-review" aria-labelledby="high-risk-heading" hidden>
+              <div class="high-risk-heading">
+                <div>
+                  <p class="section-label">Researcher decision</p>
+                  <h3 id="high-risk-heading">高风险表述需要直接修改并批准</h3>
+                </div>
+                <span class="risk-flag">人工决定</span>
+              </div>
+              <p id="high-risk-edit-note">批准将绑定当前版本；若上游证据更新，本次决定自动失效。</p>
+              <label class="high-risk-reason-label" for="high-risk-reason">修改理由
+                <textarea id="high-risk-reason" rows="3" aria-label="高风险正文修改理由"></textarea>
+              </label>
+              <div class="high-risk-action-row">
+                <button id="approve-high-risk-edit" type="button">保存修改并批准本节</button>
+              </div>
+            </section>
+            <footer class="editor-footer">
+              <p id="save-message" class="inline-message" role="status" aria-live="polite"></p>
+              <button id="save-section" type="button">保存本节</button>
+            </footer>
+          </article>
+        </div>
+
+        <aside id="evidence-inspector" class="evidence-inspector" aria-labelledby="inspector-heading" tabindex="-1">
+          <header>
+            <p class="section-label">Claim lineage</p>
+            <h2 id="inspector-heading">证据链核对</h2>
+          </header>
+          <div id="inspector-empty" class="inspector-empty">
+            <p>点击正文中的绿色主张，查看研究、原文摘录、定位、复核结论与投影决策。</p>
+          </div>
+          <div id="inspector-content" hidden></div>
+          <section id="evidence-context-panel" class="context-band" aria-labelledby="evidence-context-heading">
+            <p class="section-label">Paper Evidence</p>
+            <h3 id="evidence-context-heading">关联证据</h3>
+            <div id="evidence-context-list" class="context-band-list"></div>
+          </section>
+          <section id="synthesis-context-panel" class="context-band" aria-labelledby="synthesis-context-heading">
+            <p class="section-label">Synthesis</p>
+            <h3 id="synthesis-context-heading">综合判断与边界</h3>
+            <div id="synthesis-context-list" class="context-band-list"></div>
+          </section>
+          <section id="source-figure-context-panel" class="context-band" aria-labelledby="source-figure-context-heading">
+            <p class="section-label">Source Figure</p>
+            <h3 id="source-figure-context-heading">原论文图片</h3>
+            <div id="source-figure-context-list" class="context-band-list"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <p id="workbench-message" class="workbench-message" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="/assets/dashboard/review-ui.js"></script>
+  <script src="/assets/dashboard/review-manuscript.js"></script>
+  <script src="/assets/dashboard/review-release.js"></script>
+  <script src="/assets/dashboard/review-audit.js"></script>
+  <script src="/assets/dashboard/review-chemical-paper.js"></script>
+  <script src="/assets/dashboard/review-dual-parse.js"></script>
+  <script src="/assets/dashboard/review-session.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const stageLabels = {
+      not_started:'尚未开始', review_brief:'综述简报', ready_for_discovery:'文献发现',
+      evidence_review:'证据复核', drafting:'正文撰写', final_review:'终稿审查', complete:'已完成'
+    };
+    const statusLabels = {
+      not_started:'尚未开始', AWAITING_BRIEF_CONFIRMATION:'等待确认综述简报',
+      BRIEF_CONFIRMED:'综述简报已确认', needs_human_review:'需要人工复核',
+      in_progress:'进行中', complete:'已完成'
+    };
+    const decisionLabels = {
+      APPROVED:'已纳入正文', HUMAN_REQUIRED:'需要复核', BLOCKED:'暂不采用',
+      approve:'已采纳', reword:'已改写', exclude:'已排除', unresolved:'待定'
+    };
+    const verdictLabels = {
+      SUPPORT:'支持', SUPPORTED:'支持', AMBIGUOUS:'证据有限', CONTRADICT:'存在冲突',
+      REJECT:'不支持', NEEDS_HUMAN_REVIEW:'需要人工复核'
+    };
+    const parseStatusLabels = {
+      usable:'自动检查通过', usable_with_review:'需要人工核对',
+      incomplete:'解析不完整', failed:'解析失败'
+    };
+    const parseActionLabels = {
+      approve_candidate_extraction:{title:'允许机器提取候选证据', detail:'后续仍需逐条核对证据。'},
+      pdf_locator_only:{title:'仅用原始 PDF 人工定位', detail:'该部分不会进入自动证据提取。'},
+      reparse_required:{title:'必须重新解析', detail:'在新解析完成前阻止后续处理。'}
+    };
+    const stageFlow = [
+      ['review_brief','确认研究范围'],
+      ['ready_for_discovery','发现并筛选研究'],
+      ['evidence_review','复核全文证据'],
+      ['drafting','撰写证据约束正文'],
+      ['final_review','完成终稿核对'],
+      ['complete','形成可交付综述']
+    ];
+
+    let projects = [];
+    let projectId = '';
+    const projectSelection = ReviewSessionUI.createProjectSelectionRegistry();
+    window.reviewProjectSelection = projectSelection;
+    let projectState = {};
+    let cockpitPayload = {metrics:{}, mode_coverage:[]};
+    let draftPayload = {available:false, sections:[], claim_lineage:[], revision_status:{pending_scientific_edits:[]}};
+    let evidencePayload = {cards:[]};
+    let riskPayload = {targets:[]};
+    let figurePayload = {figures:[], summary:{total:0,placeholders:0}};
+    let manuscriptEvidencePayload = {items:[]};
+    let manuscriptSynthesisPayload = {items:[]};
+    let reviewFigurePayload = {source_figures:[], placeholders:[]};
+    let comparisonProtocolPayload = {status:'unavailable', protocol:{}};
+    let historyPayload = {history:[], current:null, revision:null};
+    let finalPayload = {final_draft_docx_exists:false, final_draft_docx_path:''};
+    let sourcePayload = {counts:{total:0,ready:0,missing:0}, sources:[], supplements:[], unresolved:[], upload_required:false, preflight:null};
+    let chemicalPaperPayload = {status:'unavailable', studies:[]};
+    let dualParseModel = ReviewDualParseUI.projectionModel({schema_version:'dual-parse-projection.v2',status:'unavailable'});
+    let progressPayload = {active_stage:'sources', stages:[], studies:[], blocker:'', recommended_next:'', release_capabilities:{internal_draft_export_ready:false,verified_release_ready:false}};
+    let parseQualityPayload = {status:'unavailable', workflow_can_continue:false, summary:{}, studies:[]};
+    let parseQualityBusy = new Set();
+    let parseQualityDirty = new Set();
+    let activeParseStudyId = '';
+    let activeParsePreview = 'pdf';
+    let parseQualityNotice = '';
+    let activeSectionId = '';
+    let selectedClaimId = '';
+    let editorDirty = false;
+    let editorBusy = false;
+    let projectLoadGeneration = 0;
+    let progressCapabilityProjectId = '';
+    let progressCapabilityGeneration = -1;
+    let projectLoadBusy = false;
+    let projectsRefreshController = null;
+    let projectsRefreshBusy = false;
+    let sourceUploadBusy = false;
+    let parseImportBusy = false;
+    let chemicalPaperBusy = false;
+    let dualParseBusy = false;
+    let sourceSupplementBusy = false;
+    let sourceMappingBusy = false;
+    let exportBusy = false;
+    let conflictedEdit = null;
+    let riskDecisionDirty = false;
+    let activeWorkspace = 'cockpit';
+
+    async function getPayload(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const error = new Error('request failed');
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    }
+
+    async function optionalPayload(url, fallback) {
+      try { return await getPayload(url); } catch (error) { return fallback; }
+    }
+
+    function projectIdFromLocation() {
+      return window.ReviewPresentation?.projectIdFromLocation?.()
+        || String(new URLSearchParams(window.location.search).get('project_id') || '').trim();
+    }
+
+    function setProjectIdInLocation(value) {
+      if (window.ReviewPresentation?.setProjectIdInLocation) {
+        return window.ReviewPresentation.setProjectIdInLocation(value);
+      }
+      const url = new URL(window.location.href);
+      const projectValue = String(value || '').trim();
+      if (projectValue) url.searchParams.set('project_id', projectValue);
+      else url.searchParams.delete('project_id');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      return projectValue;
+    }
+
+    function clear(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function textElement(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      node.textContent = text ?? '—';
+      return node;
+    }
+
+    function confirmDiscardDraftChanges() {
+      if (!editorDirty) return true;
+      if (!window.confirm('当前章节有未保存修改。确定要丢弃这些修改吗？')) return false;
+      editorDirty = false;
+      return true;
+    }
+
+    function confirmDiscardRiskDecisions() {
+      if (!riskDecisionDirty) return true;
+      if (!window.confirm('当前科学决定尚未提交。确定要丢弃这些选择吗？')) return false;
+      riskDecisionDirty = false;
+      return true;
+    }
+
+    function confirmDiscardParseQualityDecisions() {
+      if (!parseQualityDirty.size) return true;
+      if (!window.confirm('当前解析核对决定尚未保存。确定要丢弃这些修改吗？')) return false;
+      parseQualityDirty.clear();
+      return true;
+    }
+
+    function parseQualityWorkspaceAvailable() {
+      return Boolean((parseQualityPayload.studies || []).length);
+    }
+
+    function parseQualityGateActive() {
+      return parseQualityWorkspaceAvailable() && (
+        progressPayload.active_stage === 'parsing'
+        || (
+          progressPayload.route !== 'evidence-to-release.v1'
+          && parseQualityPayload.status === 'needs_attention'
+        )
+      );
+    }
+
+    function authoritativeProgressStage() {
+      return (progressPayload.stages || []).find(stage => stage.id === progressPayload.active_stage) || null;
+    }
+
+    function applyWorkbenchBusyState(busy) {
+      $('section-editor').disabled = busy;
+      $('project').disabled = busy || exportBusy;
+      $('save-section').disabled = busy;
+      $('restore-verified').disabled = busy;
+      $('high-risk-reason').disabled = busy;
+      $('approve-high-risk-edit').disabled = busy;
+      $('source-archive-input').disabled = busy || sourceUploadBusy;
+      document.querySelectorAll('#chemical-paper-panel input, #chemical-paper-panel select, #chemical-paper-panel button').forEach(control => {
+        control.disabled = busy || chemicalPaperBusy;
+      });
+      document.querySelectorAll('#dual-parse-workspace input, #dual-parse-workspace select, #dual-parse-workspace textarea, #dual-parse-workspace button').forEach(control => {
+        control.disabled = busy || dualParseBusy;
+      });
+      document.querySelectorAll('#source-supplement-form input, #source-supplement-form button').forEach(control => {
+        control.disabled = busy || sourceSupplementBusy;
+      });
+      document.querySelectorAll('#source-unresolved-list select, #source-unresolved-list button').forEach(control => {
+        control.disabled = busy || sourceMappingBusy;
+      });
+      document.querySelectorAll('#source-preflight-list select, #source-preflight-list button').forEach(control => {
+        control.disabled = busy || sourceMappingBusy;
+      });
+      document.querySelectorAll('#parse-import-form textarea, #parse-import-form button').forEach(control => {
+        control.disabled = busy || parseImportBusy;
+      });
+      document.querySelectorAll('#risk-stage-panel input, #risk-stage-panel button').forEach(control => {
+        control.disabled = busy;
+      });
+      document.querySelectorAll('#parse-quality-stage-panel input, #parse-quality-stage-panel textarea, #parse-quality-stage-panel button').forEach(control => {
+        const objectId = control.closest('[data-object-id]')?.dataset.objectId;
+        control.disabled = busy || (objectId ? parseQualityBusy.has(objectId) : false);
+      });
+      document.querySelectorAll('[data-workspace], .outline-section').forEach(button => {
+        button.disabled = busy || (button.dataset.workspace === 'manuscript' && parseQualityGateActive());
+      });
+      const releaseCapabilities = (
+        progressCapabilityProjectId === projectId
+        && progressCapabilityGeneration === projectLoadGeneration
+      ) ? progressPayload.release_capabilities || {} : {};
+      $('export-docx').disabled = busy || exportBusy || !releaseCapabilities.internal_draft_export_ready;
+      const unresolvedPlaceholders = (
+        typeof reviewFigurePayload === 'undefined' ? [] : reviewFigurePayload.placeholders || []
+      ).some(row => row.status !== 'verified');
+      $('export-verified-release').disabled = busy || exportBusy || !releaseCapabilities.verified_release_ready || unresolvedPlaceholders;
+    }
+
+    function setEditorBusy(busy) {
+      editorBusy = busy;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+    }
+
+    function setProjectLoadBusy(busy) {
+      projectLoadBusy = busy;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+    }
+
+    function setEmptyProjectWorkspace(empty) {
+      $('empty-project-workspace').hidden = !empty;
+      $('research-workbench-overview').hidden = empty;
+      $('project-tools').hidden = empty;
+      $('project-state-line').hidden = empty;
+      $('workspace-switcher').hidden = empty;
+      if (!empty) return;
+      $('cockpit-workspace').hidden = true;
+      $('manuscript-workspace').hidden = true;
+      $('project-title').textContent = '动态科研综述工作台';
+    }
+
+    function setProjectSelectionWorkspace() {
+      setEmptyProjectWorkspace(true);
+      $('project-tools').hidden = false;
+      $('project-waiting-message').textContent = '请选择上方项目列表中的项目。';
+    }
+
+    function setWorkspace(workspace) {
+      let selected = workspace === 'manuscript' ? 'manuscript' : 'cockpit';
+      if (selected === 'manuscript' && parseQualityGateActive()) selected = 'cockpit';
+      const changed = selected !== activeWorkspace;
+      activeWorkspace = selected;
+      $('cockpit-workspace').hidden = selected !== 'cockpit';
+      $('manuscript-workspace').hidden = selected !== 'manuscript';
+      document.querySelectorAll('[data-workspace]').forEach(button => {
+        if (button.closest('#manuscript-empty')) return;
+        button.setAttribute('aria-pressed', String(button.dataset.workspace === selected));
+      });
+      if (selected === 'manuscript' && changed) renderDraft();
+    }
+
+    function listText(value) {
+      return Array.isArray(value) && value.length ? value.join('、') : '—';
+    }
+
+    function renderProjectHeader() {
+      const brief = projectState.brief || {};
+      const parseGateActive = parseQualityGateActive();
+      const evidenceToReleaseRoute = progressPayload.route === 'evidence-to-release.v1';
+      const progressStage = authoritativeProgressStage();
+      const legacyStageLabel = stageLabels[projectState.current_stage] || '进行中';
+      const legacyStatusLabel = statusLabels[projectState.status] || '状态待核对';
+      const stageLabel = evidenceToReleaseRoute
+        ? progressStage?.label || '当前科研阶段'
+        : parseGateActive
+          ? progressStage?.label || '核对全文解析'
+          : legacyStageLabel;
+      const statusLabel = evidenceToReleaseRoute
+        ? progressPayload.status === 'complete'
+          ? '已完成'
+          : progressPayload.blocker
+            ? '需要处理'
+            : '进行中'
+        : parseGateActive
+        ? parseQualityPayload.status === 'needs_attention'
+          ? '解析记录需要处理'
+          : `${parseQualityPayload.summary?.needs_review || 0} 项待决定`
+        : legacyStatusLabel;
+      $('project-title').textContent = brief.topic || cockpitPayload.topic || '未命名综述项目';
+      $('stage-badge').textContent = stageLabel;
+      $('status-badge').textContent = statusLabel;
+      $('cockpit-stage-summary').textContent = `${stageLabel} · ${statusLabel}`;
+      $('review-question').textContent = brief.review_question || '—';
+      $('review-years').textContent = Number.isInteger(brief.from_year) && Number.isInteger(brief.to_year) ? `${brief.from_year}–${brief.to_year}` : '—';
+      $('review-target').textContent = Number.isInteger(brief.target_primary_studies) ? String(brief.target_primary_studies) : '—';
+      $('required-modes').textContent = listText(brief.required_modes);
+      $('review-exclusions').textContent = listText(brief.exclusions);
+      $('output-language').textContent = brief.output_language || '—';
+      $('review-deliverables').textContent = listText(brief.deliverables);
+      const awaiting = projectState.status === 'AWAITING_BRIEF_CONFIRMATION';
+      $('confirm-brief').hidden = !awaiting;
+      $('confirm-brief').disabled = !awaiting;
+      $('confirm-brief-primary').hidden = !awaiting;
+      $('confirm-brief-primary').disabled = !awaiting;
+      $('brief-confirmation-message').textContent = projectState.status === 'BRIEF_CONFIRMED' ? '综述简报已确认。' : '';
+      $('brief-stage-message').textContent = projectState.status === 'BRIEF_CONFIRMED' ? '综述简报已确认。' : '';
+      $('draft-availability-note').textContent = parseGateActive
+        ? draftPayload.available
+          ? '正文已有旧版本；解析核对完成前不可继续写作。'
+          : '解析核对完成前不会进入证据提取或正文写作。'
+        : draftPayload.available ? '正文已建立，可进入正文工作室。' : '正文尚未建立；当前以证据复核为主。';
+      const manuscriptButton = document.querySelector('[data-workspace="manuscript"]');
+      manuscriptButton.disabled = parseGateActive;
+      manuscriptButton.setAttribute('aria-disabled', String(parseGateActive));
+      manuscriptButton.title = parseGateActive ? '完成解析核对后进入正文工作室' : '';
+    }
+
+    function overviewStatus(value) {
+      return typeof window.ReviewPresentation?.humanStatus === 'function'
+        ? window.ReviewPresentation.humanStatus(value)
+        : (String(value || 'pending').replaceAll('_', ' ') || '待核对');
+    }
+
+    function overviewRiskLabel(value) {
+      return ({
+        AI_PROVISIONAL:'Agent 候选，待研究者核对',
+        GAP:'证据缺口',
+        CONFLICT:'冲突待核对',
+        NON_COMPARABLE:'当前不可比',
+        SUPPORT:'支持',
+        REFUTE:'反驳',
+        PENDING:'待处理',
+      }[value] || value || '状态待核对');
+    }
+
+    function renderResearchWorkbenchOverview() {
+      const root = $('research-workbench-overview');
+      if (!root) return;
+      root.hidden = !projectId;
+      if (!projectId) return;
+      const brief = projectState.brief || {};
+      const evidenceRows = Array.isArray(manuscriptEvidencePayload.items)
+        ? manuscriptEvidencePayload.items : [];
+      const sourceIds = [...new Set(evidenceRows.map(row => row.source_id).filter(Boolean))];
+      const studyIds = [...new Set(evidenceRows.map(row => row.study_id).filter(Boolean))];
+      const scope = brief.review_question || brief.topic || finalPayload.topic
+        || projectState.summary?.topic || '研究范围未提供';
+      const snapshot = finalPayload.release_snapshot || {};
+      const releaseLabel = snapshot.exists
+        ? snapshot.matches_authoritative && snapshot.integrity_valid
+          ? '发布快照与当前正文一致'
+          : '发布快照已过期，需重新生成'
+        : '尚未生成发布快照';
+      const rawStatus = snapshot.exists && snapshot.matches_authoritative
+        ? 'approved' : projectState.status || finalPayload.release_status || 'pending';
+      const statusNode = $('overview-status');
+      const statusWarning = snapshot.exists && !snapshot.matches_authoritative;
+      statusNode.className = `rw-status ${statusWarning ? 'rw-status-warn' : rawStatus === 'approved' ? 'rw-status-ok' : 'rw-status-pending'}`;
+      statusNode.innerHTML = `<span aria-hidden="true">${statusWarning ? '!' : rawStatus === 'approved' ? '✓' : '○'}</span> ${overviewStatus(statusWarning ? 'stale' : rawStatus)}`;
+      $('overview-scope-line').textContent = scope;
+      $('overview-scope').textContent = brief.review_question || brief.topic || '项目范围未提供';
+      $('overview-corpus').textContent = `${studyIds.length} 个研究 · ${sourceIds.length} 个来源 · ${evidenceRows.length} 条证据记录`;
+      $('overview-release').textContent = releaseLabel;
+
+      const gaps = [];
+      if (!evidenceRows.length) gaps.push('当前没有可显示的 canonical Evidence 记录。');
+      const descriptorStatus = manuscriptEvidencePayload.source_pdf_descriptors?.status;
+      if (descriptorStatus === 'stale') gaps.push('来源 PDF 描述已过期，需重新核对来源绑定。');
+      const coverage = manuscriptSynthesisPayload.coverage || {};
+      if (coverage.status && coverage.status !== 'approved' && coverage.status !== 'complete') {
+        gaps.push('Evidence 到比较判断的覆盖尚未完成。');
+      }
+      if (!snapshot.exists || !snapshot.matches_authoritative) gaps.push('当前正文尚无同版本的发布快照。');
+      const gapList = $('overview-gaps');
+      clear(gapList);
+      if (!gaps.length) gaps.push('当前投影没有额外缺口；仍需研究者逐项核对。');
+      gaps.forEach(value => gapList.append(textElement('li', '', value)));
+      const next = progressPayload.unique_next_action || progressPayload.recommended_next
+        || projectState.next_action || (gaps[0] || '核对当前研究证据');
+      $('overview-next-action').textContent = next;
+
+      const listNode = $('overview-evidence-list');
+      clear(listNode);
+      $('overview-evidence-count').textContent = `${evidenceRows.length} 条`;
+      if (!evidenceRows.length) {
+        listNode.append(textElement('p', 'overview-empty', '当前项目尚无可显示的证据记录；不会用占位内容代替原文。'));
+        return;
+      }
+      evidenceRows.forEach((item, index) => {
+        const card = document.createElement('article');
+        card.className = 'overview-evidence-card';
+        const heading = document.createElement('header');
+        heading.append(textElement('strong', '', item.statement || `证据记录 ${index + 1}`));
+        heading.append(textElement('span', 'overview-evidence-status', overviewStatus(item.status)));
+        card.append(heading);
+        const locator = item.locator || {};
+        const identity = [item.study_id, item.source_id].filter(Boolean).join(' · ') || '研究来源待提供';
+        card.append(textElement('p', 'overview-evidence-meta', `${identity} · ${locator.section_or_item || '定位待提供'} · 第 ${locator.page || '未知'} 页`));
+        if (locator.exact_quote || item.statement) card.append(textElement('blockquote', '', locator.exact_quote || item.statement));
+        const tags = [...new Set([...(item.risk_classes || []), item.status || 'pending'])].filter(Boolean);
+        card.append(textElement('p', 'overview-evidence-meta', tags.map(overviewRiskLabel).join(' · ')));
+        if (item.decision) {
+          const actor = typeof window.ReviewPresentation?.humanActor === 'function'
+            ? window.ReviewPresentation.humanActor(item.decision) : '决定者待提供';
+          card.append(textElement('p', 'overview-evidence-decision', `${actor} · ${item.decision.reason || '理由未提供'}`));
+        }
+        const links = document.createElement('div');
+        links.className = 'overview-evidence-links';
+        [[item.pdf_page_url, '打开原论文页'], [item.parsed_text_url, '打开解析文本']].forEach(([href, label]) => {
+          if (!href) return;
+          const link = document.createElement('a');
+          link.href = href; link.target = '_blank'; link.rel = 'noopener'; link.textContent = label; links.append(link);
+        });
+        if (links.childElementCount) card.append(links);
+        listNode.append(card);
+      });
+    }
+
+    function renderStages() {
+      clear($('stage-list'));
+      if (progressPayload.route === 'evidence-to-release.v1' || parseQualityGateActive()) {
+        (progressPayload.stages || []).forEach(stage => {
+          const item = document.createElement('li');
+          item.className = stage.status === 'complete' ? 'complete' : ['active', 'blocked'].includes(stage.status) ? 'current' : '';
+          const index = $('stage-list').children.length;
+          item.append(textElement('span', 'stage-index', String(index + 1).padStart(2, '0')));
+          const copy = document.createElement('span');
+          copy.append(textElement('strong', '', stage.label || '科研处理阶段'));
+          copy.append(textElement('small', '', {
+            complete:'已完成', active:'当前阶段', blocked:'需要处理', pending:'待推进'
+          }[stage.status] || '待推进'));
+          item.append(copy);
+          $('stage-list').append(item);
+        });
+        return;
+      }
+      const activeIndex = Math.max(0, stageFlow.findIndex(([stage]) => stage === projectState.current_stage));
+      stageFlow.forEach(([stage, label], index) => {
+        const item = document.createElement('li');
+        item.className = index < activeIndex ? 'complete' : index === activeIndex ? 'current' : '';
+        item.append(textElement('span', 'stage-index', String(index + 1).padStart(2, '0')));
+        const copy = document.createElement('span');
+        copy.append(textElement('strong', '', label));
+        copy.append(textElement('small', '', index < activeIndex ? '已完成' : index === activeIndex ? '当前阶段' : '待推进'));
+        item.append(copy);
+        $('stage-list').append(item);
+      });
+    }
+
+    function renderHealth() {
+      const metrics = cockpitPayload.metrics || {};
+      const availability = ReviewDualParseUI.availabilityModel({
+        sources:sourcePayload,
+        dualParse:dualParseModel,
+        includedStudies:Number.isInteger(metrics.included_studies) ? metrics.included_studies : null,
+        reviewedEvidenceStudies:Number.isInteger(metrics.reviewed_studies) ? metrics.reviewed_studies : null,
+      });
+      const rows = [
+        ['MAIN 全文可用', availability.mainFullText],
+        ['Generic Parse source 可用', availability.genericSource],
+        ['已完成 Evidence 复核', availability.reviewedEvidence]
+      ];
+      clear($('cockpit-health'));
+      rows.forEach(([label, metric]) => {
+        const block = document.createElement('div');
+        block.className = 'health-row';
+        const line = document.createElement('div');
+        const valueLabel = metric.available === null ? '未知' : String(metric.available);
+        const totalLabel = metric.total === null ? '未知' : String(metric.total);
+        line.append(textElement('span', '', label), textElement('strong', '', `${valueLabel} / ${totalLabel}`));
+        const progress = document.createElement('progress');
+        progress.max = Math.max(metric.total || 0, 1);
+        progress.value = metric.available === null ? 0 : Math.min(metric.available, progress.max);
+        progress.hidden = metric.available === null || metric.total === null;
+        progress.setAttribute('aria-label', label);
+        block.append(line, progress);
+        $('cockpit-health').append(block);
+      });
+    }
+
+    function renderModeCoverage() {
+      clear($('mode-coverage'));
+      const rows = cockpitPayload.mode_coverage || [];
+      if (!rows.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 4;
+        cell.textContent = '尚无激活方式分类。';
+        row.append(cell);
+        $('mode-coverage').append(row);
+        return;
+      }
+      rows.forEach(mode => {
+        const row = document.createElement('tr');
+        const included = Number(mode.included_studies) || 0;
+        const reviewed = Number(mode.reviewed_studies) || 0;
+        row.append(
+          textElement('th', '', mode.activation_mode || '未分类'),
+          textElement('td', '', String(included)),
+          textElement('td', '', String(reviewed))
+        );
+        row.firstChild.scope = 'row';
+        const meterCell = document.createElement('td');
+        const meter = document.createElement('progress');
+        meter.max = Math.max(included, 1);
+        meter.value = Math.min(reviewed, meter.max);
+        meter.setAttribute('aria-label', `${mode.activation_mode || '未分类'}复核覆盖`);
+        meterCell.append(meter);
+        row.append(meterCell);
+        $('mode-coverage').append(row);
+      });
+    }
+
+    function renderCockpitContext() {
+      const target = $('cockpit-context');
+      clear(target);
+      const risks = riskPayload.targets || [];
+      const cards = evidencePayload.cards || [];
+      if (!risks.length && !cards.length) {
+        target.append(textElement('p', 'context-empty', '当前还没有可展示的证据上下文。'));
+        return;
+      }
+      risks.slice(0, 3).forEach(risk => {
+        const article = document.createElement('article');
+        article.className = 'context-item risk-context';
+        article.append(textElement('span', 'context-type', '需要复核'));
+        article.append(textElement('h3', '', risk.claim_text || '待复核主张'));
+        article.append(textElement('p', '', risk.source_excerpt || risk.evidence_summary || '证据摘要待补充'));
+        target.append(article);
+      });
+      cards.slice(0, 2).forEach((card, index) => {
+        const article = document.createElement('article');
+        article.className = 'context-item evidence-context';
+        article.append(textElement('span', 'context-type', '已复核研究'));
+        article.append(textElement('h3', '', card.citation || `研究 ${index + 1}`));
+        article.append(textElement('p', '', card.source_excerpt || '原文摘录已记录'));
+        target.append(article);
+      });
+    }
+
+    function renderBriefStage() {
+      const brief = projectState.brief || {};
+      const years = Number.isInteger(brief.from_year) && Number.isInteger(brief.to_year)
+        ? `${brief.from_year}–${brief.to_year}` : '年份范围待确认';
+      const target = Number.isInteger(brief.target_primary_studies)
+        ? `${brief.target_primary_studies} 篇目标研究` : '研究数量由范围决定';
+      $('brief-stage-summary').textContent = [brief.review_question || brief.topic || '研究问题待确认', years, target].join(' · ');
+    }
+
+    function chemicalPaperActor() {
+      return typeof window.reviewDecisionActor === 'function'
+        ? window.reviewDecisionActor()
+        : {actor_type:'human_researcher',actor_label:'研究者'};
+    }
+
+    async function submitChemicalPaperMutation(kind, payload) {
+      if (chemicalPaperBusy || projectLoadBusy || !projectId) return;
+      const submittedProjectId = projectId;
+      const submittedGeneration = projectLoadGeneration;
+      const route = ReviewChemicalPaperUI.routes(submittedProjectId)[kind];
+      chemicalPaperBusy = true;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      $('chemical-paper-message').textContent = '正在保存并核对当前版本…';
+      try {
+        const result = await ReviewChemicalPaperUI.saveMutation({
+          request:fetch,
+          url:route,
+          payload,
+          onConflict:() => {
+            $('chemical-paper-message').textContent = '未保存：Chemical Paper 状态已有更新，请重新读取后再决定。';
+          },
+        });
+        if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+        if (result.status === 'conflict') return;
+        if (result.status !== 'saved') {
+          $('chemical-paper-message').textContent = result.httpStatus === 404
+            ? '未保存：对应候选条目已不可用，请重新读取项目。'
+            : '未保存：提交内容未通过核对，原记录保持不变。';
+          return;
+        }
+        $('chemical-paper-message').textContent = '已保存追加记录，正在读取最新 Chemical Paper 状态…';
+        await loadProject();
+        if (projectId === submittedProjectId) $('chemical-paper-message').textContent = '追加记录已保存；原始 PDF 仍是科学事实来源。';
+      } catch (_) {
+        if (projectId === submittedProjectId) $('chemical-paper-message').textContent = '保存失败；原记录保持不变，请重新读取后再试。';
+      } finally {
+        chemicalPaperBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    function renderChemicalPaper() {
+      ReviewChemicalPaperUI.renderChemicalPaper(
+        $('chemical-paper-root'),
+        chemicalPaperPayload,
+        {
+          onCorrectField:payload => submitChemicalPaperMutation('field', payload),
+          onReviewElements:payload => submitChemicalPaperMutation('elements', payload),
+          onValidationError:message => { $('chemical-paper-message').textContent = message; },
+        },
+        chemicalPaperActor(),
+      );
+    }
+
+    function dualParseActor() {
+      const actor = chemicalPaperActor();
+      return {actorType:actor.actor_type, actorLabel:actor.actor_label};
+    }
+
+    function dualParseInputSnapshot() {
+      return Array.from(document.querySelectorAll('#dual-parse-workspace input:not([type="file"]), #dual-parse-workspace select, #dual-parse-workspace textarea'))
+        .map((control, index) => ({index, value:control.value, checked:control.checked}));
+    }
+
+    function restoreDualParseInputs(snapshot) {
+      const controls = Array.from(document.querySelectorAll('#dual-parse-workspace input:not([type="file"]), #dual-parse-workspace select, #dual-parse-workspace textarea'));
+      (snapshot || []).forEach(row => {
+        const control = controls[row.index];
+        if (!control) return;
+        control.value = row.value;
+        if ('checked' in control) control.checked = row.checked;
+        if (control.tagName === 'SELECT') control.dispatchEvent(new Event('change'));
+      });
+    }
+
+    function showDualParseFailure(message, retry) {
+      const status = document.querySelector('#dual-study-status .dual-parse-live-state');
+      if (!status) return;
+      status.classList.add('failed');
+      const previous = status.querySelector('.dual-parse-action-failure');
+      if (previous) previous.remove();
+      const failure = textElement('p', 'dual-parse-action-failure', message);
+      status.append(failure);
+      if (retry) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = '重试当前动作';
+        button.addEventListener('click', retry);
+        status.append(button);
+      }
+    }
+
+    async function refreshDualParse(preserveInputs) {
+      if (!projectId || dualParseBusy) return;
+      const snapshot = preserveInputs ? dualParseInputSnapshot() : [];
+      dualParseBusy = true;
+      dualParseModel = ReviewDualParseUI.projectionModel({
+        schema_version:'dual-parse-projection.v2',
+        status:'loading',
+        next_action:{label:'读取当前双层解析任务',description:'完成读取前不会提交决定。'},
+      });
+      renderDualParse();
+      try {
+        dualParseModel = await ReviewDualParseUI.load(projectId, fetch);
+        renderDualParse();
+        if (preserveInputs) restoreDualParseInputs(snapshot);
+      } finally {
+        dualParseBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function submitDualParseMutation(kind, payload) {
+      if (!projectId || dualParseBusy || projectLoadBusy) return null;
+      const submittedProjectId = projectId;
+      const encoded = encodeURIComponent(submittedProjectId);
+      let url = '';
+      let options = {};
+      if (kind === 'preflight') {
+        url = `/api/project/${encoded}/chemical-paper/preflight?study_id=${encodeURIComponent(payload.study_id)}`;
+        options = {method:'POST',headers:{'Content-Type':'application/zip'},body:payload.file};
+      } else if (kind === 'confirm') {
+        url = `/api/project/${encoded}/chemical-paper/confirm`;
+        options = {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)};
+      } else if (kind === 'completion') {
+        url = `/api/project/${encoded}/chemical-completion`;
+        options = {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)};
+      } else if (kind === 'reconciliation') {
+        url = `/api/project/${encoded}/parse-reconciliation`;
+        options = {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)};
+      } else {
+        return null;
+      }
+      dualParseBusy = true;
+      applyWorkbenchBusyState(true);
+      const retry = () => submitDualParseMutation(kind, payload);
+      try {
+        const response = await fetch(url, options);
+        let body = {};
+        try { body = await response.json(); } catch (_) { body = {}; }
+        if (projectId !== submittedProjectId) return null;
+        if (response.status === 409) {
+          showDualParseFailure('状态已有更新；输入已保留。请刷新当前状态后重新提交。', () => refreshDualParse(true));
+          return null;
+        }
+        if (!response.ok) {
+          showDualParseFailure('动作失败；权威状态未更改，输入已保留。', retry);
+          return null;
+        }
+        if (kind === 'preflight') return body;
+        await loadProject();
+        return body;
+      } catch (_) {
+        if (projectId === submittedProjectId) {
+          showDualParseFailure('网络请求失败；权威状态未更改，输入已保留。', retry);
+        }
+        return null;
+      } finally {
+        dualParseBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    function renderDualParse() {
+      ReviewDualParseUI.render(
+        document,
+        $('dual-parse-workspace'),
+        dualParseModel,
+        {
+          actor:dualParseActor(),
+          onImportPreflight:payload => submitDualParseMutation('preflight', payload),
+          onImportConfirm:payload => submitDualParseMutation('confirm', payload),
+          onCompletionSave:payload => submitDualParseMutation('completion', payload),
+          onReconciliationSave:payload => submitDualParseMutation('reconciliation', payload),
+          onRetry:() => refreshDualParse(false),
+          onValidationError:message => showDualParseFailure(message),
+        },
+      );
+    }
+
+    function renderSourceStage() {
+      const counts = sourcePayload.counts || {};
+      $('source-coverage').textContent = `${counts.ready || 0} / ${counts.total || 0} 已就绪`;
+      clear($('source-list'));
+      (sourcePayload.sources || []).forEach((source, index) => {
+        const row = document.createElement('article');
+        row.className = `source-row${source.status === '已获得' ? ' ready' : ' missing'}`;
+        const copy = document.createElement('div');
+        copy.append(textElement('strong', '', source.citation || `研究来源 ${index + 1}`));
+        copy.append(textElement('span', '', `${source.role || '全文'} · ${source.message || source.status || '待核验'}`));
+        row.append(copy, textElement('b', '', source.status || '待核验'));
+        if (source.download_url && source.status !== '已获得') {
+          const link = document.createElement('a');
+          link.href = source.download_url;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = '打开来源页面 ↗';
+          row.append(link);
+        }
+        $('source-list').append(row);
+      });
+      if (!(sourcePayload.sources || []).length) {
+        $('source-list').append(textElement(
+          'p',
+          'context-empty',
+          progressPayload.archive_received
+            ? '上传已接收，等待来源清单核验。'
+            : '当前项目还没有来源清单，请上传一个 PDF ZIP。',
+        ));
+      }
+      clear($('source-supplement-list'));
+      (sourcePayload.supplements || []).forEach(source => {
+        const row = document.createElement('article');
+        const citation = source.citation || source.doi || '用户补充研究';
+        row.append(textElement('strong', '', citation));
+        row.append(textElement('span', '', `${source.system_recommendation || '待系统简要复核'} · ${source.researcher_disposition || '等待用户决定'}`));
+        $('source-supplement-list').append(row);
+      });
+      clear($('source-unresolved-list'));
+      const sourceByDownloadId = new Map(
+        (sourcePayload.sources || []).map(source => [source.download_id, source])
+      );
+      (sourcePayload.unresolved || []).forEach(member => {
+        const row = document.createElement('article');
+        row.className = 'source-row missing';
+        const copy = document.createElement('div');
+        copy.append(textElement('strong', '', member.member_display_name || '待确认文件'));
+        copy.append(textElement('span', '', '请选择这份文件对应的来源'));
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', '选择文件归属');
+        (member.download_ids || []).forEach(downloadId => {
+          const source = sourceByDownloadId.get(downloadId);
+          if (!source) return;
+          const option = document.createElement('option');
+          option.value = downloadId;
+          option.textContent = `${source.citation || '研究来源'} · ${source.role || '全文'}`;
+          select.append(option);
+        });
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'quiet-action';
+        button.textContent = '确认文件归属';
+        button.disabled = !select.value;
+        button.addEventListener('click', () => submitSourceMapping(member.member_id, select.value));
+        row.append(copy, select, button);
+        $('source-unresolved-list').append(row);
+      });
+      const preflight = sourcePayload.preflight;
+      const preflightPanel = $('source-preflight');
+      const preflightList = $('source-preflight-list');
+      clear(preflightList);
+      preflightPanel.hidden = !preflight;
+      if (preflight?.status === 'awaiting_confirmation') {
+        const member = preflight.member || {};
+        const row = document.createElement('article');
+        row.className = 'source-row missing';
+        const copy = document.createElement('div');
+        copy.append(textElement('strong', '', member.source_id || '待确认来源身份'));
+        copy.append(textElement(
+          'span',
+          '',
+          `${member.member_display_name || 'PDF'} · ${member.member_id || '待确认成员'} · SHA-256 ${member.sha256 || '未知'} · ${member.size_bytes || 0} bytes`,
+        ));
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', '确认来源角色');
+        (preflight.role_options || ['MAIN', 'SI']).forEach(role => {
+          const option = document.createElement('option');
+          option.value = role;
+          option.textContent = role === 'MAIN' ? 'MAIN · 主文献全文' : 'SI · 补充信息';
+          option.selected = role === 'MAIN';
+          select.append(option);
+        });
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'stage-primary-action';
+        button.textContent = '确认来源并进入解析';
+        button.addEventListener('click', () => submitSourcePreflight(member, select.value, preflight.archive_sha256));
+        row.append(copy, select, button);
+        preflightList.append(row);
+      } else if (preflight?.status === 'invalid') {
+        preflightList.append(textElement(
+          'p',
+          'processing-blocker',
+          `${preflight.reason_code || 'SOURCE_ARCHIVE_INVALID'} · ${preflight.message || '来源压缩包未通过核验。'}`,
+        ));
+      }
+      renderChemicalPaper();
+    }
+
+    async function submitManualParseImport(event) {
+      event.preventDefault();
+      if (parseImportBusy || projectLoadBusy || !projectId) return;
+      const source = (sourcePayload.sources || []).find(row => (
+        String(row.role || '').toUpperCase() === 'MAIN'
+        && row.currentness === 'current'
+        && row.source_id
+        && row.study_id
+        && row.digest
+      ));
+      const markdown = $('parse-import-markdown').value;
+      if (!source) {
+        $('parse-import-message').textContent = '当前没有可用的 MAIN 来源绑定；请先重新读取来源状态。';
+        return;
+      }
+      if (!markdown.trim()) {
+        $('parse-import-message').textContent = '请先提供解析文本；项目未更改。';
+        return;
+      }
+      parseImportBusy = true;
+      applyWorkbenchBusyState(true);
+      $('parse-import-message').textContent = '正在生成 source-bound 解析记录…';
+      try {
+        const response = await fetch(`/api/project/${encodeURIComponent(projectId)}/parse-import`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            study_id:source.study_id,
+            source_id:source.source_id,
+            source_pdf_sha256:source.digest,
+            markdown,
+          }),
+        });
+        let body = {};
+        try { body = await response.json(); } catch (_) { body = {}; }
+        if (!response.ok) {
+          $('parse-import-message').textContent = body.message || '解析未生成；项目保持不变。';
+          return;
+        }
+        $('parse-import-message').textContent = 'Source Truth 已生成，正在进入解析质量核对。';
+        $('parse-import-markdown').value = '';
+        await loadProject();
+      } catch (_) {
+        $('parse-import-message').textContent = '解析导入请求失败；项目保持不变，请重试。';
+      } finally {
+        parseImportBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    function renderProcessingStage() {
+      $('processing-next').textContent = progressPayload.recommended_next || '继续处理当前科学阶段';
+      $('processing-blocker').hidden = !progressPayload.blocker;
+      $('processing-blocker').textContent = progressPayload.blocker || '';
+      const parseReady = parseQualityPayload.workflow_can_continue === true;
+      const parseQualityStatus = parseReady
+        ? 'current · 可继续到后续 gate'
+        : parseQualityPayload.status === 'needs_attention'
+          ? 'needs_attention · Evidence 保持锁定'
+          : 'review_required · 等待解析核对';
+      $('parse-import-quality').textContent = `Parse Quality：${parseQualityStatus}`;
+      $('parse-import-form').hidden = progressPayload.route === 'evidence-to-release.v1' && parseReady;
+      clear($('processing-stage-list'));
+      (progressPayload.stages || []).forEach(stage => {
+        const item = document.createElement('li');
+        item.className = stage.status || 'pending';
+        item.append(textElement('strong', '', stage.label || '科研处理阶段'));
+        item.append(textElement('span', '', {
+          complete:'已完成', active:'正在处理', blocked:'需要处理', pending:'待开始'
+        }[stage.status] || '待开始'));
+        $('processing-stage-list').append(item);
+      });
+      clear($('processing-source-list'));
+      const currentSources = (sourcePayload.sources || []).filter(source => source.source_id || source.digest);
+      const mainSource = currentSources.find(source => String(source.role || '').toUpperCase() === 'MAIN');
+      $('parse-import-binding').textContent = mainSource?.source_id
+        ? `当前 MAIN：${mainSource.source_id} · PDF SHA-256 ${mainSource.digest || '未知'} · locator=${mainSource.safe_locator || '不可用'} · currentness=${mainSource.currentness || 'unknown'}`
+        : '当前没有可用的 MAIN 来源绑定。';
+      if (currentSources.length) {
+        $('processing-source-list').append(textElement('p', 'section-label', '当前来源记录'));
+      }
+      currentSources.forEach(source => {
+        const row = document.createElement('article');
+        row.className = 'source-row ready';
+        row.append(textElement('strong', '', source.source_id || source.download_id || 'Source record'));
+        row.append(textElement(
+          'span',
+          '',
+          `${source.role || '未知角色'} · ${source.currentness || 'currentness unknown'} · SHA-256 ${source.digest || '未知'} · ${source.message || source.status || ''}`,
+        ));
+        if (source.safe_locator) {
+          const link = document.createElement('a');
+          link.href = source.safe_locator;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = '打开当前 PDF ↗';
+          row.append(link);
+        }
+        $('processing-source-list').append(row);
+      });
+      clear($('processing-study-list'));
+      (progressPayload.studies || []).forEach((study, index) => {
+        const row = document.createElement('article');
+        row.append(textElement('strong', '', study.label || `研究 ${index + 1}`));
+        row.append(textElement('span', '', study.status || '等待处理'));
+        if (study.next_action) row.append(textElement('p', 'study-next-action', study.next_action));
+        $('processing-study-list').append(row);
+      });
+    }
+
+    function activeParseStudy() {
+      return (parseQualityPayload.studies || []).find(study => study.study_id === activeParseStudyId) || null;
+    }
+
+    function parseStudyState(study) {
+      const objects = study?.objects || [];
+      if (objects.some(row => row.decision?.action === 'reparse_required')) return '等待重新解析';
+      const reReview = objects.filter(row => row.review_state === 'needs_re_review').length;
+      if (reReview) return `重新解析已完成，需要重新判断 · ${reReview} 项`;
+      if (objects.some(row => row.decision?.action === 'pdf_locator_only')) return '含人工定位部分';
+      const pending = objects.filter(row => (row.actions || []).length && !row.decision).length;
+      return pending ? `${pending} 项待决定` : '核对已关闭';
+    }
+
+    function parseObjectNode(objectId) {
+      return Array.from(document.querySelectorAll('#parse-quality-object-list [data-object-id]'))
+        .find(node => node.dataset.objectId === objectId) || null;
+    }
+
+    function setParsePreview(kind) {
+      activeParsePreview = kind === 'parsed-markdown' ? 'parsed-markdown' : 'pdf';
+      const study = activeParseStudy();
+      const rawPage = Number.parseInt($('parse-quality-preview-page').value, 10);
+      const pageCount = Number.isInteger(study?.pdf_page_count) ? study.pdf_page_count : 1;
+      const page = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= pageCount ? rawPage : 1;
+      $('parse-quality-preview-page').value = String(page);
+      $('parse-quality-preview-page').max = String(pageCount);
+      $('parse-quality-preview-page').disabled = activeParsePreview !== 'pdf';
+      const href = activeParsePreview === 'pdf' && study?.pdf_page_href
+        ? `${study.pdf_page_href}?page=${encodeURIComponent(String(page))}`
+        : study?.markdown_href;
+      const openHref = activeParsePreview === 'pdf' ? study?.pdf_href : study?.markdown_href;
+      $('parse-quality-preview-pdf').setAttribute('aria-pressed', String(activeParsePreview === 'pdf'));
+      $('parse-quality-preview-markdown').setAttribute('aria-pressed', String(activeParsePreview === 'parsed-markdown'));
+      $('parse-quality-open-preview').href = openHref || '#';
+      $('parse-quality-open-preview').setAttribute('aria-disabled', String(!openHref));
+      if (href) $('parse-quality-preview').src = href;
+      else $('parse-quality-preview').removeAttribute('src');
+    }
+
+    function renderParseQualityStage() {
+      const studies = parseQualityPayload.studies || [];
+      const summary = parseQualityPayload.summary || {};
+      const nextAction = parseQualityPayload.next_action || {};
+      $('parse-quality-count').textContent = summary.needs_re_review
+        ? `${summary.needs_re_review} 项需要重新判断`
+        : `${summary.needs_review || 0} 项待决定`;
+      $('parse-quality-next-action-label').textContent = nextAction.label || '等待解析检查就绪';
+      $('parse-quality-next-action-description').textContent = nextAction.description || 'Evidence 保持锁定。';
+      $('parse-quality-refresh').hidden = nextAction.code !== 'repair_parse';
+      if (!studies.some(study => study.study_id === activeParseStudyId)) {
+        activeParseStudyId = studies[0]?.study_id || '';
+      }
+      clear($('parse-quality-study-list'));
+      studies.forEach((study, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = study.study_id === activeParseStudyId ? 'active' : '';
+        button.setAttribute('aria-pressed', String(study.study_id === activeParseStudyId));
+        button.append(textElement('span', 'parse-quality-study-index', String(index + 1).padStart(2, '0')));
+        const copy = document.createElement('span');
+        copy.append(textElement('strong', '', study.label || `研究 ${index + 1}`));
+        copy.append(textElement('small', '', parseStudyState(study)));
+        button.append(copy);
+        button.addEventListener('click', () => {
+          if (study.study_id === activeParseStudyId) return;
+          if (!confirmDiscardParseQualityDecisions()) return;
+          activeParseStudyId = study.study_id;
+          $('parse-quality-preview-page').value = '1';
+          renderParseQualityStage();
+        });
+        $('parse-quality-study-list').append(button);
+      });
+
+      const study = activeParseStudy();
+      const repairHandoff = study?.repair_handoff;
+      if (nextAction.code === 'repair_parse' && repairHandoff?.instructions) {
+        $('parse-quality-next-action-description').textContent = repairHandoff.instructions;
+      }
+      $('parse-quality-study-title').textContent = study?.label || '解析检查尚未就绪';
+      $('parse-quality-study-status').textContent = study ? parseStudyState(study) : '等待检查';
+      const binding = study?.parse_binding;
+      $('parse-quality-binding').textContent = binding?.source_id
+        ? `来源绑定：${binding.source_id} · PDF SHA-256 ${binding.source_pdf_sha256 || '未知'} · ${binding.provenance || 'CANONICAL_PARSE'} · currentness=${binding.currentness || 'unknown'} · quality=${binding.quality_status || 'needs_review'}`
+        : '当前解析来源绑定读取中。';
+      clear($('parse-quality-object-list'));
+      if (!study) {
+        $('parse-quality-object-list').append(textElement('p', 'context-empty', '解析检查正在生成；当前不会进入证据提取。'));
+        setParsePreview(activeParsePreview);
+        $('parse-quality-message').textContent = parseQualityNotice || (
+          parseQualityPayload.status === 'needs_attention' ? '解析记录需要重新生成后再核对。' : ''
+        );
+        return;
+      }
+
+      (study.objects || []).forEach((object, index) => {
+        const row = document.createElement('article');
+        row.className = 'parse-quality-object-row';
+        row.dataset.objectId = object.object_id;
+        const heading = document.createElement('header');
+        const title = document.createElement('div');
+        title.append(textElement('span', 'parse-quality-object-index', String(index + 1).padStart(2, '0')));
+        title.append(textElement('h5', '', object.label || '解析对象'));
+        const badge = textElement('span', `parse-quality-status-badge ${object.automatic_status || ''}`, parseStatusLabels[object.automatic_status] || '状态待核对');
+        heading.append(title, badge);
+        row.append(heading);
+
+        const issues = document.createElement('ul');
+        issues.className = 'parse-quality-issue-list';
+        (object.issues || []).forEach(issue => {
+          const item = document.createElement('li');
+          item.append(textElement('span', '', issue.page ? `第 ${issue.page} 页` : '全文'));
+          item.append(textElement('p', '', issue.message || '需要回看原始论文。'));
+          issues.append(item);
+        });
+        if (!(object.issues || []).length) {
+          issues.append(textElement('li', 'parse-quality-no-issue', '自动检查未发现需要人工处理的问题。'));
+        }
+        row.append(issues);
+
+        if (object.review_message) {
+          row.append(textElement('p', 'parse-quality-review-lifecycle', object.review_message));
+        }
+        if ((object.previous_decisions || []).length) {
+          const history = document.createElement('details');
+          history.className = 'parse-quality-decision-history';
+          const historySummary = document.createElement('summary');
+          historySummary.textContent = `此前决定（${object.previous_decisions.length}）`;
+          history.append(historySummary);
+          const historyList = document.createElement('ol');
+          object.previous_decisions.forEach(previous => {
+            const item = document.createElement('li');
+            const actionLabel = parseActionLabels[previous.action]?.title || '此前判断';
+            item.append(textElement('strong', '', actionLabel));
+            item.append(textElement('p', '', previous.note || '未记录理由'));
+            item.append(textElement(
+              'small',
+              '',
+              `决定者：${previous.actor_label || '未记录'}（${previous.actor_type || '类型未记录'}） · 更新：${previous.decided_at || '时间未记录'}`,
+            ));
+            if (previous.pdf_resolution) {
+              item.append(textElement('p', '', `原始 PDF 页：${(previous.pdf_resolution.pages || []).join('、') || '未记录'}`));
+              item.append(textElement('p', '', `可判定范围：${previous.pdf_resolution.source_scope || '未记录'}`));
+              item.append(textElement('p', '', `限制：${previous.pdf_resolution.limitations || '未记录'}`));
+            }
+            historyList.append(item);
+          });
+          history.append(historyList);
+          row.append(history);
+        }
+
+        if ((object.actions || []).length) {
+          const controls = document.createElement('fieldset');
+          controls.className = 'parse-quality-decision-controls';
+          controls.append(textElement('legend', '', '研究者决定'));
+          (object.actions || []).forEach(action => {
+            const option = document.createElement('label');
+            option.className = 'parse-quality-decision-option';
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = `parse-quality-${object.object_id}`;
+            input.value = action;
+            input.checked = object.decision?.action === action;
+            input.addEventListener('change', () => {
+              parseQualityDirty.add(object.object_id);
+              row.querySelector('.parse-quality-save-note').textContent = '该项决定尚未保存。';
+            });
+            const copy = document.createElement('span');
+            copy.append(textElement('strong', '', parseActionLabels[action]?.title || '记录决定'));
+            copy.append(textElement('small', '', parseActionLabels[action]?.detail || ''));
+            option.append(input, copy);
+            controls.append(option);
+          });
+          const noteLabel = document.createElement('label');
+          noteLabel.className = 'parse-quality-note-field';
+          noteLabel.append(textElement('span', '', '核对理由'));
+          const note = document.createElement('textarea');
+          note.rows = 2;
+          note.maxLength = 2000;
+          note.required = Boolean(object.note_required);
+          note.value = object.decision?.note || '';
+          note.addEventListener('input', () => {
+            parseQualityDirty.add(object.object_id);
+            row.querySelector('.parse-quality-save-note').textContent = '该项决定尚未保存。';
+          });
+          noteLabel.append(note);
+          controls.append(noteLabel);
+          const resolution = document.createElement('div');
+          resolution.className = 'parse-quality-pdf-resolution';
+          const pageLabel = document.createElement('label');
+          pageLabel.append(textElement('span', '', '原始 PDF 页码（逗号分隔）'));
+          const pages = document.createElement('input');
+          pages.type = 'text';
+          pages.inputMode = 'numeric';
+          pages.dataset.pdfResolution = 'pages';
+          pages.value = (object.decision?.pdf_resolution?.pages || []).join(', ');
+          pageLabel.append(pages);
+          const scopeLabel = document.createElement('label');
+          scopeLabel.append(textElement('span', '', '原始 PDF 可判定内容'));
+          const scope = document.createElement('textarea');
+          scope.rows = 2;
+          scope.maxLength = 2000;
+          scope.dataset.pdfResolution = 'source_scope';
+          scope.value = object.decision?.pdf_resolution?.source_scope || '';
+          scopeLabel.append(scope);
+          const limitationsLabel = document.createElement('label');
+          limitationsLabel.append(textElement('span', '', '解析限制与下游使用边界'));
+          const limitations = document.createElement('textarea');
+          limitations.rows = 2;
+          limitations.maxLength = 2000;
+          limitations.dataset.pdfResolution = 'limitations';
+          limitations.value = object.decision?.pdf_resolution?.limitations || '';
+          limitationsLabel.append(limitations);
+          resolution.append(pageLabel, scopeLabel, limitationsLabel);
+          const updateResolutionVisibility = () => {
+            const selected = controls.querySelector('input[type="radio"]:checked')?.value;
+            resolution.hidden = selected !== 'pdf_locator_only';
+            resolution.querySelectorAll('input, textarea').forEach(field => {
+              field.required = selected === 'pdf_locator_only';
+            });
+          };
+          controls.querySelectorAll('input[type="radio"]').forEach(input => {
+            input.addEventListener('change', updateResolutionVisibility);
+          });
+          resolution.querySelectorAll('input, textarea').forEach(field => {
+            field.addEventListener('input', () => {
+              parseQualityDirty.add(object.object_id);
+              row.querySelector('.parse-quality-save-note').textContent = '该项决定尚未保存。';
+            });
+          });
+          controls.append(resolution);
+          updateResolutionVisibility();
+          const footer = document.createElement('div');
+          footer.className = 'parse-quality-save-row';
+          const savedCopy = object.decision
+            ? `已保存 · 决定者：${object.decision?.actor_label || '未记录'}（${object.decision?.actor_type || '类型未记录'}） · 更新：${object.decision?.decided_at || '时间未记录'}`
+            : '请选择决定并填写理由。';
+          footer.append(textElement('p', 'parse-quality-save-note', savedCopy));
+          const save = document.createElement('button');
+          save.type = 'button';
+          save.textContent = '保存该项决定';
+          save.disabled = parseQualityBusy.has(object.object_id);
+          save.addEventListener('click', () => submitParseQualityDecision(study.study_id, object.object_id, object.decision_token));
+          footer.append(save);
+          controls.append(footer);
+          row.append(controls);
+        } else {
+          row.append(textElement('p', 'parse-quality-pass-note', '该项自动检查通过，无需人工决定。'));
+        }
+        $('parse-quality-object-list').append(row);
+      });
+      setParsePreview(activeParsePreview);
+      $('parse-quality-message').textContent = parseQualityNotice;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+    }
+
+    async function submitParseQualityDecision(studyId, objectId, decisionToken) {
+      if (parseQualityBusy.has(objectId) || projectLoadBusy || !projectId) return;
+      const row = parseObjectNode(objectId);
+      const action = row?.querySelector('input[type="radio"]:checked')?.value || '';
+      const note = row?.querySelector('textarea')?.value.trim() || '';
+      if (!action || !note) {
+        row?.querySelector('.parse-quality-save-note')?.replaceChildren('请选择决定并填写核对理由。');
+        return;
+      }
+      let pdfResolution = null;
+      if (action === 'pdf_locator_only') {
+        const pageText = row?.querySelector('[data-pdf-resolution="pages"]')?.value || '';
+        const pages = pageText.split(',').map(value => Number.parseInt(value.trim(), 10));
+        const sourceScope = row?.querySelector('[data-pdf-resolution="source_scope"]')?.value.trim() || '';
+        const limitations = row?.querySelector('[data-pdf-resolution="limitations"]')?.value.trim() || '';
+        if (!pages.length || pages.some(page => !Number.isInteger(page) || page < 1) || !sourceScope || !limitations) {
+          row?.querySelector('.parse-quality-save-note')?.replaceChildren('请填写有效页码、可判定内容和解析限制。');
+          return;
+        }
+        pdfResolution = {pages, source_scope:sourceScope, limitations};
+      }
+      const submittedProjectId = projectId;
+      const submittedGeneration = projectLoadGeneration;
+      progressCapabilityProjectId = '';
+      progressCapabilityGeneration = -1;
+      renderReleaseControls();
+      parseQualityBusy.add(objectId);
+      row.querySelectorAll('input, textarea, button').forEach(control => { control.disabled = true; });
+      row.querySelector('.parse-quality-save-note').textContent = '正在保存该项决定…';
+      try {
+        const response = await fetch(`/api/project/${encodeURIComponent(submittedProjectId)}/parse-quality`, {
+          method:'PUT',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({study_id:studyId,object_id:objectId,decision_token:decisionToken,action,note,...(pdfResolution ? {pdf_resolution:pdfResolution} : {})}),
+        });
+        if (response.status === 409) {
+          if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+          parseQualityNotice = '解析内容已更新，请重新核对';
+          parseQualityDirty.delete(objectId);
+          const [refreshedParseQuality, refreshedProgress] = await Promise.all([
+            getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/parse-quality`),
+            getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/progress`),
+          ]);
+          if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+          parseQualityPayload = refreshedParseQuality;
+          progressPayload = refreshedProgress;
+          progressCapabilityProjectId = submittedProjectId;
+          progressCapabilityGeneration = submittedGeneration;
+          renderStageWorkspace();
+          return;
+        }
+        if (!response.ok) throw new Error('decision rejected');
+        const nextPayload = await response.json();
+        if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+        parseQualityPayload = nextPayload;
+        parseQualityDirty.delete(objectId);
+        parseQualityNotice = '该项决定已保存。';
+        try {
+          const refreshedProgress = await getPayload(
+            `/api/project/${encodeURIComponent(submittedProjectId)}/progress`,
+          );
+          if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+          progressPayload = refreshedProgress;
+          progressCapabilityProjectId = submittedProjectId;
+          progressCapabilityGeneration = submittedGeneration;
+        } catch (_) {
+          if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+          parseQualityNotice = '决定已保存，但流程状态刷新失败；导出保持锁定，请刷新项目。';
+        }
+        renderStageWorkspace();
+      } catch (error) {
+        if (projectId === submittedProjectId && projectLoadGeneration === submittedGeneration) {
+          const current = parseObjectNode(objectId);
+          if (current) current.querySelector('.parse-quality-save-note').textContent = '决定未保存，请重新核对后再试。';
+        }
+      } finally {
+        parseQualityBusy.delete(objectId);
+        if (projectId === submittedProjectId && projectLoadGeneration === submittedGeneration) {
+          const current = parseObjectNode(objectId);
+          current?.querySelectorAll('input, textarea, button').forEach(control => { control.disabled = false; });
+        }
+      }
+    }
+
+    function riskDecisionCard(targetId) {
+      return Array.from(document.querySelectorAll('.risk-decision-card'))
+        .find(card => card.dataset.targetId === targetId);
+    }
+
+    function selectedRiskDecision(targetId) {
+      return riskDecisionCard(targetId)?.querySelector('input[type="radio"]:checked')?.value || 'unresolved';
+    }
+
+    function riskRewordText(targetId) {
+      return riskDecisionCard(targetId)?.querySelector('.risk-reword-input')?.value.trim() || '';
+    }
+
+    function updateRiskDecisionStatus() {
+      const unresolved = (riskPayload.targets || []).filter(
+        target => selectedRiskDecision(target.target_id) === 'unresolved'
+      ).length;
+      $('risk-unresolved-note').textContent = unresolved
+        ? '尚有暂缓项，完成决定后才能进入写作'
+        : '所有主张均已有明确决定，可以一次提交。';
+      $('risk-unresolved-note').classList.toggle('resolved', unresolved === 0);
+    }
+
+    function renderRiskPacket() {
+      const targets = riskPayload.targets || [];
+      $('risk-target-count').textContent = `${targets.length} 项待决策`;
+      clear($('risk-decision-list'));
+      targets.forEach((target, index) => {
+        const article = document.createElement('article');
+        article.className = 'risk-decision-card';
+        article.dataset.targetId = target.target_id;
+
+        const context = document.createElement('div');
+        context.className = 'risk-decision-context';
+        const heading = document.createElement('header');
+        heading.append(textElement('span', 'risk-number', String(index + 1).padStart(2, '0')));
+        const categories = document.createElement('div');
+        categories.className = 'risk-category-list';
+        (target.risk_categories || []).forEach(category => categories.append(textElement('span', '', category)));
+        heading.append(categories);
+        context.append(heading);
+        context.append(textElement('h4', '', target.claim_text || '待核对科学主张'));
+        context.append(textElement('p', 'risk-review-summary', target.proposed_action || '请核对证据与主张是否一致。'));
+        context.append(textElement('blockquote', '', target.source_excerpt || '未提供原文摘录'));
+        const location = [target.source_label, target.page ? `第 ${target.page} 页` : ''].filter(Boolean).join(' · ');
+        context.append(textElement('p', 'risk-source-location', location || target.evidence_summary || '定位信息待补充'));
+        if (target.locator && target.locator.href) {
+          const locator = document.createElement('a');
+          locator.className = 'risk-source-link';
+          locator.href = target.locator.href;
+          locator.target = '_blank';
+          locator.rel = 'noopener';
+          locator.textContent = '打开原文位置 ↗';
+          context.append(locator);
+        }
+
+        const controls = document.createElement('fieldset');
+        controls.className = 'risk-decision-controls';
+        controls.append(textElement('legend', '', '您的决定'));
+        const options = [
+          ['approve', '采纳', '证据足以支持当前表述'],
+          ['reword', '改写', '保留结论，但收窄或修正措辞'],
+          ['exclude', '排除', '不让该主张进入正文'],
+          ['unresolved', '暂缓', '暂不决定，并阻止进入写作'],
+        ];
+        options.forEach(([value, label, help]) => {
+          const option = document.createElement('label');
+          option.className = 'risk-decision-option';
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `risk-decision-${index}`;
+          if (value === 'approve') input.value = 'approve';
+          if (value === 'reword') input.value = 'reword';
+          if (value === 'exclude') input.value = 'exclude';
+          if (value === 'unresolved') input.value = 'unresolved';
+          input.checked = value === (target.existing_decision || 'unresolved');
+          input.addEventListener('change', () => {
+            riskDecisionDirty = true;
+            reword.hidden = selectedRiskDecision(target.target_id) !== 'reword';
+            updateRiskDecisionStatus();
+          });
+          const copy = document.createElement('span');
+          copy.append(textElement('strong', '', label), textElement('small', '', help));
+          option.append(input, copy);
+          controls.append(option);
+        });
+        const reword = document.createElement('label');
+        reword.className = 'risk-reword-field';
+        reword.hidden = (target.existing_decision || 'unresolved') !== 'reword';
+        reword.append(textElement('span', '', '批准进入正文的改写'));
+        const rewordInput = document.createElement('textarea');
+        rewordInput.className = 'risk-reword-input';
+        rewordInput.rows = 3;
+        rewordInput.value = target.approved_text || target.claim_text || '';
+        rewordInput.addEventListener('input', () => { riskDecisionDirty = true; });
+        reword.append(rewordInput);
+        controls.append(reword);
+
+        article.append(context, controls);
+        $('risk-decision-list').append(article);
+      });
+      updateRiskDecisionStatus();
+    }
+
+    async function submitRiskDecisions() {
+      if (!projectId || projectLoadBusy) return;
+      const decisions = (riskPayload.targets || []).map(target => ({
+        target_id:target.target_id,
+        decision:selectedRiskDecision(target.target_id),
+        ...(selectedRiskDecision(target.target_id) === 'reword'
+          ? {approved_text:riskRewordText(target.target_id)} : {}),
+        decision_token:target.decision_token,
+      }));
+      if (decisions.some(row => row.decision === 'reword' && !row.approved_text)) {
+        $('risk-decision-message').textContent = '请先填写所有改写后的科学表述。';
+        return;
+      }
+      applyWorkbenchBusyState(true);
+      $('risk-decision-message').textContent = '正在保存科学决定…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(projectId)}/risk-decisions`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({decisions})
+        });
+        riskDecisionDirty = false;
+        await loadProject();
+        if ((riskPayload.targets || []).some(target => target.existing_decision === 'unresolved')) {
+          $('risk-decision-message').textContent = '决定已保存；暂缓项仍会阻止进入写作。';
+        } else {
+          $('workbench-message').textContent = '科学决定已保存，正在进入写作。';
+        }
+      } catch (error) {
+        $('risk-decision-message').textContent = '科学决定未保存；请重新核对后提交。';
+      } finally {
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    function renderStageWorkspace() {
+      const awaitingBrief = projectState.status === 'AWAITING_BRIEF_CONFIRMATION';
+      const hasSourceQueue = Boolean((sourcePayload.sources || []).length);
+      const needsSourceUpload = hasSourceQueue && sourcePayload.upload_required && !progressPayload.archive_received;
+      const sourceIntegrityNeedsAttention = hasSourceQueue
+        && (sourcePayload.sources || []).some(source => source.status !== '已获得');
+      const sourceBlocked = progressPayload.active_stage === 'sources' && Boolean(progressPayload.blocker);
+      const sourceHandoffNeeded = progressPayload.active_stage === 'sources' && (
+        !hasSourceQueue || needsSourceUpload || sourceIntegrityNeedsAttention
+      );
+      const showSource = !awaitingBrief && (sourceHandoffNeeded || sourceBlocked);
+      const parseWorkspaceAvailable = parseQualityWorkspaceAvailable();
+      const showParseQuality = !awaitingBrief && !showSource && parseWorkspaceAvailable && (
+        progressPayload.active_stage === 'parsing'
+        || (progressPayload.route !== 'evidence-to-release.v1' && parseQualityPayload.status === 'needs_attention')
+      );
+      const showRisk = !awaitingBrief && !showSource && !showParseQuality && progressPayload.active_stage === 'risk' && Boolean((riskPayload.targets || []).length) && !draftPayload.available;
+      const evidenceRoute = progressPayload.route === 'evidence-to-release.v1';
+      const evidenceRouteProcessing = evidenceRoute && [
+        'parsing', 'chemical_import', 'chemical_completion', 'reconciliation'
+      ].includes(progressPayload.active_stage);
+      const showProcessing = (!evidenceRoute || evidenceRouteProcessing)
+        && !awaitingBrief && !showSource && !showParseQuality && !showRisk && !draftPayload.available;
+      $('brief-stage-panel').hidden = !awaitingBrief;
+      $('source-stage-panel').hidden = !showSource;
+      $('processing-stage-panel').hidden = !showProcessing;
+      $('parse-quality-stage-panel').hidden = !showParseQuality;
+      $('risk-stage-panel').hidden = !showRisk;
+      $('cockpit-overview').hidden = awaitingBrief || showSource || showParseQuality || showRisk || showProcessing;
+      document.body.dataset.reviewStage = showParseQuality
+        ? 'parse-quality'
+        : showSource
+        ? 'source'
+        : showRisk
+        ? 'risk'
+        : showProcessing
+        ? 'processing'
+        : 'overview';
+      renderBriefStage();
+      renderSourceStage();
+      renderProcessingStage();
+      if (showParseQuality) renderParseQualityStage();
+      renderRiskPacket();
+    }
+
+    function renderCockpit() {
+      const metrics = cockpitPayload.metrics || {};
+      const availability = ReviewDualParseUI.availabilityModel({
+        sources:sourcePayload,
+        dualParse:dualParseModel,
+        includedStudies:Number.isInteger(metrics.included_studies) ? metrics.included_studies : null,
+        reviewedEvidenceStudies:Number.isInteger(metrics.reviewed_studies) ? metrics.reviewed_studies : null,
+      });
+      $('metric-included').textContent = cockpitPayload.metrics.included_studies ?? 0;
+      $('metric-main-coverage').textContent = availability.mainFullText.available ?? '未知';
+      $('metric-reviewed').textContent = availability.reviewedEvidence.available ?? '未知';
+      $('metric-scientific-risks').textContent = cockpitPayload.metrics.scientific_risks ?? 0;
+      $('recommended-next').textContent = progressPayload.route === 'evidence-to-release.v1'
+        ? progressPayload.recommended_next || progressPayload.unique_next_action || '继续核对当前研究证据'
+        : cockpitPayload.recommended_next || '继续核对当前研究证据';
+      void metrics;
+      renderStages();
+      renderHealth();
+      renderModeCoverage();
+      renderCockpitContext();
+      renderStageWorkspace();
+      renderDualParse();
+      renderReviewAudit();
+      renderHistory();
+      renderResearchWorkbenchOverview();
+    }
+
+    function renderReviewAudit() {
+      const panel = $('review-audit');
+      const visible = progressPayload.route === 'evidence-to-release.v1';
+      panel.hidden = !visible;
+      if (!visible) return;
+      ReviewAuditUI.renderAudit($('review-audit-root'), {
+        parseQuality:parseQualityPayload,
+        protocol:comparisonProtocolPayload,
+        synthesis:manuscriptSynthesisPayload,
+        figures:reviewFigurePayload,
+        progress:progressPayload,
+        final:finalPayload,
+      });
+    }
+
+    function renderHistory() {
+      const panel = $('history-panel');
+      const current = historyPayload?.current;
+      const rows = Array.isArray(historyPayload?.history) ? historyPayload.history : [];
+      const currentRow = rows.find(row => row.is_current);
+      panel.hidden = !current || !rows.length;
+      if (panel.hidden) return;
+      $('history-current').textContent = `${current.version_id} · r${historyPayload.revision}`;
+      clear($('history-list'));
+      rows.forEach(row => {
+        const item = document.createElement('article');
+        item.className = 'source-card';
+        item.append(textElement('strong', '', `${row.version_id} · ${row.branch_name}`));
+        item.append(textElement('p', '', `parent=${row.parent_version_id || '—'} · ${row.can_write ? '当前可写' : '只读历史'}`));
+        if (!row.can_write) {
+          const branch = document.createElement('button');
+          branch.type = 'button';
+          branch.className = 'quiet-action';
+          branch.textContent = '从此版本分支';
+          branch.addEventListener('click', () => {
+            $('history-branch-source').value = row.version_id;
+            $('history-branch-id').focus();
+          });
+          item.append(branch);
+        }
+        $('history-list').append(item);
+      });
+      $('history-branch-source').value ||= current.version_id;
+      $('history-undo-target').value ||= currentRow?.parent_version_id || current.version_id;
+      $('history-branch-id').value ||= `branch-r${historyPayload.revision}`;
+      $('history-branch-version').value ||= `branch-v${historyPayload.revision}`;
+      $('history-undo-branch-id').value ||= `rollback-r${historyPayload.revision}`;
+      $('history-undo-version').value ||= `rollback-v${historyPayload.revision}`;
+      $('history-branch-name').value ||= `Branch from ${$('history-branch-source').value}`;
+      $('history-undo-branch-name').value ||= `Rollback from ${current.version_id}`;
+    }
+
+    async function submitHistoryAction(event, action) {
+      event.preventDefault();
+      if (!projectId || !historyPayload?.current) return;
+      const form = event.currentTarget;
+      const submittedProjectId = projectId;
+      const values = new FormData(form);
+      const confirm = values.get('confirm') === 'on';
+      if (!confirm) {
+        $('history-message').textContent = '请明确确认后再提交。';
+        return;
+      }
+      const payload = action === 'branch'
+        ? {
+          source_version_id: String(values.get('source_version_id') || ''),
+          branch_id: String(values.get('branch_id') || ''),
+          branch_name: String(values.get('branch_name') || ''),
+          version_id: String(values.get('version_id') || ''),
+          activate: values.get('activate') === 'on',
+          confirm: true,
+          expected_revision: historyPayload.revision,
+        }
+        : {
+          target_version_id: String(values.get('target_version_id') || ''),
+          branch_id: String(values.get('branch_id') || ''),
+          branch_name: String(values.get('branch_name') || ''),
+          version_id: String(values.get('version_id') || ''),
+          expected_head_id: historyPayload.current.version_id,
+          confirm: true,
+          expected_revision: historyPayload.revision,
+        };
+      try {
+        const result = await getPayload(
+          `/api/project/${encodeURIComponent(submittedProjectId)}/history/${action}`,
+          {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)},
+        );
+        if (projectId !== submittedProjectId) return;
+        historyPayload = result;
+        form.reset();
+        $('history-message').textContent = action === 'branch' ? '已创建分支。' : '已创建回退分支。';
+        renderHistory();
+        await loadProject();
+      } catch (_) {
+        if (projectId === submittedProjectId) $('history-message').textContent = '版本操作未保存；请重新读取当前版本。';
+      }
+    }
+
+    function sectionLineage(sectionId) {
+      return (draftPayload.claim_lineage || []).filter(claim => claim.section_id === sectionId);
+    }
+
+    function pendingForSection(sectionId) {
+      return (draftPayload.revision_status?.pending_scientific_edits || []).find(row => row.section_id === sectionId);
+    }
+
+    function getActiveSection() {
+      return (draftPayload.sections || []).find(section => (section.id || section.section_id) === activeSectionId) || null;
+    }
+
+    function sectionId(section) {
+      return section?.id || section?.section_id || '';
+    }
+
+    function appendContextLink(container, href, label) {
+      if (!href || !href.startsWith('/')) return;
+      const link = document.createElement('a');
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = label;
+      container.append(link);
+    }
+
+    function renderManuscriptContext(section) {
+      const context = ReviewManuscriptUI.contextForSection({
+        route:draftPayload.route,
+        sections:[section],
+        evidence:manuscriptEvidencePayload.items,
+        synthesis:manuscriptSynthesisPayload.items,
+        source_figures:reviewFigurePayload.source_figures,
+      }, section);
+      const evidenceList = $('evidence-context-list');
+      const synthesisList = $('synthesis-context-list');
+      const figureList = $('source-figure-context-list');
+      clear(evidenceList); clear(synthesisList); clear(figureList);
+      if (!context.evidence.length) evidenceList.append(textElement('p', 'context-empty', '本节尚无可显示的关联证据。'));
+      context.evidence.forEach(item => {
+        const record = document.createElement('article'); record.className = 'context-record';
+        record.append(textElement('strong', '', item.statement || '证据表述待核对'));
+        record.append(textElement('span', '', [item.epistemic_type, item.locator_label].filter(Boolean).join(' · ') || '定位待核对'));
+        if (item.exact_quote) record.append(textElement('span', '', `原文：${item.exact_quote}`));
+        appendContextLink(record, item.pdf_page_url, '打开原论文页');
+        appendContextLink(record, item.parsed_text_url, '打开解析文本');
+        evidenceList.append(record);
+      });
+      if (!context.synthesis.length) synthesisList.append(textElement('p', 'context-empty', '本节尚无可显示的综合判断。'));
+      context.synthesis.forEach(item => {
+        const record = document.createElement('article'); record.className = 'context-record synthesis-record';
+        record.append(textElement('strong', '', item.proposition || '综合判断待核对'));
+        record.append(textElement('span', '', [item.comparison_axis, item.applicability_boundary, item.uncertainty].filter(Boolean).join(' · ') || '边界待核对'));
+        synthesisList.append(record);
+      });
+      if (!context.source_figures.length) figureList.append(textElement('p', 'context-empty', '本节尚无关联原论文图片。'));
+      context.source_figures.forEach(item => {
+        const record = document.createElement('article'); record.className = 'context-record figure-record';
+        record.append(textElement('strong', '', item.title || '原论文图片'));
+        record.append(textElement('span', '', [item.page_label, item.caption].filter(Boolean).join(' · ') || '图片说明待核对'));
+        if (item.image_url) {
+          const image = document.createElement('img'); image.src = item.image_url; image.alt = item.caption || item.title || '原论文图片'; image.loading = 'lazy'; record.append(image);
+        }
+        appendContextLink(record, item.image_url, '新标签查看原图');
+        appendContextLink(record, item.pdf_page_url, '打开论文页');
+        figureList.append(record);
+      });
+    }
+
+    function renderHighRiskReview(section) {
+      const pending = pendingForSection(sectionId(section));
+      const highRisk = Boolean(
+        pending
+        || section?.status === 'needs_human_edit'
+        || (section?.risk_classes || []).length
+      );
+      $('high-risk-review').hidden = !highRisk;
+      $('save-section').hidden = highRisk && draftPayload.route === 'evidence-to-release.v1';
+      if (!highRisk) $('high-risk-reason').value = '';
+      if (highRisk && !editorDirty) $('high-risk-reason').value = section?.decision?.reason || '';
+    }
+
+    function renderOutline() {
+      clear($('section-outline'));
+      (draftPayload.sections || []).forEach((section, index) => {
+        const id = sectionId(section);
+        const claims = sectionLineage(id);
+        const pending = pendingForSection(id);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `outline-section${id === activeSectionId ? ' active' : ''}${pending ? ' pending' : ''}`;
+        button.setAttribute('aria-current', id === activeSectionId ? 'true' : 'false');
+        button.append(textElement('span', 'outline-number', String(index + 1).padStart(2, '0')));
+        const copy = document.createElement('span');
+        copy.append(textElement('strong', '', section.heading));
+        copy.append(textElement('small', '', pending ? '需要证据复核' : `${claims.length} 条可追溯主张`));
+        button.append(copy, textElement('i', pending ? 'health-dot warning' : claims.length ? 'health-dot' : 'health-dot quiet', ''));
+        button.disabled = editorBusy || projectLoadBusy;
+        button.addEventListener('click', () => {
+          if (id === activeSectionId) return;
+          if (!confirmDiscardDraftChanges()) return;
+          activeSectionId = id;
+          selectedClaimId = '';
+          renderDraft();
+        });
+        $('section-outline').append(button);
+      });
+      const totalPending = draftPayload.revision_status?.pending_scientific_edits?.length || 0;
+      $('revision-summary').textContent = totalPending ? `${totalPending} 个章节等待证据复核` : '正文证据状态正常';
+      $('revision-summary').classList.toggle('warning', Boolean(totalPending));
+    }
+
+    function appendClaimButton(container, claim, text) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `claim-mark${claim.claim_id === selectedClaimId ? ' active' : ''}`;
+      button.setAttribute('data-claim-id', claim.claim_id);
+      button.setAttribute('aria-label', `查看主张证据：${text}`);
+      button.textContent = text;
+      button.addEventListener('click', () => selectClaim(claim.claim_id, true));
+      container.append(button);
+    }
+
+    function parseManuscriptImageTokens(body) {
+      const tokens = [];
+      const pattern = /!\[([^\]]*)\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\)/g;
+      for (const match of body.matchAll(pattern)) {
+        tokens.push({start:match.index, end:match.index + match[0].length, alt:match[1] || '综述图件'});
+      }
+      return tokens;
+    }
+
+    function manuscriptFigureOffset(sectionId) {
+      let offset = 0;
+      for (const section of draftPayload.sections || []) {
+        if ((section.id || section.section_id) === sectionId) break;
+        offset += parseManuscriptImageTokens(section.body || '').length;
+      }
+      return offset;
+    }
+
+    function renderFigureFallback(container, figure, alt, unavailable = false) {
+      const card = document.createElement('aside');
+      card.className = 'figure-placeholder';
+      card.append(textElement('strong', '', unavailable ? '图件暂不可显示' : '图片说明占位符'));
+      card.append(textElement('p', '', figure?.description || alt || '图件说明待科研团队完善。'));
+      container.append(card);
+      return card;
+    }
+
+    function renderManuscriptFigure(container, figure, alt) {
+      if (!figure?.image_url) {
+        renderFigureFallback(container, figure, alt, figure?.state !== '图片说明占位符');
+        return;
+      }
+      const wrapper = document.createElement('figure');
+      wrapper.className = 'manuscript-figure';
+      const image = document.createElement('img');
+      image.src = figure.image_url;
+      image.alt = alt || figure.title || '综述图件';
+      image.loading = 'lazy';
+      image.addEventListener('load', () => {
+        if (image.naturalWidth > 0) return;
+        wrapper.replaceWith(textElement('p', 'figure-placeholder', '图件暂不可显示。'));
+      });
+      image.addEventListener('error', () => {
+        const fallbackHost = document.createDocumentFragment();
+        const fallback = renderFigureFallback(fallbackHost, figure, alt, true);
+        wrapper.replaceWith(fallback);
+      });
+      wrapper.append(image);
+      const caption = [figure.title, figure.description].filter(Boolean).join(' · ');
+      if (caption) wrapper.append(textElement('figcaption', '', caption));
+      container.append(wrapper);
+    }
+
+    function renderReadingContent(container, body, tokens) {
+      let cursor = 0;
+      tokens.forEach(token => {
+        if (token.start < cursor) return;
+        container.append(document.createTextNode(body.slice(cursor, token.start)));
+        if (token.kind === 'claim') appendClaimButton(container, token.claim, token.claim.text_span);
+        else renderManuscriptFigure(container, token.figure, token.alt);
+        cursor = token.end;
+      });
+      container.append(document.createTextNode(body.slice(cursor)));
+    }
+
+    function renderSectionReading(body) {
+      const reading = $('section-reading');
+      clear(reading);
+      if (!body) {
+        reading.append(textElement('p', 'reading-empty', '本节正文为空。'));
+        return;
+      }
+      const claims = sectionLineage(activeSectionId)
+        .map(claim => ({kind:'claim', claim, start:body.indexOf(claim.text_span || ''), end:body.indexOf(claim.text_span || '') + (claim.text_span || '').length}))
+        .filter(item => item.claim.text_span && item.start >= 0)
+      const figureOffset = manuscriptFigureOffset(activeSectionId);
+      const readingFigures = figurePayload.reading_figures || figurePayload.figures || [];
+      const images = parseManuscriptImageTokens(body).map((token, localIndex) => {
+        const figure = readingFigures[figureOffset + localIndex];
+        return {...token, kind:'figure', figure};
+      });
+      renderReadingContent(reading, body, [...claims, ...images].sort((a, b) => a.start - b.start));
+      const unmatched = sectionLineage(activeSectionId).filter(claim => !claim.text_span || !body.includes(claim.text_span));
+      if (unmatched.length) {
+        const list = document.createElement('div');
+        list.className = 'unmatched-claims';
+        list.append(textElement('span', '', '原已绑定主张'));
+        unmatched.forEach(claim => appendClaimButton(list, claim, claim.text || '证据绑定主张待核对'));
+        reading.append(list);
+      }
+    }
+
+    function evidenceContextFor(claimId) {
+      for (const card of evidencePayload.cards || []) {
+        const detail = (card.claim_details || []).find(row => row.claim_id === claimId);
+        if (detail) return {card, detail};
+      }
+      return {card:{}, detail:(draftPayload.claim_lineage || []).find(row => row.claim_id === claimId) || {}};
+    }
+
+    function selectClaim(claimId, focusInspector = false) {
+      selectedClaimId = claimId;
+      renderSectionReading($('section-editor').value);
+      const claim = (draftPayload.claim_lineage || []).find(row => row.claim_id === claimId) || {};
+      const context = evidenceContextFor(claimId);
+      const card = context.card;
+      const detail = context.detail;
+      const inspector = $('inspector-content');
+      clear(inspector);
+      inspector.append(textElement('p', 'inspector-label', '正文主张'));
+      inspector.append(textElement('h3', 'inspector-claim', claim.text || detail.text || claim.text_span || '主张文字待核对'));
+
+      const study = document.createElement('section');
+      study.className = 'chain-node';
+      study.append(textElement('span', 'chain-step', '01 · 研究'));
+      study.append(textElement('h4', '', card.citation || '研究记录'));
+      inspector.append(study);
+
+      const evidenceList = detail.evidence || claim.evidence || [];
+      evidenceList.forEach((evidence, index) => {
+        const node = document.createElement('section');
+        node.className = 'chain-node evidence-node';
+        node.append(textElement('span', 'chain-step', `0${index + 2} · 原文证据`));
+        node.append(textElement('h4', '', evidence.source_label || '原文记录'));
+        node.append(textElement('blockquote', '', evidence.excerpt || '未提供原文摘录'));
+        const location = [evidence.page ? `第 ${evidence.page} 页` : '', evidence.section || ''].filter(Boolean).join(' · ');
+        node.append(textElement('p', 'source-location', location || '定位信息待补充'));
+        if (evidence.locator && evidence.locator.href) {
+          const link = document.createElement('a');
+          link.href = evidence.locator.href;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = '打开原文位置 ↗';
+          node.append(link);
+        } else {
+          node.append(textElement('p', 'source-unavailable', '原文文件暂不可用'));
+        }
+        inspector.append(node);
+      });
+
+      const review = document.createElement('section');
+      review.className = 'chain-node review-node';
+      review.append(textElement('span', 'chain-step', '复核与投影'));
+      review.append(textElement('h4', '', verdictLabels[detail.review_verdict] || detail.review_verdict || '尚无 claim-specific 复核结论'));
+      review.append(textElement('p', '', detail.review_summary || '尚无 claim-specific 复核说明'));
+      review.append(textElement('p', 'projection-decision', `正文决策：${decisionLabels[detail.decision] || detail.decision || '待定'}`));
+      inspector.append(review);
+      $('inspector-empty').hidden = true;
+      inspector.hidden = false;
+      if (focusInspector) $('evidence-inspector').focus({preventScroll:true});
+    }
+
+    function renderPending() {
+      const pending = pendingForSection(activeSectionId);
+      $('pending-review-banner').hidden = !pending;
+      $('restore-verified').hidden = !pending;
+      clear($('pending-reasons'));
+      if (pending) (pending.reasons || []).forEach(reason => $('pending-reasons').append(textElement('li', '', reason)));
+    }
+
+    function renderFigures() {
+      const rows = figurePayload.figures || [];
+      const safeStates = ['原创生成图', '许可来源图', '原论文图', '图片说明占位符'];
+      clear($('figure-list'));
+      const placeholders = rows.filter(row => row.state === '图片说明占位符').length;
+      $('figure-summary').textContent = rows.length
+        ? `${rows.length} 项图件${placeholders ? ` · ${placeholders} 项仍需完成` : ' · 均已具备可核验来源'}`
+        : '尚无可展示图件；终稿暂不可发布。';
+      rows.forEach(row => {
+        const state = safeStates.includes(row.state) ? row.state : '图件状态待核对';
+        const card = document.createElement('article');
+        card.className = `figure-status-card${state === '图片说明占位符' ? ' placeholder' : ''}`;
+        card.append(textElement('strong', 'figure-state', state));
+        card.append(textElement('h4', '', row.title || '综述图件'));
+        card.append(textElement('p', '', row.description || '科研说明待完善。'));
+        if (state === '许可来源图') {
+          card.append(textElement('small', '', [row.license, row.attribution].filter(Boolean).join(' · ') || '许可说明待核对'));
+        }
+        $('figure-list').append(card);
+      });
+    }
+
+    function renderReleaseControls() {
+      const button = $('export-docx');
+      const verifiedButton = $('export-verified-release');
+      const releaseCapabilities = (
+        progressCapabilityProjectId === projectId
+        && progressCapabilityGeneration === projectLoadGeneration
+      ) ? progressPayload.release_capabilities || {} : {};
+      button.disabled = !releaseCapabilities.internal_draft_export_ready;
+      if (editorBusy || projectLoadBusy || exportBusy) button.disabled = true;
+      const snapshot = finalPayload.release_snapshot || {};
+      const projectedInternal = finalPayload.artifacts?.internal;
+      const projectedInternalUrl = typeof projectedInternal?.download_url === 'string'
+        && projectedInternal.download_url.startsWith('/') ? projectedInternal.download_url : '#';
+      const legacyInternalUrl = finalPayload.final_draft_docx_path
+        ? `/file?path=${encodeURIComponent(finalPayload.final_draft_docx_path)}` : '#';
+      const current = projectedInternal
+        ? Boolean(projectedInternal.exists && projectedInternal.current && projectedInternalUrl !== '#')
+        : Boolean(
+          finalPayload.final_draft_docx_exists
+          && finalPayload.final_draft_docx_path
+          && snapshot.integrity_valid !== false
+          && snapshot.matches_authoritative !== false
+        );
+      $('download-docx').hidden = !current;
+      $('download-docx').href = current ? (projectedInternal ? projectedInternalUrl : legacyInternalUrl) : '#';
+      const placeholders = typeof reviewFigurePayload === 'undefined' ? [] : reviewFigurePayload.placeholders || [];
+      const unresolved = placeholders.filter(row => row.status !== 'verified').length;
+      if (verifiedButton) verifiedButton.disabled = !releaseCapabilities.verified_release_ready || unresolved > 0;
+      if (verifiedButton && (editorBusy || projectLoadBusy || exportBusy)) verifiedButton.disabled = true;
+      const verified = finalPayload.artifacts?.verified || finalPayload.verified_release || {};
+      const verifiedUrl = typeof verified.download_url === 'string' && verified.download_url.startsWith('/')
+        ? verified.download_url : '#';
+      const verifiedCurrent = Boolean(verified.exists && verified.current && verifiedUrl !== '#');
+      const verifiedDownload = $('download-verified-release');
+      if (verifiedDownload) {
+        verifiedDownload.hidden = !verifiedCurrent;
+        verifiedDownload.href = verifiedCurrent ? verifiedUrl : '#';
+      }
+      const releaseMessage = $('release-status-message');
+      if (releaseMessage) releaseMessage.textContent = unresolved
+          ? `${unresolved} 个综合图制图任务未完成；内部评审稿仍可导出。`
+          : releaseCapabilities.verified_release_ready ? '已满足已验证发布稿门禁。' : '已验证发布稿仍有待处理项。';
+    }
+
+    function renderDraft() {
+      const available = Boolean(draftPayload.available || (draftPayload.route === 'evidence-to-release.v1' && (draftPayload.sections || []).length));
+      $('manuscript-empty').hidden = available;
+      $('manuscript-layout').hidden = !available;
+      renderReleaseControls();
+      if (!available) return;
+      if (!(draftPayload.sections || []).some(section => sectionId(section) === activeSectionId)) {
+        activeSectionId = sectionId(draftPayload.sections?.[0]);
+      }
+      const section = getActiveSection();
+      renderOutline();
+      renderPending();
+      renderFigures();
+      if (!section) return;
+      $('manuscript-heading').textContent = section.heading;
+      $('section-editor').value = section.body || '';
+      renderSectionReading(section.body || '');
+      renderHighRiskReview(section);
+      renderManuscriptContext(section);
+      if (selectedClaimId) selectClaim(selectedClaimId);
+      else {
+        $('inspector-empty').hidden = false;
+        $('inspector-content').hidden = true;
+      }
+    }
+
+    async function saveDraftBody(body) {
+      const activeSection = getActiveSection();
+      if (!activeSection) return;
+      const submittedProjectId = projectId;
+      const submittedGeneration = projectLoadGeneration;
+      const submittedSectionId = activeSection.id || activeSection.section_id || '';
+      const submittedBody = body;
+      const submittedVersion = draftPayload.manuscript_version;
+      setEditorBusy(true);
+      $('save-message').textContent = '正在保存并核对证据状态…';
+      try {
+        let result;
+        if (draftPayload.route === 'evidence-to-release.v1') {
+          const reason = $('high-risk-reason').value.trim();
+          if (!reason) {
+            $('save-message').textContent = '请先填写本次高风险修改的核对理由。';
+            return;
+          }
+          const outcome = await ReviewManuscriptUI.saveEdit({
+            request:fetch,
+            url:`/api/project/${encodeURIComponent(submittedProjectId)}/draft`,
+            payload:ReviewManuscriptUI.buildEditRequest(activeSection, submittedBody, reason),
+            onConflict:() => {
+              conflictedEdit = {projectId:submittedProjectId, sectionId:submittedSectionId, body:submittedBody, reason};
+              $('manuscript-conflict-alert').hidden = false;
+              $('manuscript-conflict-alert').focus?.();
+            },
+          });
+          if (outcome.status === 'conflict') {
+            $('save-message').textContent = '未保存：服务器正文已有更新。';
+            return;
+          }
+          if (outcome.status !== 'saved') {
+            const error = new Error('request failed'); error.status = outcome.httpStatus; throw error;
+          }
+          result = outcome.payload;
+        } else {
+          result = await getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/draft`, {
+            method:'PUT',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({section_id:submittedSectionId,body:submittedBody,manuscript_version:submittedVersion}),
+          });
+        }
+        const editorUnchanged = (
+          projectId === submittedProjectId
+          && projectLoadGeneration === submittedGeneration
+          && activeSectionId === submittedSectionId
+          && $('section-editor').value === submittedBody
+        );
+        if (!editorUnchanged) return;
+        const classification = result.edit_classification;
+        const reasons = result.reasons || [];
+        $('save-message').textContent = result.needs_evidence_review
+          ? `已保存；需要证据复核。${reasons.join('；')}`
+          : classification === 'restored' ? '已恢复已验证表述。' : '已保存；证据状态正常。';
+        finalPayload = {final_draft_docx_exists:false, final_draft_docx_path:''};
+        renderReleaseControls();
+        const [refreshedDraft, refreshedFinal] = await Promise.all([
+          getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/draft`),
+          optionalPayload(
+            `/api/project/${encodeURIComponent(submittedProjectId)}/final`,
+            {final_draft_docx_exists:false,final_draft_docx_path:''},
+          ),
+        ]);
+        if (
+          projectId !== submittedProjectId
+          || projectLoadGeneration !== submittedGeneration
+          || activeSectionId !== submittedSectionId
+          || $('section-editor').value !== submittedBody
+        ) return;
+        draftPayload = refreshedDraft;
+        finalPayload = refreshedFinal;
+        activeSectionId = result.section_id;
+        editorDirty = false;
+        conflictedEdit = null;
+        $('manuscript-conflict-alert').hidden = true;
+        renderDraft();
+      } catch (error) {
+        if (
+          projectId !== submittedProjectId
+          || projectLoadGeneration !== submittedGeneration
+        ) return;
+        if (error.status === 409) {
+          conflictedEdit = {projectId:submittedProjectId, sectionId:submittedSectionId, body:submittedBody, reason:$('high-risk-reason').value};
+          $('manuscript-conflict-alert').hidden = false;
+          $('save-message').textContent = '未保存：服务器正文已有更新。';
+        } else {
+          $('save-message').textContent = '保存失败。请重新读取项目后再试。';
+        }
+      } finally {
+        setEditorBusy(false);
+      }
+    }
+
+    async function resolveManuscriptConflict(keepLocal) {
+      const pending = conflictedEdit;
+      if (!pending || pending.projectId !== projectId) return;
+      const body = pending.body;
+      const reason = pending.reason;
+      activeSectionId = pending.sectionId;
+      const loadResult = await loadProject();
+      if (loadResult === 'stale') return;
+      $('manuscript-conflict-alert').hidden = true;
+      conflictedEdit = null;
+      if (!keepLocal) return;
+      if (!getActiveSection()) return;
+      $('section-editor').value = body;
+      $('high-risk-reason').value = reason;
+      editorDirty = true;
+      renderSectionReading(body);
+      $('save-message').textContent = '已读取最新版本并保留本地文字；请重新核对后保存。';
+      $('section-editor').focus();
+    }
+
+    async function exportDocx() {
+      if (!projectId || editorBusy || projectLoadBusy || exportBusy) return;
+      const releaseCapabilities = (
+        progressCapabilityProjectId === projectId
+        && progressCapabilityGeneration === projectLoadGeneration
+      ) ? progressPayload.release_capabilities || {} : {};
+      if (!releaseCapabilities.internal_draft_export_ready) {
+        $('workbench-message').textContent = '当前科学流程尚未达到内部稿导出条件。';
+        renderReleaseControls();
+        return;
+      }
+      if (editorDirty) {
+        $('workbench-message').textContent = '请先保存或撤销当前正文修改，再导出 DOCX。';
+        return;
+      }
+      const submittedProjectId = projectId;
+      const submittedGeneration = projectLoadGeneration;
+      const button = $('export-docx');
+      exportBusy = true;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      button.disabled = true;
+      button.textContent = '正在导出…';
+      $('download-docx').hidden = true;
+      $('workbench-message').textContent = '正在核对证据状态并生成 DOCX…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/export-docx`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({release_level:'SELF_REVIEWED_DRAFT'}),
+        });
+        if (
+          projectId !== submittedProjectId
+          || projectLoadGeneration !== submittedGeneration
+        ) return;
+        const nextFinalPayload = await getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/final`);
+        if (
+          projectId !== submittedProjectId
+          || projectLoadGeneration !== submittedGeneration
+        ) return;
+        finalPayload = nextFinalPayload;
+        renderReleaseControls();
+        $('workbench-message').textContent = 'DOCX 已生成，可以下载。';
+      } catch (error) {
+        if (
+          projectId !== submittedProjectId
+          || projectLoadGeneration !== submittedGeneration
+        ) return;
+        progressCapabilityProjectId = '';
+        progressCapabilityGeneration = -1;
+        $('workbench-message').textContent = 'DOCX 暂不可导出；请先完成待处理的证据复核。';
+      } finally {
+        exportBusy = false;
+        button.textContent = button.dataset?.defaultLabel || '导出 DOCX';
+        if (
+          projectId === submittedProjectId
+          && projectLoadGeneration === submittedGeneration
+        ) renderReleaseControls();
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function exportVerifiedRelease() {
+      if (!projectId || editorBusy || projectLoadBusy || exportBusy) return;
+      const releaseCapabilities = (
+        progressCapabilityProjectId === projectId
+        && progressCapabilityGeneration === projectLoadGeneration
+      ) ? progressPayload.release_capabilities || {} : {};
+      const unresolved = (reviewFigurePayload.placeholders || []).filter(row => row.status !== 'verified').length;
+      if (!releaseCapabilities.verified_release_ready || unresolved) {
+        $('release-status-message').textContent = unresolved
+          ? `${unresolved} 个综合图制图任务未完成，不能生成已验证发布稿。`
+          : '当前科学流程尚未达到已验证发布稿条件。';
+        renderReleaseControls();
+        return;
+      }
+      if (editorDirty) {
+        $('release-status-message').textContent = '请先保存或撤销当前正文修改。';
+        return;
+      }
+      const submittedProjectId = projectId;
+      const submittedGeneration = projectLoadGeneration;
+      const button = $('export-verified-release');
+      exportBusy = true;
+      applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      button.textContent = '正在验证…';
+      $('download-verified-release').hidden = true;
+      try {
+        const result = await getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/export-docx`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(ReviewReleaseUI.buildExportRequest('EXPERT_REVIEWED_RELEASE')),
+        });
+        if (result.release_status !== 'EXPERT_REVIEWED_RELEASE') throw new Error('verified release response mismatch');
+        if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+        finalPayload = await getPayload(`/api/project/${encodeURIComponent(submittedProjectId)}/final`);
+        if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+        renderReleaseControls();
+        $('release-status-message').textContent = '已验证发布稿已生成。';
+      } catch (error) {
+        if (projectId !== submittedProjectId || projectLoadGeneration !== submittedGeneration) return;
+        progressCapabilityProjectId = '';
+        progressCapabilityGeneration = -1;
+        $('release-status-message').textContent = '已验证发布稿未生成；现有文件保持不变。';
+      } finally {
+        exportBusy = false;
+        button.textContent = button.dataset?.defaultLabel || '生成已验证发布稿';
+        if (projectId === submittedProjectId && projectLoadGeneration === submittedGeneration) renderReleaseControls();
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function uploadSourceArchive(file) {
+      if (!file || !file.name.toLowerCase().endsWith('.zip')) {
+        $('source-upload-message').textContent = '请选择一个 ZIP 压缩包。';
+        return;
+      }
+      if (sourceUploadBusy || projectLoadBusy || !projectId) return;
+      sourceUploadBusy = true;
+      applyWorkbenchBusyState(true);
+      $('source-upload-message').textContent = '正在接收压缩包…';
+      const replace = progressPayload.blocker ? '?replace=invalid' : '';
+      try {
+        const response = await fetch(`/api/project/${encodeURIComponent(projectId)}/source-archive${replace}`, {
+          method:'POST', headers:{'Content-Type':'application/zip'}, body:file
+        });
+        if (!response.ok) {
+          const message = response.status === 413
+            ? '压缩包过大，请只保留来源清单所需的 PDF。'
+            : response.status === 409
+            ? '已有压缩包正在核验，请等待当前处理完成。'
+            : '压缩包未通过校验，请重新导出为 ZIP 后上传。';
+          throw new Error(message);
+        }
+        await response.json();
+        $('source-upload-message').textContent = '压缩包已接收，正在核验来源。';
+        progressPayload.archive_received = true;
+        progressPayload.recommended_next = '正在核验您上传的来源';
+        renderStageWorkspace();
+        await loadProject();
+      } catch (error) {
+        $('source-upload-message').textContent = error.message || '上传失败，请重新选择压缩包。';
+      } finally {
+        sourceUploadBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+        $('source-archive-input').value = '';
+      }
+    }
+
+    async function submitSourceSupplement(event) {
+      event.preventDefault();
+      if (sourceSupplementBusy || projectLoadBusy || !projectId) return;
+      const doi = $('source-supplement-doi').value.trim();
+      const title = $('source-supplement-title').value.trim();
+      const disposition = document.querySelector('input[name="source-disposition"]:checked')?.value || 'include';
+      if (!doi && !title) {
+        $('source-supplement-message').textContent = '请填写 DOI 或论文标题。';
+        return;
+      }
+      sourceSupplementBusy = true;
+      applyWorkbenchBusyState(true);
+      $('source-supplement-message').textContent = '正在加入来源候选…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(projectId)}/source-supplement`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({doi,title,disposition}),
+        });
+        $('source-supplement-doi').value = '';
+        $('source-supplement-title').value = '';
+        $('source-supplement-message').textContent = '已加入；系统将在处理前简要复核。';
+        await loadProject();
+      } catch (error) {
+        $('source-supplement-message').textContent = '未能加入；请检查 DOI 或标题是否已存在。';
+      } finally {
+        sourceSupplementBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function submitSourcePreflight(member, role, archiveSha256) {
+      if (
+        sourceMappingBusy
+        || projectLoadBusy
+        || !projectId
+        || !member?.member_id
+        || !member?.download_id
+        || !member?.source_id
+        || !member?.study_id
+        || !archiveSha256
+        || !role
+      ) return;
+      sourceMappingBusy = true;
+      applyWorkbenchBusyState(true);
+      $('source-mapping-message').textContent = '正在确认来源身份和角色…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(projectId)}/source-mapping`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            member_id:member.member_id,
+            download_id:member.download_id,
+            source_id:member.source_id,
+            study_id:member.study_id,
+            document_role:role,
+            archive_sha256:archiveSha256,
+          }),
+        });
+        $('source-mapping-message').textContent = '来源记录已确认，正在进入解析阶段。';
+        await loadProject();
+      } catch (error) {
+        $('source-mapping-message').textContent = error.status === 409
+          ? '来源在确认前发生变化，请重新读取来源清单。'
+          : '来源未能确认；现有来源记录保持不变。';
+      } finally {
+        sourceMappingBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function submitSourceMapping(memberId, downloadId) {
+      if (sourceMappingBusy || projectLoadBusy || !projectId || !memberId || !downloadId) return;
+      sourceMappingBusy = true;
+      applyWorkbenchBusyState(true);
+      $('source-mapping-message').textContent = '正在确认文件归属…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(projectId)}/source-mapping`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({member_id:memberId,download_id:downloadId}),
+        });
+        $('source-mapping-message').textContent = '文件归属已确认。';
+        await loadProject();
+      } catch (error) {
+        $('source-mapping-message').textContent = '未能确认文件归属，请重新读取来源清单。';
+      } finally {
+        sourceMappingBusy = false;
+        applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      }
+    }
+
+    async function confirmBrief() {
+      $('confirm-brief').disabled = true;
+      $('confirm-brief-primary').disabled = true;
+      $('brief-confirmation-message').textContent = '正在确认…';
+      $('brief-stage-message').textContent = '正在确认…';
+      try {
+        await getPayload(`/api/project/${encodeURIComponent(projectId)}/review-state`, {
+          method:'PUT',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'confirm_brief',project_id:projectId}),
+        });
+        const loadResult = await loadProject();
+        if (loadResult === 'stale') return;
+      } catch (error) {
+        $('brief-confirmation-message').textContent = '确认失败；研究范围未更改。';
+        $('brief-stage-message').textContent = '确认失败；研究范围未更改。';
+        $('confirm-brief').disabled = false;
+        $('confirm-brief-primary').disabled = false;
+      }
+    }
+
+    async function createBlankProject(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const message = $('blank-project-message');
+      const projectIdValue = $('blank-project-id').value.trim();
+      const topicValue = $('blank-project-topic').value.trim();
+      const questionValue = $('blank-project-question').value.trim();
+      if (!projectIdValue || !topicValue || !questionValue) {
+        message.textContent = '请填写项目 ID、Topic 和研究问题。';
+        return;
+      }
+      submit.disabled = true;
+      message.textContent = '正在创建空白项目…';
+      try {
+        const created = await getPayload('/api/projects', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            project_id:projectIdValue,
+            brief:{topic:topicValue,review_question:questionValue},
+          }),
+        });
+        projectId = created.project_id;
+        message.textContent = '空白项目已创建，正在打开研究简报。';
+        await refreshProjects();
+        await loadProject();
+      } catch (_) {
+        message.textContent = '项目未创建；请检查项目 ID 是否已存在，并保留当前空态。';
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    async function loadProject() {
+      const requestedProjectId = projectId;
+      if (!requestedProjectId) return 'empty';
+      const generation = ++projectLoadGeneration;
+      progressCapabilityProjectId = '';
+      progressCapabilityGeneration = -1;
+      setProjectLoadBusy(true);
+      $('workbench-message').textContent = '正在读取项目…';
+      dualParseModel = ReviewDualParseUI.projectionModel({
+        schema_version:'dual-parse-projection.v2',
+        status:'loading',
+        next_action:{label:'读取当前双层解析任务',description:'完成读取前不会提交决定。'},
+      });
+      renderDualParse();
+      const encoded = encodeURIComponent(requestedProjectId);
+      try {
+        const nextProjectState = await getPayload(`/api/project/${encoded}/review-state`);
+        const canonicalRoute = nextProjectState.route === 'evidence-to-release.v1';
+        const awaitingBrief = nextProjectState.status === 'AWAITING_BRIEF_CONFIRMATION';
+        const currentStage = nextProjectState.current_stage || '';
+        const stageDataReady = !['review_brief', 'ready_for_discovery', 'sources', 'parsing'].includes(currentStage);
+        const finalDataReady = ['final', 'complete'].includes(currentStage)
+          || Boolean(nextProjectState.draft?.final_draft_exists || nextProjectState.draft?.docx_exists);
+        const legacyCockpit = canonicalRoute
+          ? Promise.resolve({metrics:{}, mode_coverage:[]})
+          : getPayload(`/api/project/${encoded}/cockpit`);
+        const legacySources = getPayload(`/api/project/${encoded}/sources`);
+        const fallbackProgress = {
+          route: nextProjectState.route || 'review-state.v1',
+          active_stage: nextProjectState.current_stage || 'review',
+          status: nextProjectState.status || 'in_progress',
+          stages: [],
+          studies: [],
+          blocker: (nextProjectState.blockers || [])[0] || '',
+          recommended_next: nextProjectState.next_action || '核对当前研究证据',
+          unique_next_action: nextProjectState.next_action || '核对当前研究证据',
+          release_capabilities: {internal_draft_export_ready:false, verified_release_ready:false},
+        };
+        const legacyEvidence = canonicalRoute
+          ? Promise.resolve({cards:[]})
+          : optionalPayload(`/api/project/${encoded}/evidence`, {cards:[]});
+        const legacyRisk = canonicalRoute
+          ? Promise.resolve({targets:[]})
+          : optionalPayload(`/api/project/${encoded}/risk-packet`, {targets:[]});
+        const legacyFigures = canonicalRoute
+          ? Promise.resolve({figures:[],summary:{total:0,placeholders:0}})
+          : optionalPayload(`/api/project/${encoded}/figures`, {figures:[],summary:{total:0,placeholders:0}});
+        const legacyProgress = optionalPayload(`/api/project/${encoded}/progress`, fallbackProgress);
+        const projectPayloads = await Promise.all([
+          Promise.resolve(nextProjectState),
+          legacyCockpit,
+          getPayload(`/api/project/${encoded}/draft`),
+          legacyEvidence,
+          legacyRisk,
+          legacySources,
+          legacyProgress,
+          optionalPayload(`/api/project/${encoded}/parse-quality`, {status:'unavailable',workflow_can_continue:false,summary:{},studies:[]}),
+          legacyFigures,
+          awaitingBrief || !finalDataReady
+            ? Promise.resolve({final_draft_docx_exists:false,final_draft_docx_path:''})
+            : optionalPayload(`/api/project/${encoded}/final`, {final_draft_docx_exists:false,final_draft_docx_path:''}),
+          optionalPayload(`/api/project/${encoded}/paper-evidence`, {items:[]}),
+          optionalPayload(`/api/project/${encoded}/synthesis`, {items:[]}),
+          optionalPayload(`/api/project/${encoded}/review-figures`, {source_figures:[],placeholders:[]}),
+          optionalPayload(`/api/project/${encoded}/comparison-protocol`, {status:'unavailable',protocol:{}}),
+          awaitingBrief || !stageDataReady
+            ? Promise.resolve({})
+            : optionalPayload(ReviewChemicalPaperUI.routes(requestedProjectId).read, {}),
+          awaitingBrief || !stageDataReady
+            ? Promise.resolve(ReviewDualParseUI.projectionModel({
+              schema_version:'dual-parse-projection.v2',
+              status:'unavailable',
+              next_action:{label:'等待研究范围确认',description:'确认综述简报后才读取解析状态。'},
+            }))
+            : ReviewDualParseUI.load(requestedProjectId, fetch),
+          optionalPayload(`/api/project/${encoded}/history`, {history:[],current:null,revision:null}),
+        ]);
+        const [loadedProjectState, nextCockpitPayload, nextDraftPayload, nextEvidencePayload, nextRiskPayload, nextSourcePayload, nextProgressPayload, nextParseQualityPayload, nextFigurePayload, nextFinalPayload] = projectPayloads;
+        const [nextManuscriptEvidencePayload, nextManuscriptSynthesisPayload, nextReviewFigurePayload] = projectPayloads.slice(10);
+        const nextComparisonProtocolPayload = projectPayloads[13];
+        const nextChemicalPaperPayload = projectPayloads[14];
+        const nextDualParseModel = projectPayloads[15];
+        const nextHistoryPayload = projectPayloads[16];
+        if (
+          generation !== projectLoadGeneration
+          || projectId !== requestedProjectId
+        ) return 'stale';
+        projectState = loadedProjectState;
+        cockpitPayload = nextCockpitPayload;
+        draftPayload = nextDraftPayload;
+        evidencePayload = nextEvidencePayload;
+        riskPayload = nextRiskPayload;
+        sourcePayload = nextSourcePayload;
+        progressPayload = nextProgressPayload;
+        progressCapabilityProjectId = requestedProjectId;
+        progressCapabilityGeneration = generation;
+        parseQualityPayload = nextParseQualityPayload;
+        figurePayload = nextFigurePayload;
+        finalPayload = nextFinalPayload;
+        manuscriptEvidencePayload = nextManuscriptEvidencePayload;
+        manuscriptSynthesisPayload = nextManuscriptSynthesisPayload;
+        reviewFigurePayload = nextReviewFigurePayload;
+        comparisonProtocolPayload = nextComparisonProtocolPayload;
+        chemicalPaperPayload = nextChemicalPaperPayload;
+        dualParseModel = nextDualParseModel;
+        historyPayload = nextHistoryPayload;
+        editorDirty = false;
+        riskDecisionDirty = false;
+        parseQualityDirty.clear();
+        parseQualityNotice = '';
+        activeSectionId = sectionId(draftPayload.sections?.[0]);
+        selectedClaimId = '';
+        renderProjectHeader();
+        renderCockpit();
+        renderDraft();
+        setEmptyProjectWorkspace(false);
+        setWorkspace(projectState.default_workspace);
+        $('workbench-message').textContent = '';
+        return 'loaded';
+      } catch (error) {
+        if (
+          generation !== projectLoadGeneration
+          || projectId !== requestedProjectId
+        ) return 'stale';
+        throw error;
+      } finally {
+        if (generation === projectLoadGeneration) setProjectLoadBusy(false);
+      }
+    }
+
+    async function loadProjects() {
+      return refreshProjects();
+    }
+
+    async function refreshProjects() {
+      if (projectsRefreshBusy) return 'busy';
+      projectsRefreshBusy = true;
+      try {
+        projects = await getPayload('/api/projects');
+        const requestedProjectId = projectIdFromLocation();
+        const choices = projectSelection.replace(projects);
+        clear($('project'));
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '请选择项目';
+        placeholder.disabled = true;
+        placeholder.selected = !projectId;
+        $('project').append(placeholder);
+        choices.forEach(choice => {
+          const option = document.createElement('option');
+          option.value = choice.key;
+          option.textContent = choice.label;
+          option.disabled = !choice.selectable;
+          $('project').append(option);
+        });
+        if (!projects.length) {
+          if (projectId || projectLoadBusy) {
+            projectId = '';
+            projectLoadGeneration += 1;
+            setProjectLoadBusy(false);
+          }
+          setEmptyProjectWorkspace(true);
+          $('project-waiting-message').textContent = '尚无可用项目，请先在 QoderWork CN 中创建任务。';
+          $('workbench-message').textContent = '';
+          return 'empty';
+        }
+        const requestedOptionKey = projectSelection.getOptionKey(requestedProjectId);
+        if (!projectId && requestedOptionKey) {
+          projectId = requestedProjectId;
+          $('project').value = requestedOptionKey;
+          const loadResult = await loadProject();
+          $('project').dispatchEvent(new Event('change', {bubbles:true}));
+          return loadResult;
+        }
+        const currentOptionKey = projectSelection.getOptionKey(projectId);
+        if (projectId && currentOptionKey) {
+          $('project').value = currentOptionKey;
+          setEmptyProjectWorkspace(false);
+          setWorkspace(activeWorkspace);
+          return 'unchanged';
+        }
+        if (projectId) {
+          projectId = '';
+          projectLoadGeneration += 1;
+          setProjectLoadBusy(false);
+        }
+        $('project').value = '';
+        setProjectSelectionWorkspace();
+        return 'selection_required';
+      } catch (error) {
+        if (!projectId) setEmptyProjectWorkspace(true);
+        $('project-waiting-message').textContent = '暂时无法检查新项目，工作台将继续等待。';
+        return 'error';
+      } finally {
+        projectsRefreshBusy = false;
+      }
+    }
+
+    function startProjectsRefresh() {
+      if (projectsRefreshController !== null) return;
+      projectsRefreshController = ReviewSessionUI.createProjectRefreshScheduler({
+        refresh:refreshProjects,
+        getProjectId:() => projectId,
+        setTimer:(callback, delay) => window.setTimeout(callback, delay),
+        clearTimer:timer => window.clearTimeout(timer),
+        emptyDelay:3000,
+        selectedDelay:30000,
+      });
+      projectsRefreshController.start({immediate:true});
+    }
+
+    async function selectProject(event) {
+      const nextProjectId = projectSelection.getProjectId(event.target.value);
+      if (!nextProjectId || !projects.some(project => project.project_id === nextProjectId)) {
+        event.target.value = projectSelection.getOptionKey(projectId);
+        return 'invalid';
+      }
+      if (nextProjectId === projectId) return 'unchanged';
+      if (!confirmDiscardDraftChanges()) {
+        event.target.value = projectSelection.getOptionKey(projectId);
+        return 'cancelled';
+      }
+      if (!confirmDiscardRiskDecisions()) {
+        event.target.value = projectSelection.getOptionKey(projectId);
+        return 'cancelled';
+      }
+      if (!confirmDiscardParseQualityDecisions()) {
+        event.target.value = projectSelection.getOptionKey(projectId);
+        return 'cancelled';
+      }
+      activeParseStudyId = '';
+      projectId = nextProjectId;
+      setProjectIdInLocation(projectId);
+      try {
+        const loadResult = await loadProject();
+        if (loadResult === 'stale') return 'stale';
+        return loadResult;
+      } catch (error) {
+        if (projectId === nextProjectId) {
+          projectId = '';
+          setProjectIdInLocation('');
+          projectLoadGeneration += 1;
+          progressCapabilityProjectId = '';
+          progressCapabilityGeneration = -1;
+          setProjectLoadBusy(false);
+          event.target.value = '';
+          dualParseModel = ReviewDualParseUI.projectionModel({
+            schema_version:'dual-parse-projection.v2',
+            status:'unavailable',
+            next_action:{label:'请重新选择项目',description:'项目读取失败；明确选择后将重新读取。'},
+          });
+          progressPayload = {active_stage:'sources',stages:[],studies:[],blocker:'',recommended_next:'',release_capabilities:{internal_draft_export_ready:false,verified_release_ready:false}};
+          finalPayload = {final_draft_docx_exists:false,final_draft_docx_path:''};
+          reviewFigurePayload = {source_figures:[],placeholders:[]};
+          renderDualParse();
+          renderReleaseControls();
+          setProjectSelectionWorkspace();
+          $('project-waiting-message').textContent = '项目暂时无法读取，请重新选择项目。';
+        }
+        $('workbench-message').textContent = '项目暂时无法读取。';
+        return 'error';
+      }
+    }
+
+    document.querySelectorAll('[data-workspace]').forEach(button => {
+      button.addEventListener('click', () => {
+        const nextWorkspace = button.dataset.workspace === 'manuscript' ? 'manuscript' : 'cockpit';
+        if (nextWorkspace === activeWorkspace) return;
+        if (activeWorkspace === 'manuscript' && !confirmDiscardDraftChanges()) return;
+        setWorkspace(nextWorkspace);
+      });
+    });
+    $('project').addEventListener('change', selectProject);
+    $('blank-project-form').addEventListener('submit', createBlankProject);
+    $('confirm-brief').addEventListener('click', confirmBrief);
+    $('confirm-brief-primary').addEventListener('click', confirmBrief);
+    $('source-supplement-form').addEventListener('submit', submitSourceSupplement);
+    $('source-archive-input').addEventListener('change', event => uploadSourceArchive(event.target.files?.[0]));
+    $('parse-import-form').addEventListener('submit', submitManualParseImport);
+    $('source-drop-zone').addEventListener('dragover', event => {
+      event.preventDefault();
+      $('source-drop-zone').classList.add('dragging');
+    });
+    $('source-drop-zone').addEventListener('dragleave', () => $('source-drop-zone').classList.remove('dragging'));
+    $('source-drop-zone').addEventListener('drop', event => {
+      event.preventDefault();
+      $('source-drop-zone').classList.remove('dragging');
+      uploadSourceArchive(event.dataTransfer?.files?.[0]);
+    });
+    $('submit-risk-decisions').addEventListener('click', submitRiskDecisions);
+    $('parse-quality-preview-pdf').addEventListener('click', () => setParsePreview('pdf'));
+    $('parse-quality-preview-markdown').addEventListener('click', () => setParsePreview('parsed-markdown'));
+    $('parse-quality-preview-page').addEventListener('change', () => setParsePreview('pdf'));
+    $('parse-quality-refresh').addEventListener('click', async () => {
+      parseQualityNotice = '正在刷新解析状态…';
+      renderParseQualityStage();
+      try {
+        await loadProject();
+      } catch (_) {
+        parseQualityNotice = '解析状态刷新失败；Evidence 保持锁定，请稍后重试。';
+        renderParseQualityStage();
+      }
+    });
+    $('export-docx').addEventListener('click', exportDocx);
+    $('export-verified-release').addEventListener('click', exportVerifiedRelease);
+    $('history-branch-form').addEventListener('submit', event => submitHistoryAction(event, 'branch'));
+    $('history-undo-form').addEventListener('submit', event => submitHistoryAction(event, 'undo'));
+    $('save-section').addEventListener('click', () => saveDraftBody($('section-editor').value));
+    $('approve-high-risk-edit').addEventListener('click', () => saveDraftBody($('section-editor').value));
+    $('reload-conflicted-section').addEventListener('click', () => resolveManuscriptConflict(false));
+    $('keep-conflicted-section').addEventListener('click', () => resolveManuscriptConflict(true));
+    $('section-editor').addEventListener('input', event => {
+      editorDirty = true;
+      renderSectionReading(event.target.value);
+    });
+    $('high-risk-reason').addEventListener('input', () => { editorDirty = true; });
+    $('restore-verified').addEventListener('click', async () => {
+      const pending = pendingForSection(activeSectionId);
+      if (pending) {
+        $('section-editor').value = pending.verified_body;
+        editorDirty = true;
+        renderSectionReading(pending.verified_body);
+        await saveDraftBody(pending.verified_body);
+      }
+    });
+    window.addEventListener('beforeunload', event => {
+      if (!editorDirty && !riskDecisionDirty && !parseQualityDirty.size) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+    startProjectsRefresh();
+    ReviewSessionUI.installProjectRefreshLifecycle(window, () => projectsRefreshController);
+  </script>
+  <script src="/assets/dashboard/review-evidence.js" defer></script>
+  <script src="/assets/dashboard/review-synthesis.js" defer></script>
+</body>
+</html>

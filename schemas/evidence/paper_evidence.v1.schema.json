@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/paper_evidence.v1.schema.json",
+  "title": "Typed single-paper evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_id",
+    "study_id",
+    "source_id",
+    "epistemic_type",
+    "statement",
+    "locator",
+    "reported_conditions",
+    "quantitative_results",
+    "limitations",
+    "mechanism_grade",
+    "risk_classes",
+    "field_dependencies",
+    "dual_parse_bindings",
+    "bound_parse_object_digests",
+    "source_pdf_sha256",
+    "candidate_digest",
+    "decision"
+  ],
+  "properties": {
+    "evidence_id": {"$ref": "#/$defs/identifier"},
+    "study_id": {"$ref": "#/$defs/identifier"},
+    "source_id": {"$ref": "#/$defs/identifier"},
+    "epistemic_type": {
+      "enum": [
+        "experimental_observation",
+        "author_interpretation",
+        "proposed_mechanism"
+      ]
+    },
+    "statement": {"$ref": "#/$defs/text"},
+    "locator": {"$ref": "#/$defs/locator"},
+    "reported_conditions": {"$ref": "#/$defs/text_list"},
+    "quantitative_results": {"$ref": "#/$defs/text_list"},
+    "limitations": {"$ref": "#/$defs/text_list"},
+    "mechanism_grade": {
+      "enum": ["not_applicable", "proposal", "indirect_support", "direct_support"]
+    },
+    "risk_classes": {"$ref": "#/$defs/text_list"},
+    "field_dependencies": {
+      "type": "array", "uniqueItems": true,
+      "items": {"enum": ["molecule", "smiles", "molblock"]}
+    },
+    "dual_parse_bindings": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["dual_source_binding_digest", "chemical_completion_digest", "reconciliation_digest"],
+          "properties": {
+            "dual_source_binding_digest": {"$ref": "#/$defs/sha256"},
+            "chemical_completion_digest": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+            "honest_progressive_digest": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+            "reconciliation_digest": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]}
+          }
+        }
+      ]
+    },
+    "bound_parse_object_digests": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_digest": {"$ref": "#/$defs/sha256"},
+    "decision": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/verification_decision"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "locator": {
+            "properties": {"source_mode": {"const": "parsed_candidate"}},
+            "required": ["source_mode"]
+          }
+        },
+        "required": ["locator"]
+      },
+      "then": {
+        "properties": {
+          "bound_parse_object_digests": {"minItems": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "locator": {
+            "properties": {"source_mode": {"const": "original_pdf_manual"}},
+            "required": ["source_mode"]
+          }
+        },
+        "required": ["locator"]
+      },
+      "then": {
+        "properties": {
+          "bound_parse_object_digests": {"maxItems": 0}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!\\.\\.?$)(?!\\s)[^/\\\\\\u0000\\r\\n]*[^/\\\\\\u0000\\r\\n\\s]$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "text": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "nullable_text": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/text"}
+      ]
+    },
+    "text_list": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/text"}
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_mode",
+        "page",
+        "section_or_item",
+        "figure_or_table",
+        "exact_quote"
+      ],
+      "properties": {
+        "source_mode": {"enum": ["parsed_candidate", "original_pdf_manual"]},
+        "page": {"type": "integer", "minimum": 1},
+        "section_or_item": {"$ref": "#/$defs/text"},
+        "figure_or_table": {"$ref": "#/$defs/nullable_text"},
+        "exact_quote": {"$ref": "#/$defs/nullable_text"}
+      }
+    },
+    "verification_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "actor_type",
+        "actor_label",
+        "action",
+        "reason",
+        "decided_at",
+        "bound_object_digest"
+      ],
+      "properties": {
+        "schema_version": {"const": "verification-decision.v1"},
+        "actor_type": {
+          "enum": ["human_researcher", "simulated_researcher_agent"]
+        },
+        "actor_label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "action": {"enum": ["approve", "revise_and_approve", "reject"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "decided_at": {"type": "string", "minLength": 1},
+        "bound_object_digest": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

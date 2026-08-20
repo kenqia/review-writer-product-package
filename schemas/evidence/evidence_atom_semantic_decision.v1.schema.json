@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/evidence_atom_semantic_decision.v1.schema.json",
+  "title": "Atom-bound semantic decisions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "study_id",
+    "eligibility_status",
+    "decisions"
+  ],
+  "properties": {
+    "schema_version": {"const": "evidence-atom-semantic-decision.v1"},
+    "job_id": {"type": "string", "minLength": 1},
+    "study_id": {"type": "string", "minLength": 1},
+    "eligibility_status": {
+      "enum": [
+        "SCIENTIFICALLY_ELIGIBLE_CORE",
+        "NON_CORE_COMPARATOR",
+        "EXCLUDE_SCIENTIFIC",
+        "ELIGIBILITY_UNRESOLVED"
+      ]
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/decision"}
+    }
+  },
+  "$defs": {
+    "risk_category": {
+      "enum": [
+        "STRUCTURE",
+        "STEREOCHEMISTRY",
+        "MECHANISM_CAUSALITY",
+        "NEGATIVE_GENERALIZATION",
+        "MATERIAL_COMPARISON",
+        "FIGURE_TABLE_CHEMISTRY"
+      ]
+    },
+    "visual_values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atom_id", "values"],
+      "properties": {
+        "atom_id": {"type": "string", "minLength": 1},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_kind",
+        "target_id",
+        "statement",
+        "evidence_summary",
+        "atom_ids",
+        "risk_classification"
+      ],
+      "properties": {
+        "target_kind": {"enum": ["ELIGIBILITY", "REACTION_UNIT", "CLAIM"]},
+        "target_id": {"type": "string", "minLength": 1},
+        "statement": {"type": "string", "minLength": 1},
+        "evidence_summary": {"type": "string", "minLength": 1},
+        "atom_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "risk_classification": {
+          "enum": ["NO_HIGH_RISK", "HIGH_RISK"]
+        },
+        "semantic_risk_categories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/risk_category"}
+        },
+        "visual_transcribed_values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/visual_values"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"target_kind": {"const": "ELIGIBILITY"}},
+            "required": ["target_kind"]
+          },
+          "then": {
+            "properties": {"risk_classification": {"const": "NO_HIGH_RISK"}},
+            "not": {"required": ["semantic_risk_categories"]}
+          }
+        },
+        {
+          "if": {
+            "properties": {"risk_classification": {"const": "HIGH_RISK"}},
+            "required": ["risk_classification"]
+          },
+          "then": {"required": ["semantic_risk_categories"]}
+        },
+        {
+          "if": {
+            "properties": {"risk_classification": {"const": "NO_HIGH_RISK"}},
+            "required": ["risk_classification"]
+          },
+          "then": {"not": {"required": ["semantic_risk_categories"]}}
+        }
+      ]
+    }
+  }
+}

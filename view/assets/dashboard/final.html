@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Release · 发布核验</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root{--ink:#1f2024;--muted:#69707b;--line:#d7cbb7;--green:#1e6a58;--orange:#c46f33;--paper:#fffdf7;--shadow:0 20px 52px rgba(48,39,24,.14)}
+    *{box-sizing:border-box}body{margin:0;color:var(--ink);background:radial-gradient(circle at 12% 12%,rgba(30,106,88,.14),transparent 24rem),radial-gradient(circle at 90% 8%,rgba(196,111,51,.15),transparent 28rem),linear-gradient(135deg,#efe3cc,#fbf6ea 46%,#eadfca);font-family:Georgia,"Times New Roman",serif;height:100vh;overflow:hidden}
+    button,select{font:inherit}.nav{height:58px;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,250,241,.94);border-bottom:1px solid var(--line)}
+    .nav-title{font-weight:700;font-size:18px}.nav-center{flex:1;text-align:center}.project-select{min-width:280px;max-width:520px;border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:8px 12px}.nav-right{display:flex;gap:7px;flex-wrap:wrap}.nav a{text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:7px 10px;background:var(--paper);font-size:14px}.nav a.active{background:var(--green);border-color:var(--green);color:white}
+    .app{height:calc(100vh - 58px);display:grid;grid-template-columns:280px minmax(560px,1fr) 380px;gap:14px;padding:14px}.panel{background:rgba(255,250,241,.95);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;min-height:0;display:flex;flex-direction:column}.head,.tabs{padding:14px;border-bottom:1px solid var(--line)}h1,h2,h3{margin:0;letter-spacing:-.02em}h1{font-size:22px}h2{font-size:18px}.sub{margin-top:6px;color:var(--muted);font-size:13px;line-height:1.35}
+    .list,.main,.side{overflow:auto;min-height:0}.list{padding:9px}.item{width:100%;text-align:left;background:var(--paper);border:1px solid transparent;border-radius:14px;padding:11px;margin-bottom:8px;cursor:pointer;color:var(--ink)}.item:hover,.item.active{border-color:var(--green);background:#f2faf0}.item-title{font-weight:700;font-size:15px}.item-meta{color:var(--muted);font-size:12px;margin-top:5px}.pill{display:inline-block;font-size:11px;padding:3px 7px;border-radius:999px;background:#e4efe4;color:#285a37;margin-top:5px}.warn{background:#f9dfd0;color:#8d3e20}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{border:1px solid var(--line);border-radius:999px;background:var(--paper);padding:7px 10px;cursor:pointer}.tab.active{background:var(--green);color:white;border-color:var(--green)}
+    .main{background:var(--paper);padding:30px 36px;line-height:1.62;font-size:16px}.main img{max-width:100%;border:1px solid var(--line);border-radius:10px;display:block;margin:12px auto}.main a{color:var(--green)}.main code{padding:2px 5px;border-radius:6px;background:#efe6d4;color:#5c3c20;font-family:Consolas,monospace;font-size:.9em}.main table{border-collapse:collapse;width:max-content;max-width:100%;display:block;overflow-x:auto;margin:18px 0;background:white;font-size:13px;line-height:1.35}.main td,.main th{border:1px solid #cfc2aa;padding:7px 9px;vertical-align:top}.main th,.main tr:first-child td{background:#efe6d4;font-weight:700}.main details{margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fbf4e5}.main summary{cursor:pointer;font-weight:700;color:var(--green)}
+    .side{padding:14px}.field{margin-bottom:13px}.label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}.value{white-space:pre-wrap;line-height:1.45}.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;color:var(--muted);background:#fffaf0}pre{white-space:pre-wrap;margin:0;font-family:Consolas,monospace;font-size:12px}
+    @media(max-width:1100px){body{height:auto;overflow:auto}.app{height:auto;grid-template-columns:1fr}.panel{min-height:360px}}
+  </style>
+  <link rel="stylesheet" href="/assets/dashboard/review-ui.css">
+</head>
+<body>
+  <nav class="nav"><div class="nav-title">Review Writer</div><div class="nav-center"><select id="projectSelect" class="project-select"></select></div><div class="nav-right" aria-hidden="true"></div></nav>
+  <main id="canonical-release" class="app">
+    <section class="panel"><div class="head"><h1>发布核验</h1><div id="projectInfo" class="sub">正在读取当前项目…</div></div><div id="docList" class="list" aria-live="polite"></div></section>
+    <section class="panel"><div class="head"><h2 id="mainTitle">当前正文</h2><div id="mainMeta" class="sub"></div></div><div class="tabs"><button class="tab active" data-doc="final">当前正文</button><button class="tab" data-doc="audit">审查报告</button><button class="tab" data-doc="quality">质量报告</button><button class="tab" data-doc="release">发布报告</button></div><div id="main" class="main"></div></section>
+    <section class="panel"><div class="head"><h2>版本与导出</h2><div class="sub">只显示真实 currentness、已有导出与公开的版本能力。</div></div><div id="summary" class="side"></div></section>
+  </main>
+  <script src="/assets/dashboard/review-ui.js"></script>
+  <script src="/assets/dashboard/review-release.js"></script>
+  <script>
+    let projects=[],payload=null,figurePayload={source_figures:[]},selectedProject='',doc=({"#quality":"quality","#release":"release"}[window.location.hash.toLowerCase()]||'final');
+    const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    function fileUrl(path){return path?`/file?path=${encodeURIComponent(path)}`:''}
+    function canonicalFigure(alt){const wanted=String(alt||'').trim().toLowerCase();return(figurePayload?.source_figures||[]).find(item=>[item.caption,item.figure_label].filter(Boolean).some(label=>String(label).trim().toLowerCase()===wanted))||null}
+    function imageSrc(path,alt){const canonical=canonicalFigure(alt);if(canonical?.image_url)return canonical.image_url;if(/^\/api\//.test(path)||/^data:image\//.test(path))return path;if(String(path||'').includes('..'))return'';return fileUrl(path.startsWith('/')?path:[payload?.paths?.stage_dir,path].filter(Boolean).join('/'))}
+    function figureMarkup(path,alt){const src=imageSrc(path,alt);return src?`<img alt="${esc(alt)}" src="${esc(src)}">`:`<span class="figure-placeholder">图件来源待核对：${esc(alt||'未命名图件')}</span>`}
+    function inlineMd(text){let out='',last=0,re=/!\[([^\]]*)\]\(([^)]+)\)/g,m;while((m=re.exec(text))){out+=esc(text.slice(last,m.index));out+=figureMarkup(m[2],m[1]);last=re.lastIndex}return(out+esc(text.slice(last))).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>')}
+    function md(s){return String(s||'').split(/\n{2,}/).map(b=>{b=b.trim();if(!b)return'';if(/^<table[\\s>]/i.test(b)||/^<details[\\s>]/i.test(b))return b;let m=b.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);if(m)return`<p>${figureMarkup(m[2],m[1])}</p>`;m=b.match(/^###\s+(.+)/);if(m)return`<h3>${esc(m[1])}</h3>`;m=b.match(/^##\s+(.+)/);if(m)return`<h2>${esc(m[1])}</h2>`;m=b.match(/^#\s+(.+)/);if(m)return`<h1>${esc(m[1])}</h1>`;return`<p>${inlineMd(b)}</p>`}).join('')||'<div class="empty">当前文件未生成。</div>'}
+    const docs=()=>[{id:'final',title:'当前正文',text:payload?.final_draft_md,label:'当前权威正文'},{id:'audit',title:'审查报告',text:payload?.final_audit_report_md,label:'发布审查摘要'},{id:'quality',title:'质量报告',text:payload?.quality_report_md,label:'质量核对摘要'},{id:'release',title:'发布报告',text:payload?.release_report_md,label:'发布状态摘要'}];
+    async function loadProjects(){projects=await(await fetch('/api/projects')).json();$('projectSelect').innerHTML=projects.map(p=>`<option value="${esc(p.project_id)}">${esc(p.project_id)}</option>`).join('');const requested=window.ReviewPresentation?.projectIdFromLocation?.();const selected=projects.find(p=>p.project_id===requested)?.project_id||projects[0]?.project_id;if(selected){$('projectSelect').value=selected;window.ReviewPresentation?.setProjectIdInLocation?.(selected);loadProject(selected)}}
+    async function loadProject(id){selectedProject=id;const encoded=encodeURIComponent(id);payload=await(await fetch(`/api/project/${encoded}/final`)).json();figurePayload={source_figures:[]};const stateResponse=await fetch(`/api/project/${encoded}/review-state`);const state=stateResponse.ok?await stateResponse.json():{};if(state.route==='evidence-to-release.v1'){const figuresResponse=await fetch(`/api/project/${encoded}/review-figures`);figurePayload=figuresResponse.ok?await figuresResponse.json():{source_figures:[]}}doc='final';render()}
+    function humanStatus(value){return window.ReviewPresentation?.humanStatus?.(value)||String(value||'待核对').replaceAll('_',' ')}
+    function renderList(){$('docList').innerHTML=docs().map(d=>`<button class="item ${d.id===doc?'active':''}" data-doc="${d.id}"><div class="item-title">${esc(d.title)}</div><div class="item-meta">${esc(d.label)}</div><span class="pill ${d.text?'':'warn'}">${d.text?'已提供':'未提供'}</span></button>`).join('')||'<div class="empty">当前项目没有可显示的发布文件。</div>'}
+    function renderMain(){const d=docs().find(x=>x.id===doc)||docs()[0];$('mainTitle').textContent=d.title;$('mainMeta').textContent=`${d.label} · ${payload?.manuscript_source==='release_snapshot'?'发布快照':'当前权威正文'}`;$('main').innerHTML=md(d.text)}
+    function renderSummary(){
+      const final=payload?.final_draft_md||'',audit=payload?.final_audit_report_md||'',quality=payload?.quality_report||{},qualityMd=payload?.quality_report_md||'',release=payload?.release_report_md||'',checkpoints=(payload?.checkpoint_log?.checkpoints||[]);
+      const snapshotExists=payload?.release_snapshot?.exists===true;
+      const snapshotMatches=payload?.release_snapshot?.matches_authoritative === true;
+      const snapshotCurrent=snapshotMatches&&payload?.release_snapshot?.integrity_valid===true;
+      const currentReleaseReady=snapshotCurrent&&payload?.release_snapshot?.docx_exists===true&&payload?.final_draft_docx_exists===true;
+      const releaseStatus=currentReleaseReady?`Current release ready · ${payload?.release_status||'reviewed'}`:(snapshotExists&&!snapshotCurrent?'Release outdated — regenerate DOCX from the current manuscript.':(snapshotCurrent?'Current release validated — generate DOCX.':'No current release.'));
+      const words=final.split(/\s+/).filter(Boolean).length;
+      const figures=(final.match(/!\[[^\]]*\]\([^)]+\)/g)||[]).length;
+      const refs=(final.match(/\[[0-9,\-\s]+\]/g)||[]).length;
+      const qStatus=quality.status||'missing';
+      const qualitySummary=`${qStatus}\nerrors: ${(quality.errors||[]).length || 0}\nwarnings: ${(quality.warnings||[]).length || 0}\nLLM tasks: ${(quality.llm_judge_tasks||[]).length || 0}\nhuman tasks: ${(quality.human_review_tasks||[]).length || 0}`;
+      const humanCheck=`1. 每个关键结论是否有真实文献支撑。\n2. 每张图是否已经完成源图核验和风格统一。\n3. 是否仍有 TODO、占位引用、空图或未解决审查项。\n4. Quality Report 中的 LLM judge / human review tasks 是否已处理。`;
+      const blockers=[snapshotExists&&!snapshotCurrent&&'release outdated — regenerate DOCX',!final&&'current manuscript unavailable',!release&&'release summary unavailable',qStatus==='fail'&&'quality gate failed',/TODO|citation needed|verification needed|待核查|未确认/i.test(final)&&'unresolved placeholders'].filter(Boolean);
+      $('projectInfo').textContent=`${selectedProject} · ${payload?.topic||''}`;
+      $('summary').innerHTML=`<div class="field"><div class="label">Release Status</div><div class="value">${esc(releaseStatus)}</div></div><div class="field"><div class="label">Status</div><div class="value">${blockers.length?`Needs final fixes: ${blockers.join(', ')}`:'Ready for final human export check'}</div></div><div class="field"><div class="label">Word Count</div><div class="value">${words}</div></div><div class="field"><div class="label">Figures In Markdown</div><div class="value">${figures}</div></div><div class="field"><div class="label">Citation-like Marks</div><div class="value">${refs}</div></div><div class="field"><div class="label">Quality Gate</div><div class="value">${esc(qualitySummary)}</div></div><div class="field"><div class="label">Checkpoints</div><div class="value">${checkpoints.length ? checkpoints.map(c=>`${c.index||''}. ${c.checkpoint||c.name}: ${c.status||'unknown'}`).join('\\n') : 'missing'}</div></div><div class="field"><div class="label">Audit Report</div><div class="value">${audit?'generated':'missing'}</div></div><div class="field"><div class="label">Quality Report</div><div class="value">${qualityMd?'generated':'missing'}</div></div><div class="field"><div class="label">Release Report</div><div class="value">${release?'generated':'missing'}</div></div><div class="field"><div class="label">Word Export</div><div class="value" id="docxStatus">${currentReleaseReady?'Current release ready':(snapshotExists&&!snapshotCurrent?'Release outdated — regenerate DOCX':'DOCX not generated for the current release')}</div><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button id="docxGen" class="btn primary" style="padding:7px 12px;border:1px solid var(--green);background:var(--green);color:white;border-radius:999px;cursor:pointer">${snapshotExists&&!snapshotCurrent?'Regenerate DOCX':'Generate DOCX'}</button>${currentReleaseReady?`<a id="docxDownload" class="btn" style="padding:7px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;text-decoration:none;" href="${fileUrl(payload.final_draft_docx_path)}" download>Download</a>`:''}</div></div><div class="field"><div class="label">Human Check</div><div class="value">${esc(humanCheck)}</div></div>`;
+    }
+    function renderReleaseSummary(){
+      const final=payload?.final_draft_md||'';
+      const audit=payload?.final_audit_report_md||'';
+      const releaseReport=payload?.release_report_md||'';
+      const quality=payload?.quality_report||{};
+      const qualityMd=payload?.quality_report_md||'';
+      const checkpoints=payload?.checkpoint_log?.checkpoints||[];
+      const release=ReviewReleaseUI.projectRelease(payload);
+      const qualityLabel=quality.status ? humanStatus(quality.status) : '未提供';
+      const blockers=[
+        release.snapshotExists&&!release.snapshotCurrent?'发布快照已过期，需要从当前正文重新生成':null,
+        !release.markdownExists?'当前权威正文未提供':null,
+        quality.status==='fail'?'质量门禁未通过':null,
+        /TODO|citation needed|verification needed|待核查|未确认/i.test(final)?'正文仍含待核查占位':null,
+      ].filter(Boolean);
+      const words=final.split(/\s+/).filter(Boolean).length;
+      const figures=(final.match(/!\[[^\]]*\]\([^)]+\)/g)||[]).length;
+      const refs=(final.match(/\[[0-9,\-\s]+\]/g)||[]).length;
+      const docxStatus=release.sameVersion
+        ? 'DOCX 与当前 Markdown 同版本且存在'
+        : release.docxExists
+          ? 'DOCX 已存在，但与当前 Markdown 的同版本关系未确认'
+          : '当前版本 DOCX 未生成';
+      const historyAvailable=Object.keys(release.history||{}).length > 0;
+      $('projectInfo').textContent=`${selectedProject} · ${humanStatus(payload?.release_status||'pending')}`;
+      $('summary').innerHTML=`<div id="current-version-state" class="field"><div class="label">当前版本</div><div class="value">${esc(release.currentLabel)}</div></div><div id="same-version-exports" class="field"><div class="label">同版本导出</div><div class="value">Markdown：${release.markdownExists?'已提供':'未提供'}\nDOCX：${esc(docxStatus)}</div><div class="release-actions"><button id="docxGen" class="btn primary">${release.snapshotExists&&!release.snapshotCurrent?'Regenerate DOCX':'Generate DOCX'}</button>${release.sameVersion?`<a id="docxDownload" class="btn" href="${fileUrl(payload.final_draft_docx_path)}" download>Download DOCX</a>`:''}</div></div><div class="field"><div class="label">当前状态</div><div class="value">${esc(blockers.length?`需要处理：${blockers.join('；')}`:'等待研究者完成发布核验')}</div></div><div class="field"><div class="label">正文规模</div><div class="value">${words} words · ${figures} figures · ${refs} citation marks</div></div><div class="field"><div class="label">报告</div><div class="value">审查：${audit?'已提供':'未提供'} · 质量：${qualityMd?qualityLabel:'未提供'} · 发布：${releaseReport?'已提供':'未提供'}</div></div><div class="field"><div class="label">检查点</div><div class="value">${esc(checkpoints.length?checkpoints.map(item=>`${item.index||''}. ${item.checkpoint||item.name||'检查点'}：${humanStatus(item.status)}`).join('\\n'):'未提供')}</div></div><div id="history-capability-state" class="field"><div class="label">版本历史能力</div><div class="value">${historyAvailable?'当前 payload 提供版本历史字段，仍需研究者核对。':'版本原因、current、branch、undo、compare 未在当前公开 payload 提供；页面保持不可用。'}</div></div>`;
+    }
+    const exportErrorFields=['error','reason_code','message','result'];
+    const exportTextErrorCodes=['FIGURE_ATTRIBUTION_MISSING'];
+    async function exportFailureMessage(response){
+      const body=await response.text();
+      const contentType=(response.headers.get('content-type')||'').toLowerCase();
+      if(contentType.includes('application/json')){
+        try{
+          const data=JSON.parse(body);
+          if(data&&typeof data==='object'&&!Array.isArray(data)){
+            for(const field of exportErrorFields){
+              if(typeof data[field]==='string'&&data[field].trim())return data[field].trim();
+            }
+          }
+        }catch(_){ }
+      }else if(contentType.includes('text/html')){
+        for(const code of exportTextErrorCodes){if(body.includes(code))return code;}
+      }
+      return `HTTP ${response.status}`;
+    }
+    function render(){renderList();renderMain();renderReleaseSummary();document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.doc===doc))}
+    $('projectSelect').addEventListener('change',e=>{window.ReviewPresentation?.setProjectIdInLocation?.(e.target.value);loadProject(e.target.value)});$('docList').addEventListener('click',e=>{const b=e.target.closest('[data-doc]');if(!b)return;doc=b.dataset.doc;render()});document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{doc=t.dataset.doc;history.replaceState(history.state,'',`${location.pathname}${location.search}${doc==='quality'?'#quality':doc==='release'?'#release':''}`);render()}));loadProjects();document.addEventListener('click',async e=>{const b=e.target.closest('#docxGen');if(!b||!selectedProject)return;b.disabled=true;const prev=b.textContent;b.textContent='Generating...';try{const r=await fetch(`/api/project/${encodeURIComponent(selectedProject)}/export-docx`,{method:'POST'});if(!r.ok){alert('Generate failed: '+await exportFailureMessage(r));}else{const j=await r.json();if(!j.ok){alert('Generate failed: '+(j.error||'unknown'));}else{await loadProject(selectedProject);}}}catch(err){alert('Generate failed: '+err);}finally{const btn=document.getElementById('docxGen');if(btn){btn.disabled=false;btn.textContent=prev;}}});
+  </script>
+</body>
+</html>

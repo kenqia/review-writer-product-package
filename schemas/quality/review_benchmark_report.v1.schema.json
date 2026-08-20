@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/quality/review_benchmark_report.v1.schema.json",
+  "title": "Evidence-bound review benchmark report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evaluated_at",
+    "project_id",
+    "release_level",
+    "status",
+    "score",
+    "tier",
+    "expert_release_ready",
+    "rubric",
+    "hard_fails",
+    "issues",
+    "chemical_paper_safe_summary",
+    "release_binding",
+    "standard_corpus",
+    "comparison_metrics",
+    "human_review_required",
+    "disclaimer"
+  ],
+  "properties": {
+    "schema_version": {"const": "review-benchmark-report.v1"},
+    "route": {"enum": ["evidence-to-release.v1", "honest_progressive"]},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "project_id": {"type": "string", "minLength": 1},
+    "release_level": {"enum": ["SELF_REVIEWED_DRAFT", "EXPERT_REVIEWED_RELEASE"]},
+    "status": {"enum": ["fail", "needs_revision", "pass_internal", "pass_expert"]},
+    "score": {"type": "number", "minimum": 0, "maximum": 100},
+    "tier": {
+      "enum": [
+        "below_internal_threshold",
+        "acceptable_internal_revision_required",
+        "benchmark_internal"
+      ]
+    },
+    "expert_release_ready": {"type": "boolean"},
+    "rubric": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension_id", "max_score", "score", "rationale"],
+        "properties": {
+          "dimension_id": {
+            "enum": [
+              "scope_and_question_value",
+              "source_set_coverage",
+              "evidence_fidelity",
+              "synthesis_and_critique",
+              "structure_and_narrative",
+              "figure_information_value",
+              "citation_and_traceability"
+            ]
+          },
+          "max_score": {"type": "integer", "minimum": 1, "maximum": 20},
+          "score": {"type": "number", "minimum": 0, "maximum": 20},
+          "rationale": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "hard_fails": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "WRONG_SOURCE_BINDING",
+          "SUPPORTING_SOURCE_UNREAD",
+          "HIGH_RISK_CLAIM_UNAPPROVED",
+          "STALE_APPROVAL",
+          "FABRICATED_SCIENTIFIC_DETAIL",
+          "STATE_SURFACE_DIVERGENCE",
+          "UNSOURCED_SCIENTIFIC_CLAIM",
+          "LEGACY_DRAFT_REPACKAGED",
+          "SYSTEM_GENERATED_SYNTHESIS_FIGURE",
+          "SYNTHESIS_FIGURE_PENDING",
+          "CHEMICAL_DEPENDENCY_UNRESOLVED",
+          "DUAL_PARSE_STALE",
+          "CORE_GENERIC_PARSE_MISSING_OR_STALE",
+          "CORE_CHEMICAL_IMPORT_MISSING_OR_STALE",
+          "CHEMICAL_COMPLETION_INCOMPLETE",
+          "PARSE_RECONCILIATION_UNRESOLVED",
+          "DUAL_SOURCE_BINDING_MISMATCH",
+          "STALE_DUAL_PARSE_CONTENT_RESULT",
+          "AI_AUTHORED_SMILES",
+          "REACTION_ABSENCE_MISREPRESENTED",
+          "HONEST_PROGRESSIVE_COVERAGE_BELOW_THRESHOLD"
+        ]
+      }
+    },
+    "issues": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": [
+        "SYNTHESIS_FIGURE_PENDING", "CHEMICAL_FIELDS_UNRESOLVED",
+        "CHEMICAL_ELEMENTS_NOT_REVIEWED", "CHEMICAL_REACTION_DATA_UNAVAILABLE",
+        "CHEMICAL_DEPENDENCY_UNRESOLVED", "HONEST_PROGRESSIVE_GAPS_PRESENT"
+      ]}
+    },
+    "chemical_paper_safe_summary": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/chemical_paper_safe_summary"}
+      ]
+    },
+    "dual_parse_status": {
+      "enum": ["not_applicable", "current", "stale"]
+    },
+    "reaction_data_status": {
+      "enum": ["not_applicable", "available", "unavailable_not_provided"]
+    },
+    "reaction_count": {
+      "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]
+    },
+    "credits_status": {"const": "NOT_APPLICABLE_BY_CURRENT_SCOPE"},
+    "core_molecule_count": {"type": "integer", "minimum": 0},
+    "confirmed_count": {"type": "integer", "minimum": 0},
+    "ai_provisional_count": {"type": "integer", "minimum": 0},
+    "blocked_count": {"type": "integer", "minimum": 0},
+    "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+    "coverage_threshold": {"const": 0.8},
+    "coverage_sufficient": {"type": "boolean"},
+    "source_traceability": {"type": "number", "minimum": 0, "maximum": 1},
+    "gap_honesty": {"type": "boolean"},
+    "paper_coverage": {"type": "array", "items": {"type": "object"}},
+    "uncertainty_statement": {"type": "string", "minLength": 1},
+    "gap_registry": {"type": "array", "items": {"type": "object"}},
+    "traceability": {"type": "array", "items": {"type": "object"}},
+    "actor_provenance_residual": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/actor_provenance_residual"}
+    },
+    "release_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manuscript_sha256", "release_sha256",
+        "chemical_paper_binding_digest", "chemical_paper_dependency_can_release"
+      ],
+      "properties": {
+        "manuscript_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "release_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "chemical_paper_binding_digest": {
+          "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        },
+        "chemical_paper_dependency_can_release": {"type": "boolean"},
+        "dual_parse_binding_digest": {
+          "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        }
+      }
+    },
+    "standard_corpus": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "manifest_sha256",
+            "source_zip_sha256",
+            "file_count",
+            "pdf_count",
+            "mineru_success_count",
+            "mineru_failure_count",
+            "review_count",
+            "guide_count",
+            "stylesheet_count"
+          ],
+          "properties": {
+            "schema_version": {"const": "standard-corpus-binding.v1"},
+            "manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "source_zip_sha256": {"$ref": "#/$defs/sha256"},
+            "file_count": {"const": 1071},
+            "pdf_count": {"const": 14},
+            "mineru_success_count": {"const": 14},
+            "mineru_failure_count": {"const": 0},
+            "review_count": {"const": 8},
+            "guide_count": {"const": 6},
+            "stylesheet_count": {"const": 1}
+          }
+        }
+      ]
+    },
+    "comparison_metrics": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "human_review_required": {"const": true},
+    "disclaimer": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"route": {"const": "honest_progressive"}},
+        "required": ["route"]
+      },
+      "then": {
+        "required": [
+          "core_molecule_count", "confirmed_count", "ai_provisional_count",
+          "blocked_count", "coverage_ratio", "coverage_threshold",
+          "coverage_sufficient", "source_traceability", "gap_honesty",
+          "paper_coverage", "uncertainty_statement", "gap_registry",
+          "traceability", "actor_provenance_residual", "credits_status"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "actor_provenance_residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "actor_type": {"type": "string", "minLength": 1},
+        "actor_label": {"type": "string", "minLength": 1},
+        "expected_actor_type": {"type": "string", "minLength": 1},
+        "observed_actor_type": {"type": "string", "minLength": 1},
+        "reason_code": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "occurred_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "chemical_paper_safe_summary": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema_version", "route", "study_count", "molecule_count",
+        "missing_name_count", "missing_resolved_smiles_count",
+        "ai_authored_smiles_count", "element_review_counts", "reaction_data_status"
+      ],
+      "properties": {
+        "schema_version": {"const": "chemical-paper-safe-summary.v2"},
+        "route": {"const": "chemical-paper-zip-only"},
+        "study_count": {"type": "integer", "minimum": 1},
+        "molecule_count": {"type": "integer", "minimum": 0},
+        "missing_name_count": {"type": "integer", "minimum": 0},
+        "missing_resolved_smiles_count": {"type": "integer", "minimum": 0},
+        "ai_authored_smiles_count": {"type": "integer", "minimum": 0},
+        "element_review_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["not_reviewed", "confirmed", "corrected", "not_applicable"],
+          "properties": {
+            "not_reviewed": {"type": "integer", "minimum": 0},
+            "confirmed": {"type": "integer", "minimum": 0},
+            "corrected": {"type": "integer", "minimum": 0},
+            "not_applicable": {"type": "integer", "minimum": 0}
+          }
+        },
+        "reaction_data_status": {"enum": ["available", "unavailable_not_provided"]}
+      }
+    }
+  }
+}

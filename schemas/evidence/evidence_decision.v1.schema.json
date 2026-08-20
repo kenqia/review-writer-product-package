@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/evidence_decision.v1.schema.json",
+  "title": "Paper evidence decision event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "study_id",
+    "candidate_digest",
+    "bound_parse_object_digests",
+    "source_pdf_sha256",
+    "replacement_statement",
+    "decision"
+  ],
+  "properties": {
+    "schema_version": {"const": "paper-evidence-decision.v1"},
+    "evidence_id": {"$ref": "#/$defs/identifier"},
+    "study_id": {"$ref": "#/$defs/identifier"},
+    "candidate_digest": {"$ref": "#/$defs/sha256"},
+    "bound_parse_object_digests": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+    "replacement_statement": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "minLength": 1, "maxLength": 20000}
+      ]
+    },
+    "decision": {"$ref": "#/$defs/verification_decision"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": {"action": {"const": "revise_and_approve"}},
+            "required": ["action"]
+          }
+        }
+      },
+      "then": {
+        "properties": {"replacement_statement": {"type": "string", "minLength": 1}}
+      },
+      "else": {"properties": {"replacement_statement": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!\\.\\.?$)(?!\\s)[^/\\\\\\u0000\\r\\n]*[^/\\\\\\u0000\\r\\n\\s]$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verification_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "actor_type",
+        "actor_label",
+        "action",
+        "reason",
+        "decided_at",
+        "bound_object_digest"
+      ],
+      "properties": {
+        "schema_version": {"const": "verification-decision.v1"},
+        "actor_type": {
+          "enum": ["human_researcher", "simulated_researcher_agent"]
+        },
+        "actor_label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "action": {"enum": ["approve", "revise_and_approve", "reject"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "decided_at": {"type": "string", "minLength": 1},
+        "bound_object_digest": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

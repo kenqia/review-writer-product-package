@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/project/legacy_dual_parse_bootstrap_request.v1.schema.json",
+  "title": "Legacy three-paper dual parse bootstrap request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "brief", "sources"],
+  "properties": {
+    "schema_version": {"const": "dual-parse-bootstrap-request.v1"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "brief": {"type": "object"},
+    "sources": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/source"}
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "study_id", "source_id", "doi", "title", "tier", "document_role",
+        "pdf_input_path", "expected_pdf_sha256"
+      ],
+      "properties": {
+        "study_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "source_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "doi": {"type": "string", "minLength": 1, "maxLength": 512},
+        "title": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "tier": {"enum": ["core", "background"]},
+        "document_role": {"const": "MAIN"},
+        "pdf_input_path": {"type": "string", "minLength": 1},
+        "expected_pdf_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

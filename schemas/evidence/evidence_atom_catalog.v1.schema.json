@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/evidence_atom_catalog.v1.schema.json",
+  "title": "Page-local evidence atom catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "study_id",
+    "job_sha256",
+    "catalog_sha256",
+    "atoms"
+  ],
+  "properties": {
+    "schema_version": {"const": "evidence-atom-catalog.v1"},
+    "job_id": {"type": "string", "minLength": 1},
+    "study_id": {"type": "string", "minLength": 1},
+    "job_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "atoms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/atom"}
+    }
+  },
+  "$defs": {
+    "atom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atom_id",
+        "source_id",
+        "page",
+        "evidence_mode",
+        "raw_source_span",
+        "canonical_span",
+        "asset_path",
+        "asset_sha256",
+        "depiction_locator",
+        "crop_manifest_path",
+        "crop_manifest_sha256",
+        "source_binary_sha256",
+        "renderer_contract",
+        "renderer_sha256",
+        "r3_floor_categories",
+        "atom_sha256"
+      ],
+      "properties": {
+        "atom_id": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "page": {"type": "integer", "minimum": 1},
+        "evidence_mode": {"enum": ["TEXT_QUOTE", "FIGURE_TABLE_IMAGE"]},
+        "raw_source_span": {"type": ["string", "null"]},
+        "canonical_span": {"type": ["string", "null"]},
+        "asset_path": {"type": ["string", "null"]},
+        "asset_sha256": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          ]
+        },
+        "depiction_locator": {"type": ["string", "null"]},
+        "crop_manifest_path": {"type": ["string", "null"]},
+        "crop_manifest_sha256": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          ]
+        },
+        "source_binary_sha256": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          ]
+        },
+        "renderer_contract": {
+          "anyOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/renderer_contract"}
+          ]
+        },
+        "renderer_sha256": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          ]
+        },
+        "r3_floor_categories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/risk_category"}
+        },
+        "atom_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"evidence_mode": {"const": "TEXT_QUOTE"}}},
+          "then": {
+            "properties": {
+              "raw_source_span": {"type": "string", "minLength": 1},
+              "canonical_span": {"type": "string", "minLength": 1},
+              "asset_path": {"type": "null"},
+              "asset_sha256": {"type": "null"},
+              "depiction_locator": {"type": "null"},
+              "crop_manifest_path": {"type": "null"},
+              "crop_manifest_sha256": {"type": "null"},
+              "source_binary_sha256": {"type": "null"},
+              "renderer_contract": {"type": "null"},
+              "renderer_sha256": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"evidence_mode": {"const": "FIGURE_TABLE_IMAGE"}}},
+          "then": {
+            "properties": {
+              "raw_source_span": {"type": "null"},
+              "canonical_span": {"type": "null"},
+              "asset_path": {"type": "string", "minLength": 1},
+              "asset_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "depiction_locator": {"type": "string", "minLength": 1},
+              "crop_manifest_path": {"type": "string", "minLength": 1},
+              "crop_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "source_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "renderer_contract": {"$ref": "#/$defs/renderer_contract"},
+              "renderer_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "r3_floor_categories": {
+                "contains": {"const": "FIGURE_TABLE_CHEMISTRY"}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "risk_category": {
+      "enum": [
+        "STRUCTURE",
+        "STEREOCHEMISTRY",
+        "MECHANISM_CAUSALITY",
+        "NEGATIVE_GENERALIZATION",
+        "MATERIAL_COMPARISON",
+        "FIGURE_TABLE_CHEMISTRY"
+      ]
+    },
+    "renderer_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "dpi", "format", "single_page"],
+      "properties": {
+        "name": {"const": "PDFTOPPM_PNG_SINGLE_PAGE_V1"},
+        "dpi": {"const": 144},
+        "format": {"const": "png"},
+        "single_page": {"const": true}
+      }
+    }
+  }
+}

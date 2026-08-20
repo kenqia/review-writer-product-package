@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/synthesis/comparison_protocol.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "comparison_id", "comparison_objects", "axes", "normalization_rules", "missing_value_policy", "incomparability_rules", "counterevidence_rules", "claim_strength", "paper_evidence_projection_digest", "decision", "protocol_digest"],
+  "properties": {
+    "schema_version": {"const": "comparison-protocol.v1"},
+    "comparison_id": {"type": "string", "minLength": 1},
+    "comparison_objects": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "axes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "normalization_rules": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "missing_value_policy": {"type": "string", "minLength": 1},
+    "incomparability_rules": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "counterevidence_rules": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "claim_strength": {"type": "string", "minLength": 1},
+    "authoritative_run": {"type": "boolean"},
+    "review_questions": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {"const": "主要键组合、反应模式及活化策略是什么？"},
+        {"const": "条件如何影响表现，哪些结果不可直接比较？"},
+        {"const": "底物范围、耐受性、选择性和局限是什么？"},
+        {"const": "机制证据处于什么层级，作者解释之间有哪些冲突？"},
+        {"const": "通用性、选择性、放大、资源效率和机制确定性还存在哪些缺口？"}
+      ],
+      "items": false
+    },
+    "review_questions_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "paper_evidence_projection_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision": {"type": ["object", "null"]},
+    "protocol_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"authoritative_run": {"const": true}},
+        "required": ["authoritative_run"]
+      },
+      "then": {
+        "required": ["review_questions", "review_questions_digest"]
+      }
+    }
+  ]
+}

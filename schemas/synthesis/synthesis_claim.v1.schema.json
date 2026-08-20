@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/synthesis/synthesis_claim.v1.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "synthesis_id", "proposition", "comparison_axis", "supporting_evidence_ids", "counter_evidence_ids", "applicability_boundary", "mechanism_evidence_grade", "uncertainty", "risk_class", "single_study", "paper_evidence_projection_digest", "comparison_protocol_digest", "decision"],
+  "properties": {
+    "schema_version": {"const": "synthesis-claim.v1"}, "synthesis_id": {"type": "string", "minLength": 1}, "proposition": {"type": "string", "minLength": 1}, "comparison_axis": {"type": "string", "minLength": 1},
+    "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}}, "counter_evidence_ids": {"type": "array", "items": {"type": "string"}}, "applicability_boundary": {"type": "string", "minLength": 1}, "mechanism_evidence_grade": {"type": "string", "minLength": 1}, "uncertainty": {"type": "string", "minLength": 1}, "risk_class": {"type": "string", "minLength": 1}, "single_study": {"type": "boolean"},
+    "authoritative_run": {"type": "boolean"},
+    "review_question_id": {"type": "string", "enum": ["RQ1", "RQ2", "RQ3", "RQ4", "RQ5"]},
+    "review_question_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_questions_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_question_lineage_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "paper_evidence_projection_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "comparison_protocol_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "decision": {"type": ["object", "null"]}, "synthesis_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"authoritative_run": {"const": true}},
+        "required": ["authoritative_run"]
+      },
+      "then": {
+        "required": [
+          "authoritative_run", "review_question_id", "review_question_digest",
+          "review_questions_digest", "review_question_lineage_digest",
+          "synthesis_digest"
+        ]
+      }
+    }
+  ]
+}

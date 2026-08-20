@@ -1,0 +1,41 @@
+# Local Python environments and bytecode
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local configuration. Keep a future documented example file trackable.
+.env
+.env.*
+!.env.example
+
+# Per-review data must live outside this product package.
+projects/
+review-projects/
+review-data/
+project-data/
+.review-writer/
+
+# Source material, generated releases, archives, and logs.
+*.pdf
+*.PDF
+*.docx
+*.DOCX
+!skills/review-export-docx/review_template.docx
+*.zip
+*.ZIP
+*.log
+*.tmp
+
+# Local tool caches and editor/OS files
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

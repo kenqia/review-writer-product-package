@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/chemical_paper_state.v1.schema.json",
+  "title": "MinerU Chemical Paper bound state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "study_id", "source_id",
+    "source_truth_bundle_digest", "source_pdf_sha256", "current_import_digest",
+    "imports", "molecules", "field_corrections", "field_correction_head_digest",
+    "element_reviews", "element_review_head_digest", "state_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "chemical-paper-state.v1"},
+    "project_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "source_id": {"$ref": "#/$defs/id"},
+    "source_truth_bundle_digest": {"$ref": "#/$defs/sha256"},
+    "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+    "current_import_digest": {"$ref": "#/$defs/sha256"},
+    "imports": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/sha256"},
+      "additionalProperties": {"$ref": "#/$defs/import"}
+    },
+    "molecules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/molecule"}},
+    "field_corrections": {"type": "array", "items": {"$ref": "#/$defs/correction"}},
+    "field_correction_head_digest": {"$ref": "#/$defs/nullable_sha256"},
+    "element_reviews": {"type": "array", "items": {"$ref": "#/$defs/element_review"}},
+    "element_review_head_digest": {"$ref": "#/$defs/nullable_sha256"},
+    "state_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullable_sha256": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+    "id": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!\\.\\.?$)(?!.*[/\\\\\\u0000\\r\\n])[^\\s]+$"},
+    "actor": {
+      "type": "object", "additionalProperties": false, "required": ["actor_type", "actor_label"],
+      "properties": {"actor_type": {"enum": ["human_researcher", "simulated_researcher_agent"]}, "actor_label": {"type": "string", "minLength": 1, "maxLength": 200}}
+    },
+    "inventory": {
+      "type": "object", "additionalProperties": false, "required": ["entry_name", "file_kind", "sha256", "size_bytes"],
+      "properties": {"entry_name": {"type": "string", "minLength": 1}, "file_kind": {"enum": ["main_layout_json", "markdown", "molecule_info_json"]}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "import": {
+      "type": "object", "additionalProperties": false,
+      "required": ["archive_sha256", "source_pdf_sha256", "source_truth_bundle_digest", "source_id", "backend", "version", "page_count", "entry_inventory", "molecule_count", "reaction_data_status", "import_digest", "imported_at", "actor", "prior_import_event_digest", "import_event_digest"],
+      "properties": {
+        "archive_sha256": {"$ref": "#/$defs/sha256"}, "source_pdf_sha256": {"$ref": "#/$defs/sha256"}, "source_truth_bundle_digest": {"$ref": "#/$defs/sha256"}, "source_id": {"$ref": "#/$defs/id"},
+        "backend": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "page_count": {"type": "integer", "minimum": 1},
+        "entry_inventory": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/inventory"}}, "molecule_count": {"type": "integer", "minimum": 1},
+        "reaction_data_status": {"const": "unavailable_not_provided"}, "import_digest": {"$ref": "#/$defs/sha256"}, "imported_at": {"type": "string", "minLength": 1}, "actor": {"$ref": "#/$defs/actor"},
+        "prior_import_event_digest": {"$ref": "#/$defs/nullable_sha256"}, "import_event_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "field": {
+      "type": "object", "additionalProperties": false, "required": ["status", "value"],
+      "properties": {"status": {"enum": ["unresolved", "candidate"]}, "value": {"type": ["string", "null"]}}
+    },
+    "counts": {"type": "object", "propertyNames": {"pattern": "^[A-Z][a-z]?$"}, "additionalProperties": {"type": "integer", "minimum": 1}},
+    "molecule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["molecule_id", "page_index", "normalized_bbox", "mol_block", "molblock_format", "fields", "element_candidate_counts", "element_review_state", "bound_import_seed", "molecule_digest"],
+      "properties": {
+        "molecule_id": {"$ref": "#/$defs/id"}, "page_index": {"type": "integer", "minimum": 0},
+        "normalized_bbox": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+        "mol_block": {"type": "string", "minLength": 1}, "molblock_format": {"enum": ["V2000", "V3000"]},
+        "fields": {"type": "object", "additionalProperties": false, "required": ["mol_idt", "smiles_expanded", "smiles_unexpanded"], "properties": {"mol_idt": {"$ref": "#/$defs/field"}, "smiles_expanded": {"$ref": "#/$defs/field"}, "smiles_unexpanded": {"$ref": "#/$defs/field"}}},
+        "element_candidate_counts": {"$ref": "#/$defs/counts"}, "element_review_state": {"const": "not_reviewed"}, "bound_import_seed": {"$ref": "#/$defs/sha256"}, "molecule_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "correction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["molecule_id", "field", "prior_value", "value", "actor", "reason", "recorded_at", "bound_import_digest", "bound_molecule_digest", "prior_event_digest", "event_digest"],
+      "properties": {"molecule_id": {"$ref": "#/$defs/id"}, "field": {"enum": ["mol_idt", "smiles_expanded", "smiles_unexpanded"]}, "prior_value": {"type": ["string", "null"]}, "value": {"type": "string", "minLength": 1}, "actor": {"$ref": "#/$defs/actor"}, "reason": {"type": "string", "minLength": 1}, "pdf_locator": {"type": "object", "additionalProperties": false, "required": ["page"], "properties": {"page": {"type": "integer", "minimum": 1}, "figure_label": {"type": "string", "minLength": 1, "maxLength": 200}, "bbox": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}}}, "recorded_at": {"type": "string", "minLength": 1}, "bound_import_digest": {"$ref": "#/$defs/sha256"}, "bound_molecule_digest": {"$ref": "#/$defs/sha256"}, "prior_event_digest": {"$ref": "#/$defs/nullable_sha256"}, "event_digest": {"$ref": "#/$defs/sha256"}}
+    },
+    "element_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["molecule_id", "prior_state", "state", "prior_counts", "reviewed_counts", "actor", "reason", "recorded_at", "bound_import_digest", "bound_molecule_digest", "prior_event_digest", "event_digest"],
+      "properties": {"molecule_id": {"$ref": "#/$defs/id"}, "prior_state": {"enum": ["not_reviewed", "confirmed", "corrected", "not_applicable"]}, "state": {"enum": ["confirmed", "corrected", "not_applicable"]}, "prior_counts": {"$ref": "#/$defs/counts"}, "reviewed_counts": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/counts"}]}, "actor": {"$ref": "#/$defs/actor"}, "reason": {"type": "string", "minLength": 1}, "recorded_at": {"type": "string", "minLength": 1}, "bound_import_digest": {"$ref": "#/$defs/sha256"}, "bound_molecule_digest": {"$ref": "#/$defs/sha256"}, "prior_event_digest": {"$ref": "#/$defs/nullable_sha256"}, "event_digest": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}

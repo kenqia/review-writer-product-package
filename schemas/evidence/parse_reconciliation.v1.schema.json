@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/parse_reconciliation.v1.schema.json",
+  "title": "Parse reconciliation registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "study_id", "dual_source_binding_digest",
+    "chemical_completion_digest", "objects", "workflow_can_continue", "registry_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "parse-reconciliation.v1"},
+    "project_id": {"type": "string", "minLength": 1},
+    "study_id": {"type": "string", "minLength": 1},
+    "dual_source_binding_digest": {"$ref": "#/$defs/sha256"},
+    "chemical_completion_digest": {"$ref": "#/$defs/sha256"},
+    "objects": {"type": "array", "items": {"$ref": "#/$defs/object"}},
+    "workflow_can_continue": {"type": "boolean"},
+    "registry_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["mol_idt", "smiles_expanded", "smiles_unexpanded"],
+          "properties": {
+            "mol_idt": {"type": ["string", "null"]},
+            "smiles_expanded": {"type": ["string", "null"]},
+            "smiles_unexpanded": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
+    "locator": {
+      "type": "object", "additionalProperties": false, "required": ["page"],
+      "properties": {
+        "page": {"type": "integer", "minimum": 1},
+        "figure_label": {"type": "string", "minLength": 1},
+        "bbox": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}
+      }
+    },
+    "decision": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["action", "selected_lane", "note", "pdf_locator", "actor_type", "actor_label", "recorded_at", "bound_object_digest"],
+          "properties": {
+            "action": {"enum": ["pdf_resolved", "pdf_locator_only", "reject_both"]},
+            "selected_lane": {"enum": ["generic", "chemical", null]},
+            "note": {"type": "string", "minLength": 1},
+            "pdf_locator": {"$ref": "#/$defs/locator"},
+            "actor_type": {"enum": ["human_researcher", "simulated_researcher_agent"]},
+            "actor_label": {"type": "string", "minLength": 1},
+            "recorded_at": {"type": "string", "minLength": 1},
+            "bound_object_digest": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "object": {
+      "type": "object", "additionalProperties": false,
+      "required": ["object_id", "kind", "source_id", "page", "generic_candidate", "chemical_candidate", "status", "object_digest", "decision", "prior_decisions"],
+      "properties": {
+        "object_id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["molecule"]},
+        "source_id": {"type": "string", "minLength": 1},
+        "page": {"type": "integer", "minimum": 1},
+        "generic_candidate": {"$ref": "#/$defs/candidate"},
+        "chemical_candidate": {"$ref": "#/$defs/candidate"},
+        "status": {"enum": ["corroborated", "complementary", "conflict", "single_lane_only", "needs_review", "stale", "blocked"]},
+        "object_digest": {"$ref": "#/$defs/sha256"},
+        "decision": {"$ref": "#/$defs/decision"},
+        "prior_decisions": {"type": "array", "items": {"$ref": "#/$defs/decision"}}
+      }
+    }
+  }
+}

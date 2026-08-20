@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/operations/credit_event.v1.schema.json",
+  "title": "Review project credit event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "previous_event_id",
+    "recorded_at",
+    "stage",
+    "study_ids",
+    "input_digest",
+    "output_digest",
+    "forecast",
+    "before",
+    "after",
+    "consumed",
+    "measurement_source"
+  ],
+  "properties": {
+    "schema_version": {"const": "credit-event.v1"},
+    "event_id": {"$ref": "#/$defs/sha256"},
+    "previous_event_id": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "stage": {"$ref": "#/$defs/safe_name"},
+    "study_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/safe_name"}
+    },
+    "input_digest": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "output_digest": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "forecast": {
+      "oneOf": [
+        {"type": "number", "minimum": 0},
+        {"type": "null"}
+      ]
+    },
+    "before": {"type": "integer", "minimum": 0},
+    "after": {"type": "integer", "minimum": 0},
+    "consumed": {"type": "integer", "minimum": 0},
+    "measurement_source": {"$ref": "#/$defs/safe_name"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safe_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+    }
+  }
+}

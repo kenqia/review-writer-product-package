@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/honest_progressive_projection.v1.schema.json",
+  "title": "Honest Progressive downstream projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "route", "core_molecule_count", "confirmed_count",
+    "ai_provisional_count", "blocked_count", "coverage_ratio",
+    "coverage_threshold", "coverage_sufficient", "paper_coverage",
+    "uncertainty_statement", "gap_registry", "traceability",
+    "actor_provenance_residual", "credits_status"
+  ],
+  "properties": {
+    "route": {"const": "honest_progressive"},
+    "core_molecule_count": {"type": "integer", "minimum": 0},
+    "confirmed_count": {"type": "integer", "minimum": 0},
+    "ai_provisional_count": {"type": "integer", "minimum": 0},
+    "blocked_count": {"type": "integer", "minimum": 0},
+    "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+    "coverage_threshold": {"const": 0.8},
+    "coverage_sufficient": {"type": "boolean"},
+    "paper_coverage": {"type": "array", "items": {"type": "object"}},
+    "uncertainty_statement": {"type": "string", "minLength": 1},
+    "gap_registry": {"type": "array", "items": {"type": "object"}},
+    "traceability": {"type": "array", "items": {"type": "object"}},
+    "actor_provenance_residual": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/actor_provenance_residual"}
+    },
+    "credits_status": {"const": "NOT_APPLICABLE_BY_CURRENT_SCOPE"}
+  },
+  "$defs": {
+    "actor_provenance_residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "actor_type": {"type": "string", "minLength": 1},
+        "actor_label": {"type": "string", "minLength": 1},
+        "expected_actor_type": {"type": "string", "minLength": 1},
+        "observed_actor_type": {"type": "string", "minLength": 1},
+        "reason_code": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "occurred_at": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

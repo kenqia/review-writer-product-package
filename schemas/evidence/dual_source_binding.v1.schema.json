@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-writer.local/schemas/evidence/dual_source_binding.v1.schema.json",
+  "title": "Dual source binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "study_id", "source_id", "source_tier",
+    "generic", "chemical", "reaction_data_status", "status", "binding_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "dual-source-binding.v1"},
+    "project_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "source_id": {"$ref": "#/$defs/id"},
+    "source_tier": {"enum": ["core", "background"]},
+    "generic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_pdf_sha256", "source_truth_bundle_digest", "parse_gate_digest"],
+      "properties": {
+        "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+        "source_truth_bundle_digest": {"$ref": "#/$defs/sha256"},
+        "parse_gate_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "chemical": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["source_pdf_sha256", "source_truth_bundle_digest", "import_digest", "state_digest"],
+          "properties": {
+            "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+            "source_truth_bundle_digest": {"$ref": "#/$defs/sha256"},
+            "import_digest": {"$ref": "#/$defs/sha256"},
+            "state_digest": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "reaction_data_status": {"const": "unavailable_not_provided"},
+    "status": {"enum": ["current", "current_generic_only"]},
+    "binding_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!\\.\\.?$)(?!.*[/\\\\\\u0000\\r\\n])[^\\s]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
