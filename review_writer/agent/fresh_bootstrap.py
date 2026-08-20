@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -127,7 +128,7 @@ def _fresh_project_root(value: str | Path) -> Path:
     return parent / supplied.name
 
 
-def _authorized_pdf(value: str | Path) -> Path:
+def _authorized_pdfs(value: str | Path) -> tuple[Path, ...]:
     try:
         supplied = Path(value)
     except (TypeError, ValueError) as exc:
@@ -140,28 +141,53 @@ def _authorized_pdf(value: str | Path) -> Path:
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_FOLDER_INVALID") from exc
     if not folder.is_dir():
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_FOLDER_INVALID")
-    candidates = sorted(
-        (
-            path
-            for path in folder.iterdir()
-            if not path.is_symlink()
-            and path.is_file()
-            and path.suffix.casefold() == ".pdf"
-        ),
-        key=lambda path: path.name.casefold(),
+    try:
+        entries = tuple(folder.iterdir())
+    except OSError as exc:
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_FOLDER_INVALID") from exc
+    if any(path.is_symlink() for path in entries):
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+    if any(not path.is_file() for path in entries):
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+    if any(path.suffix.casefold() != ".pdf" for path in entries):
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+    candidates = tuple(
+        sorted(entries, key=lambda path: (path.name.casefold(), path.name))
     )
     if not 1 <= len(candidates) <= 3:
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_COUNT_INVALID")
-    selected = candidates[0]
-    try:
-        if selected.stat().st_size <= 0 or selected.read_bytes()[:5] != b"%PDF-":
-            raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
-    except OSError as exc:
-        raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID") from exc
-    return selected
+    seen_digests: set[str] = set()
+    for candidate in candidates:
+        try:
+            if candidate.stat().st_size <= 0:
+                raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+            with candidate.open("rb") as handle:
+                if handle.read(5) != b"%PDF-":
+                    raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+            digest = _sha256(candidate)
+        except FreshAgentBootstrapError:
+            raise
+        except OSError as exc:
+            raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID") from exc
+        if digest in seen_digests:
+            raise FreshAgentBootstrapError("AUTHORIZED_PDF_DUPLICATE_HASH")
+        seen_digests.add(digest)
+    return candidates
 
 
-def _build_authorized_archive(pdf: Path, destination_parent: Path) -> tuple[Path, str]:
+def _build_authorized_archive(
+    pdfs: Iterable[Path], destination_parent: Path
+) -> tuple[Path, list[dict[str, Any]]]:
+    if isinstance(pdfs, (str, Path)):
+        pdfs = (Path(pdfs),)
+    ordered = tuple(
+        sorted(
+            (Path(pdf) for pdf in pdfs),
+            key=lambda path: (path.name.casefold(), path.name),
+        )
+    )
+    if not ordered:
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_COUNT_INVALID")
     temporary_file = tempfile.NamedTemporaryFile(
         dir=destination_parent,
         prefix=".fresh-agent-source-",
@@ -171,21 +197,78 @@ def _build_authorized_archive(pdf: Path, destination_parent: Path) -> tuple[Path
     archive_path = Path(temporary_file.name)
     temporary_file.close()
     try:
-        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.write(pdf, arcname=pdf.name)
-        return archive_path, _sha256(pdf)
+        source_set: list[dict[str, Any]] = []
+        with zipfile.ZipFile(
+            archive_path, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            seen_names: set[str] = set()
+            seen_digests: set[str] = set()
+            for index, pdf in enumerate(ordered, start=1):
+                if pdf.is_symlink() or not pdf.is_file():
+                    raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+                if pdf.suffix.casefold() != ".pdf":
+                    raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
+                normalized_name = pdf.name.casefold()
+                if normalized_name in seen_names:
+                    raise FreshAgentBootstrapError("AUTHORIZED_PDF_DUPLICATE_NAME")
+                seen_names.add(normalized_name)
+                digest = _sha256(pdf)
+                if digest in seen_digests:
+                    raise FreshAgentBootstrapError("AUTHORIZED_PDF_DUPLICATE_HASH")
+                seen_digests.add(digest)
+                archive.write(pdf, arcname=pdf.name)
+                source_set.append(
+                    {
+                        "member_id": f"MEMBER-{index:04d}",
+                        "name": pdf.name,
+                        "sha256": digest,
+                        "size_bytes": pdf.stat().st_size,
+                        "download_id": f"UPLOAD-{digest[:20]}",
+                        "source_id": f"UPLOAD-{digest[:20]}",
+                        "study_id": f"UPLOAD-{digest[:20]}",
+                    }
+                )
+        return archive_path, source_set
+    except FreshAgentBootstrapError:
+        archive_path.unlink(missing_ok=True)
+        raise
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         archive_path.unlink(missing_ok=True)
         raise FreshAgentBootstrapError("SOURCE_ARCHIVE_BUILD_FAILED") from exc
 
 
-def _preflight_source_archive(archive: Path, expected_digest: str) -> dict[str, Any]:
+def _preflight_source_archive(
+    archive: Path, expected_source_set: Iterable[dict[str, Any]] | str
+) -> dict[str, Any]:
+    if isinstance(expected_source_set, str):
+        expected_rows = ({"sha256": expected_source_set},)
+    else:
+        expected_rows = tuple(expected_source_set)
+    if not expected_rows or any(
+        not isinstance(row, dict)
+        or not isinstance(row.get("sha256"), str)
+        or not row.get("sha256")
+        for row in expected_rows
+    ):
+        raise FreshAgentBootstrapError("AUTHORIZED_PDF_COUNT_INVALID")
     try:
         preflight = _source_archive_preflight(archive)
     except SourceArchivePreflightError as exc:
         raise FreshAgentBootstrapError(exc.code) from exc
     member = preflight.get("member") if isinstance(preflight, dict) else None
-    if not isinstance(member, dict) or member.get("sha256") != expected_digest:
+    if (
+        len(expected_rows) != 1
+        or not isinstance(member, dict)
+        or member.get("sha256") != expected_rows[0].get("sha256")
+        or (
+            isinstance(expected_rows[0].get("name"), str)
+            and member.get("member_display_name") != expected_rows[0].get("name")
+        )
+        or (
+            isinstance(expected_rows[0].get("member_id"), str)
+            and member.get("member_id") != expected_rows[0].get("member_id")
+        )
+    ):
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_STALE")
     return preflight
 
@@ -193,11 +276,12 @@ def _preflight_source_archive(archive: Path, expected_digest: str) -> dict[str, 
 def _publish_source_archive(
     project: Path,
     archive: Path,
-    expected_digest: str,
+    expected_source_set: Iterable[dict[str, Any]],
     *,
     preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    preflight = preflight or _preflight_source_archive(archive, expected_digest)
+    expected_rows = tuple(expected_source_set)
+    preflight = preflight or _preflight_source_archive(archive, expected_rows)
 
     destination = project / SOURCE_ARCHIVE_RELATIVE
     if destination.exists() or destination.is_symlink():
@@ -218,7 +302,7 @@ def _publish_source_archive(
                     target.write(chunk)
             target.flush()
             os.fsync(target.fileno())
-        published = _source_archive_preflight(temporary)
+        published = _preflight_source_archive(temporary, expected_rows)
         if published.get("archive_sha256") != preflight.get("archive_sha256"):
             raise FreshAgentBootstrapError("SOURCE_ARCHIVE_STALE")
         os.replace(temporary, destination)
@@ -413,16 +497,16 @@ class FreshAgentBootstrap:
         if not isinstance(topic, str) or not topic.strip():
             raise FreshAgentBootstrapError("TOPIC_INVALID")
         normalized_topic = topic.strip()
-        selected_pdf = _authorized_pdf(authorized_pdf_folder)
-        staged_archive, selected_digest = _build_authorized_archive(
-            selected_pdf,
+        authorized_pdfs = _authorized_pdfs(authorized_pdf_folder)
+        staged_archive, source_set = _build_authorized_archive(
+            authorized_pdfs,
             self.project_root.parent,
         )
         existed_before = self.project_root.exists()
         dashboard_pid: int | None = None
         project_touched = False
         try:
-            preflight = _preflight_source_archive(staged_archive, selected_digest)
+            preflight = _preflight_source_archive(staged_archive, source_set)
             # The Dashboard is an owned runtime prerequisite.  Start and
             # health-check it while the fresh project root is still empty so
             # a startup failure cannot publish partial canonical bytes.
@@ -446,7 +530,7 @@ class FreshAgentBootstrap:
             preflight = _publish_source_archive(
                 project,
                 staged_archive,
-                selected_digest,
+                source_set,
                 preflight=preflight,
             )
             try:
@@ -481,6 +565,7 @@ class FreshAgentBootstrap:
                         "reason_code": SOURCE_ROLE_HUMAN_ACTION_REQUIRED,
                         "topic_digest": canonical_digest({"topic": normalized_topic}),
                         "source_archive": copy.deepcopy(preflight),
+                        "authorized_source_set": copy.deepcopy(source_set),
                         "tool_trace": trace,
                         "next_action": next_action,
                     }
