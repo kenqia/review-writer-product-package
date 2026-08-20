@@ -228,6 +228,25 @@ def nearest_checkout_boundary(path: Path) -> Path | None:
         current = parent
 
 
+def _is_sidecar_review_data_root(
+    review_root: Path,
+    code_root: Path,
+    checkout_root: Path,
+) -> bool:
+    """Allow a data-only sibling of the running package inside an aggregate checkout.
+
+    An enclosing repository is commonly used to organize several local projects.
+    Its marker must not turn a sibling review-data directory into a historical
+    checkout.  A review root inside a foreign checkout still remains read-only.
+    """
+    try:
+        common_root = Path(os.path.commonpath((os.fspath(review_root), os.fspath(code_root))))
+        common_root.relative_to(checkout_root)
+    except (OSError, ValueError):
+        return False
+    return not code_root.is_relative_to(review_root)
+
+
 def _imported_module_checkout_root(owner: object) -> Path:
     module_name = getattr(owner, "__module__", None)
     module = sys.modules.get(module_name) if isinstance(module_name, str) else None
@@ -9300,11 +9319,16 @@ def configure_runtime(
 
     configured_review_root = _resolved_directory(Path(review_root), label="configured review root")
     checkout_root = nearest_checkout_boundary(configured_review_root)
-    mode = (
-        HISTORICAL_READ_ONLY
-        if checkout_root is not None and checkout_root != configured_code_root
-        else WRITABLE
+    historical_checkout = (
+        checkout_root is not None
+        and checkout_root != configured_code_root
+        and not _is_sidecar_review_data_root(
+            configured_review_root,
+            configured_code_root,
+            checkout_root,
+        )
     )
+    mode = HISTORICAL_READ_ONLY if historical_checkout else WRITABLE
     context = DashboardRuntimeContext(
         review_root=configured_review_root,
         code_root=configured_code_root,
