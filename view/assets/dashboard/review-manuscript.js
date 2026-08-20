@@ -39,6 +39,7 @@
       risk_classes: array(row.risk_classes || row.high_risk_reasons).map(string).filter(Boolean),
       claim_bindings: array(row.claim_bindings).map(binding),
       decision: decision(row.decision),
+      legacy_simulated_reconfirm_required: row.legacy_simulated_reconfirm_required === true,
     };
   }
 
@@ -107,16 +108,32 @@
     };
   }
 
-  function buildEditRequest(currentSection, editedBody, reason) {
+  function approvalActor(value) {
+    const actor = value && typeof value === "object" ? value : {};
+    if (actor.actor_type === "simulated_researcher_agent" && string(actor.actor_label).trim()) {
+      return {
+        actor_type: "simulated_researcher_agent",
+        actor_label: string(actor.actor_label).trim(),
+      };
+    }
+    return {actor_type: "human_researcher", actor_label: "研究者"};
+  }
+
+  function buildEditRequest(currentSection, editedBody, reason, actor, options) {
     const row = section(currentSection);
-    return {
+    const decisionActor = approvalActor(actor);
+    const request = {
       section_id: row.section_id,
       edited_body: string(editedBody),
       reason: string(reason).trim(),
       version_token: row.version_token,
-      actor_type: "simulated_researcher_agent",
-      actor_label: "dashboard-playwright-researcher",
+      actor_type: decisionActor.actor_type,
+      actor_label: decisionActor.actor_label,
     };
+    if (options?.reconfirmSimulatedApproval === true && row.legacy_simulated_reconfirm_required) {
+      request.reconfirm_simulated_approval = true;
+    }
+    return request;
   }
 
   function errorCodeFromResponseText(value) {

@@ -550,6 +550,7 @@
                 <span class="risk-flag">人工决定</span>
               </div>
               <p id="high-risk-edit-note">批准将绑定当前版本；若上游证据更新，本次决定自动失效。</p>
+              <p id="legacy-simulated-reconfirm-note" hidden>此前记录是 Agent 的模拟动作，正文不会被改写。请阅读本节后填写真实核对理由，再以研究者身份重新确认本节。</p>
               <label class="high-risk-reason-label" for="high-risk-reason">修改理由
                 <textarea id="high-risk-reason" rows="3" aria-label="高风险正文修改理由"></textarea>
               </label>
@@ -2309,15 +2310,28 @@
 
     function renderHighRiskReview(section) {
       const pending = pendingForSection(sectionId(section));
+      const legacyReconfirm = Boolean(
+        section?.legacy_simulated_reconfirm_required
+        && chemicalPaperActor().actor_type === 'human_researcher'
+      );
       const highRisk = Boolean(
         pending
         || section?.status === 'needs_human_edit'
         || (section?.risk_classes || []).length
+        || legacyReconfirm
       );
       $('high-risk-review').hidden = !highRisk;
       $('save-section').hidden = highRisk && draftPayload.route === 'evidence-to-release.v1';
+      $('legacy-simulated-reconfirm-note').hidden = !legacyReconfirm;
+      $('high-risk-heading').textContent = legacyReconfirm
+        ? '需要研究者重新确认此前的模拟批准'
+        : '高风险表述需要直接修改并批准';
+      $('approve-high-risk-edit').textContent = legacyReconfirm
+        ? '以研究者身份重新确认本节'
+        : '保存修改并批准本节';
       if (!highRisk) $('high-risk-reason').value = '';
-      if (highRisk && !editorDirty) $('high-risk-reason').value = section?.decision?.reason || '';
+      if (legacyReconfirm && !editorDirty) $('high-risk-reason').value = '';
+      else if (highRisk && !editorDirty) $('high-risk-reason').value = section?.decision?.reason || '';
     }
 
     function renderOutline() {
@@ -2626,12 +2640,16 @@
       try {
         let result;
         if (draftPayload.route === 'evidence-to-release.v1') {
+          const legacyReconfirm = Boolean(
+            activeSection.legacy_simulated_reconfirm_required
+            && chemicalPaperActor().actor_type === 'human_researcher'
+          );
           const reason = $('high-risk-reason').value.trim();
           if (!reason) {
             $('save-message').textContent = '请先填写本次高风险修改的核对理由。';
             return;
           }
-          if (submittedBody === String(activeSection.body || '')) {
+          if (!legacyReconfirm && submittedBody === String(activeSection.body || '')) {
             editorDirty = true;
             $('save-message').textContent = '未保存：这是高风险章节，必须直接修改章节正文，不能原样批准。当前输入仍保留在页面中。';
             return;
@@ -2639,7 +2657,13 @@
           const outcome = await ReviewManuscriptUI.saveEdit({
             request:fetch,
             url:`/api/project/${encodeURIComponent(submittedProjectId)}/draft`,
-            payload:ReviewManuscriptUI.buildEditRequest(activeSection, submittedBody, reason),
+            payload:ReviewManuscriptUI.buildEditRequest(
+              activeSection,
+              submittedBody,
+              reason,
+              chemicalPaperActor(),
+              {reconfirmSimulatedApproval: legacyReconfirm},
+            ),
             onConflict:() => {
               conflictedEdit = {projectId:submittedProjectId, sectionId:submittedSectionId, body:submittedBody, reason};
               $('manuscript-conflict-alert').hidden = false;

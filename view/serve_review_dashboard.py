@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import math
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import threading
 import unicodedata
+import uuid
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -130,11 +132,16 @@ from review_writer.project.review_figures import (  # noqa: E402
     write_source_figure_selection,
 )
 from review_writer.project.manuscript_v2 import (  # noqa: E402
+    DRAFTS_PATH,
+    LINEAGE_PATH,
+    MANUSCRIPT_PATH,
     ManuscriptV2Error,
     approve_section,
     build_manuscript_workspace,
     merge_authoritative_manuscript,
 )
+from review_writer.agent.generator_runtime import RUNTIME_KEY, RUNTIME_SCHEMA  # noqa: E402
+from review_writer.project.paper_evidence_store import project_write_lock  # noqa: E402
 from review_writer.project.source_truth import (  # noqa: E402
     SOURCE_TRUTH_ROOT,
     SourceTruthAssetSnapshot,
@@ -8282,7 +8289,9 @@ def write_project_draft_sections(review_root: Path, project_id: str, data: Any) 
         return _write_project_draft_sections_unlocked(review_root, project_id, data)
 
 
-def _new_route_section_payload(row: object) -> dict[str, Any]:
+def _new_route_section_payload(
+    row: object, *, legacy_simulated_reconfirm_required: bool = False
+) -> dict[str, Any]:
     if not isinstance(row, dict):
         raise ValueError("manuscript section is invalid")
     section_id = row.get("section_id")
@@ -8313,7 +8322,25 @@ def _new_route_section_payload(row: object) -> dict[str, Any]:
         "risk_classes": visible_text_list(row.get("high_risk_reasons")),
         "claim_bindings": bindings,
         "decision": _safe_decision(row.get("decision")),
+        "legacy_simulated_reconfirm_required": legacy_simulated_reconfirm_required,
     }
+
+
+def _legacy_simulated_reconfirm_required(project: Path, row: object) -> bool:
+    if not isinstance(row, dict):
+        return False
+    decision = row.get("decision")
+    if (
+        row.get("status") != "approved"
+        or not isinstance(decision, dict)
+        or decision.get("actor_type") != "simulated_researcher_agent"
+    ):
+        return False
+    try:
+        _, _, _, runtime = _new_route_runtime_for_approval(project, row)
+    except WorkspaceStaleError:
+        return False
+    return runtime.get("human_decision") is None
 
 
 def _new_route_draft_payload(review_root: Path, project_id: str) -> dict[str, Any]:
@@ -8323,7 +8350,11 @@ def _new_route_draft_payload(review_root: Path, project_id: str) -> dict[str, An
     except ManuscriptV2Error as exc:
         raise ValueError(exc.code) from exc
     sections = [
-        _new_route_section_payload(row) for row in workspace.get("sections", [])
+        _new_route_section_payload(
+            row,
+            legacy_simulated_reconfirm_required=_legacy_simulated_reconfirm_required(project, row),
+        )
+        for row in workspace.get("sections", [])
     ]
     return {
         "project_id": project_id,
@@ -8344,17 +8375,134 @@ def _new_route_draft_payload(review_root: Path, project_id: str) -> dict[str, An
     }
 
 
+_NEW_ROUTE_DRAFT_TRANSACTION_PATHS = (DRAFTS_PATH, MANUSCRIPT_PATH, LINEAGE_PATH)
+
+
+def _capture_new_route_draft_transaction(project: Path) -> dict[Path, bytes | None]:
+    snapshots: dict[Path, bytes | None] = {}
+    for relative in _NEW_ROUTE_DRAFT_TRANSACTION_PATHS:
+        path = project / relative
+        if os.path.lexists(path) and (path.is_symlink() or not path.is_file()):
+            raise ValueError("new-route manuscript state is invalid")
+        snapshots[relative] = path.read_bytes() if path.exists() else None
+    return snapshots
+
+
+def _restore_new_route_draft_transaction(
+    project: Path, snapshots: dict[Path, bytes | None]
+) -> None:
+    for relative in _NEW_ROUTE_DRAFT_TRANSACTION_PATHS:
+        path = project / relative
+        previous = snapshots[relative]
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            _atomic_write_bytes(path, previous)
+
+
+def _new_route_runtime_for_approval(
+    project: Path, row: dict[str, Any]
+) -> tuple[VersionContext, Any, Any, dict[str, Any]]:
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+    except (OSError, ProductFoundationError, TypeError, ValueError) as exc:
+        raise WorkspaceStaleError("WORKSPACE_STALE") from exc
+    if (
+        state.project_id != project.name
+        or not current.is_current
+        or not current.is_active_head
+        or not current.can_write
+        or current.snapshot.get("currentness") != "current"
+    ):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    runtime = current.snapshot.get(RUNTIME_KEY)
+    candidate = runtime.get("candidate") if isinstance(runtime, dict) else None
+    runtime_input = runtime.get("input") if isinstance(runtime, dict) else None
+    expected_body_sha256 = hashlib.sha256(str(row.get("body") or "").encode("utf-8")).hexdigest()
+    if (
+        not isinstance(runtime, dict)
+        or runtime.get("schema_version") != RUNTIME_SCHEMA
+        or runtime.get("phase") != "v1"
+        or not isinstance(runtime.get("session_id"), str)
+        or not runtime["session_id"]
+        or not isinstance(runtime.get("audit"), list)
+        or not isinstance(runtime_input, dict)
+        or runtime_input.get("section_id") != row.get("section_id")
+        or not isinstance(candidate, dict)
+        or candidate.get("version") != "v1"
+        or candidate.get("section_id") != row.get("section_id")
+        or candidate.get("draft_digest") != row.get("draft_digest")
+        or candidate.get("body_sha256") != expected_body_sha256
+    ):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    return context, state, current, copy.deepcopy(runtime)
+
+
+def _publish_new_route_draft_approval(
+    context: VersionContext,
+    state: Any,
+    current: Any,
+    runtime: dict[str, Any],
+    approved: dict[str, Any],
+) -> None:
+    decision = approved.get("decision")
+    section_id = approved.get("section_id")
+    body = approved.get("body")
+    draft_digest = approved.get("draft_digest")
+    if (
+        not isinstance(decision, dict)
+        or decision.get("action") != "approve"
+        or not isinstance(section_id, str)
+        or not isinstance(body, str)
+        or not body.strip()
+        or not isinstance(draft_digest, str)
+        or decision.get("bound_object_digest") != draft_digest
+    ):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    actor_type = decision.get("actor_type")
+    actor_label = decision.get("actor_label")
+    if actor_type not in {"human_researcher", "simulated_researcher_agent"} or not isinstance(
+        actor_label, str
+    ) or not actor_label.strip():
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    runtime["human_decision"] = {
+        "section_id": section_id,
+        "decision_digest": canonical_digest(decision),
+        "edited_body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "draft_digest": draft_digest,
+        "actor_type": actor_type,
+        "actor_label": actor_label.strip(),
+    }
+    snapshot = copy.deepcopy(dict(current.snapshot))
+    snapshot[RUNTIME_KEY] = runtime
+    context.publish_active_head(
+        snapshot,
+        expected_head_id=state.active_head_id,
+        expected_revision=state.revision,
+        version_id=f"dashboard-draft-{uuid.uuid4().hex}",
+    )
+
+
 def _write_new_route_draft_section(
     review_root: Path, project_id: str, data: Any
 ) -> dict[str, Any]:
-    if not isinstance(data, dict) or set(data) != {
+    required = {
         "section_id",
         "edited_body",
         "reason",
         "version_token",
         "actor_type",
         "actor_label",
-    }:
+    }
+    recovery_flag = "reconfirm_simulated_approval"
+    if not isinstance(data, dict) or (
+        set(data) != required and set(data) != required | {recovery_flag}
+    ):
+        raise ValueError("new-route draft payload is invalid")
+    reconfirm_simulated_approval = data.get(recovery_flag, False)
+    if recovery_flag in data and reconfirm_simulated_approval is not True:
         raise ValueError("new-route draft payload is invalid")
     if data.get("actor_type") not in {
         "human_researcher",
@@ -8381,22 +8529,49 @@ def _write_new_route_draft_section(
         ):
             raise WorkspaceStaleError("WORKSPACE_STALE")
         try:
-            approve_section(
-                project,
-                str(section_id),
-                {
-                    "actor_type": data["actor_type"],
-                    "actor_label": data["actor_label"],
-                },
-                edited_body=data.get("edited_body"),
-                reason=data.get("reason"),
-                expected_draft_digest=str(draft_digest),
-            )
-            merge_authoritative_manuscript(project)
+            with project_write_lock(project):
+                context, state, current, runtime = _new_route_runtime_for_approval(project, row)
+                if reconfirm_simulated_approval:
+                    decision = row.get("decision")
+                    if (
+                        row.get("status") != "approved"
+                        or not isinstance(decision, dict)
+                        or decision.get("actor_type") != "simulated_researcher_agent"
+                        or data.get("actor_type") != "human_researcher"
+                        or data.get("edited_body") != row.get("body")
+                        or runtime.get("human_decision") is not None
+                    ):
+                        raise WorkspaceStaleError("WORKSPACE_STALE")
+                previous = _capture_new_route_draft_transaction(project)
+                try:
+                    approved = approve_section(
+                        project,
+                        str(section_id),
+                        {
+                            "actor_type": data["actor_type"],
+                            "actor_label": data["actor_label"],
+                        },
+                        edited_body=data.get("edited_body"),
+                        reason=data.get("reason"),
+                        expected_draft_digest=str(draft_digest),
+                        reconfirm_simulated_approval=reconfirm_simulated_approval,
+                    )
+                    merge_authoritative_manuscript(project)
+                    _publish_new_route_draft_approval(
+                        context, state, current, runtime, approved
+                    )
+                except Exception:
+                    try:
+                        _restore_new_route_draft_transaction(project, previous)
+                    except Exception as rollback_exc:
+                        raise ValueError("DRAFT_APPROVAL_ROLLBACK_FAILED") from rollback_exc
+                    raise
         except ManuscriptV2Error as exc:
             if exc.code == "SECTION_DRAFT_STALE":
                 raise WorkspaceStaleError("WORKSPACE_STALE") from exc
             raise ValueError(exc.code) from exc
+        except ProductFoundationError as exc:
+            raise WorkspaceStaleError("WORKSPACE_STALE") from exc
     return _new_route_draft_payload(review_root, project_id)
 
 

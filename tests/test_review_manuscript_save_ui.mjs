@@ -52,6 +52,87 @@ test("Draft save exposes a clear fallback for other rejected payloads", async ()
   assert.match(ui.draftSaveErrorMessage(outcome), /填写修改理由.*当前输入仍保留/);
 });
 
+test("Draft approval records the researcher by default and reserves simulation for explicit QA", async () => {
+  const ui = await loadManuscriptUI();
+  const currentSection = {section_id: "section-1", version_token: "token-1"};
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ui.buildEditRequest(currentSection, "Edited body.", "Evidence checked."))),
+    {
+      section_id: "section-1",
+      edited_body: "Edited body.",
+      reason: "Evidence checked.",
+      version_token: "token-1",
+      actor_type: "human_researcher",
+      actor_label: "研究者",
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ui.buildEditRequest(
+      currentSection,
+      "Edited body.",
+      "Automated QA.",
+      {actor_type: "simulated_researcher_agent", actor_label: "dashboard-playwright-reviewer"},
+    ))),
+    {
+      section_id: "section-1",
+      edited_body: "Edited body.",
+      reason: "Automated QA.",
+      version_token: "token-1",
+      actor_type: "simulated_researcher_agent",
+      actor_label: "dashboard-playwright-reviewer",
+    },
+  );
+});
+
+test("Legacy simulated approval exposes an explicit human re-confirm payload only", async () => {
+  const ui = await loadManuscriptUI();
+  const currentSection = {
+    section_id: "section-1",
+    version_token: "token-1",
+    legacy_simulated_reconfirm_required: true,
+  };
+
+  assert.equal(
+    ui.projectManuscript({route: "evidence-to-release.v1", sections: [currentSection]}).sections[0]
+      .legacy_simulated_reconfirm_required,
+    true,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ui.buildEditRequest(
+      currentSection,
+      "Unchanged, source-bound body.",
+      "I independently re-checked the source-bound text.",
+      undefined,
+      {reconfirmSimulatedApproval: true},
+    ))),
+    {
+      section_id: "section-1",
+      edited_body: "Unchanged, source-bound body.",
+      reason: "I independently re-checked the source-bound text.",
+      version_token: "token-1",
+      actor_type: "human_researcher",
+      actor_label: "研究者",
+      reconfirm_simulated_approval: true,
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ui.buildEditRequest(
+      currentSection,
+      "Unchanged, source-bound body.",
+      "I independently re-checked the source-bound text.",
+    ))),
+    {
+      section_id: "section-1",
+      edited_body: "Unchanged, source-bound body.",
+      reason: "I independently re-checked the source-bound text.",
+      version_token: "token-1",
+      actor_type: "human_researcher",
+      actor_label: "研究者",
+    },
+  );
+});
+
 test("Review keeps rejected edits in place and explains the discard protection", async () => {
   const source = await readFile(reviewPath, "utf8");
 
@@ -59,4 +140,11 @@ test("Review keeps rejected edits in place and explains the discard protection",
   assert.match(source, /function markEditorDirty\(\)/);
   assert.match(source, /当前正文或修改理由尚未保存/);
   assert.match(source, /选择“取消”会留在本页继续编辑/);
+  assert.match(
+    source,
+    /buildEditRequest\(\s*activeSection,\s*submittedBody,\s*reason,\s*chemicalPaperActor\(\),\s*\{reconfirmSimulatedApproval: legacyReconfirm\},/,
+  );
+  assert.match(source, /以研究者身份重新确认本节/);
+  assert.match(source, /legacy_simulated_reconfirm_required/);
+  assert.match(source, /chemicalPaperActor\(\)\.actor_type === 'human_researcher'/);
 });

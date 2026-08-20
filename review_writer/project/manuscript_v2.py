@@ -485,6 +485,7 @@ def approve_section(
     edited_body: str | None = None,
     reason: str | None = None,
     expected_draft_digest: str | None = None,
+    reconfirm_simulated_approval: bool = False,
 ) -> dict[str, Any]:
     """Record a researcher approval, requiring an explicit edit for high-risk text."""
     root = _root(project)
@@ -506,7 +507,44 @@ def approve_section(
             evidence, synthesis, contracts
         ):
             raise ManuscriptV2Error("SECTION_DRAFT_STALE")
-        if edited_body is None or edited_body == row.get("body"):
+        unchanged = edited_body is None or edited_body == row.get("body")
+        if reconfirm_simulated_approval:
+            actor_type, actor_label = _actor(actor)
+            prior_decisions = row.get("prior_decisions", [])
+            if (
+                not unchanged
+                or decision.get("actor_type") != "simulated_researcher_agent"
+                or actor_type != "human_researcher"
+                or not isinstance(prior_decisions, list)
+                or any(not isinstance(item, dict) for item in prior_decisions)
+            ):
+                raise ManuscriptV2Error("LEGACY_RECONFIRM_NOT_ALLOWED")
+            if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+                raise ManuscriptV2Error("APPROVAL_REASON_REQUIRED")
+            original = row["body"]
+            row["prior_decisions"] = [
+                *copy.deepcopy(prior_decisions),
+                copy.deepcopy(decision),
+            ]
+            row["draft_digest"] = _draft_digest(row)
+            row["decision"] = {
+                "actor_type": actor_type,
+                "actor_label": actor_label,
+                "action": "approve",
+                "reason": reason.strip(),
+                "decided_at": datetime.now(timezone.utc).isoformat(),
+                "bound_object_digest": row["draft_digest"],
+                "upstream_digest": _upstream_digest(evidence, synthesis, contracts),
+                "original_expression": original,
+                "edited_expression": original,
+            }
+            try:
+                with project_write_lock(root):
+                    _atomic_bytes(root, DRAFTS_PATH, _jsonl_bytes(rows))
+            except PaperEvidenceStoreError as exc:
+                raise ManuscriptV2Error(exc.code) from exc
+            return copy.deepcopy(row)
+        if unchanged:
             return copy.deepcopy(row)
     actor_type, actor_label = _actor(actor)
     original = row["body"]
