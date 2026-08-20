@@ -49,6 +49,7 @@ from review_writer.project.paper_evidence import (
 )
 from review_writer.project.section_contract import (
     SectionContractError,
+    build_section_writer_packet,
     section_contract_state,
     register_section_contracts,
 )
@@ -77,6 +78,7 @@ _PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED = "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
 _SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED = "SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED"
 _SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED = "SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED"
 _SECTION_CONTRACT_HUMAN_ACTION_REQUIRED = "SECTION_CONTRACT_HUMAN_ACTION_REQUIRED"
+_DRAFT_HUMAN_ACTION_REQUIRED = "SECTION_DRAFT_HUMAN_ACTION_REQUIRED"
 _CHEMICAL_GAP_LIMITATION = (
     "Chemical GAP: no verified Chemical Paper binding is available from the PDF-only input; "
     "chemical-field-dependent claims remain unsupported."
@@ -1139,6 +1141,104 @@ def build_pdf_only_synthesis_plan(evidence_state: object) -> dict[str, dict[str,
     }
 
 
+def build_pdf_only_v1_request(
+    evidence_state: object,
+    synthesis: object,
+    writer_packet: object,
+    *,
+    session_id: str,
+) -> dict[str, str]:
+    """Build one conservative v1 request from the approved PDF-only workspace.
+
+    This is deliberately a request producer, not another draft authority.  The
+    existing ``GeneratorSession`` and ``register_section_draft`` remain the
+    only writer for v1.  The bounded wording prevents a single PDF-only study
+    from becoming a chemical or comparative conclusion.
+    """
+
+    session = _identifier(session_id, "SESSION_ID_INVALID")
+    plan = build_pdf_only_synthesis_plan(evidence_state)
+    evidence_digest, evidence_rows = _approved_pdf_only_evidence_rows(evidence_state)
+    evidence_ids = sorted(str(row["evidence_id"]) for row in evidence_rows)
+    if not isinstance(synthesis, dict) or synthesis.get("workflow_can_continue") is not True:
+        raise LocalPdfParseError("SYNTHESIS_NOT_APPROVED")
+    synthesis_rows = synthesis.get("rows")
+    if not isinstance(synthesis_rows, list):
+        raise LocalPdfParseError("SYNTHESIS_NOT_APPROVED")
+    expected_claim = plan["synthesis_claim"]
+    synthesis_id = str(expected_claim["synthesis_id"])
+    approved_claim = next(
+        (
+            row
+            for row in synthesis_rows
+            if isinstance(row, dict)
+            and row.get("synthesis_id") == synthesis_id
+            and row.get("status") == "approved"
+        ),
+        None,
+    )
+    if (
+        approved_claim is None
+        or approved_claim.get("supporting_evidence_ids") != evidence_ids
+        or approved_claim.get("single_study") is not True
+        or approved_claim.get("risk_class") != "GAP"
+        or approved_claim.get("paper_evidence_projection_digest") != evidence_digest
+    ):
+        raise LocalPdfParseError("SYNTHESIS_NOT_APPROVED")
+    if not isinstance(writer_packet, dict) or not isinstance(writer_packet.get("sections"), list):
+        raise LocalPdfParseError("SECTION_CONTRACT_NOT_APPROVED")
+    section_id = plan["section_contract"]["section_id"]
+    sections = [
+        row
+        for row in writer_packet["sections"]
+        if isinstance(row, dict) and row.get("section_id") == section_id
+    ]
+    if len(sections) != 1:
+        raise LocalPdfParseError("SECTION_CONTRACT_NOT_APPROVED")
+
+    evidence_id = evidence_ids[0]
+    statement = evidence_rows[0].get("statement")
+    if not isinstance(statement, str) or not statement.strip():
+        raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
+    normalized_statement = " ".join(statement.split())
+    forbidden_fields = (
+        "smiles",
+        "molecule",
+        "molblock",
+        "reaction structure",
+        "reaction-structure",
+        "main_layout",
+    )
+    if any(field in normalized_statement.casefold() for field in forbidden_fields):
+        evidence_sentence = (
+            "The approved source-bound Evidence is retained without reproducing "
+            "unsupported chemical-field content."
+        )
+    else:
+        evidence_sentence = f"The approved source-bound Evidence reports: {normalized_statement}"
+    body = "\n\n".join(
+        (
+            f"{evidence_sentence} [evidence:{evidence_id}]",
+            "Single-study case report only: the approved synthesis permits no "
+            "cross-study comparison, generalization, or extrapolation. "
+            f"[synthesis:{synthesis_id}]",
+            "Chemical GAP: no verified Chemical Paper binding is available; "
+            "chemical-field-dependent claims remain unsupported. "
+            f"[evidence:{evidence_id}]",
+        )
+    )
+    return {
+        "session_id": session,
+        "section_id": str(section_id),
+        "heading": "Source-Bound Single-Study Case Report",
+        "body": body,
+        "v2_addition": (
+            "This addition retains the single-study and Chemical GAP limitations; "
+            f"no broader claim is added. [synthesis:{synthesis_id}]"
+        ),
+    }
+
+
 def _active_parse_session(project: Path, requested_session_id: str | None) -> tuple[str, Any, Any]:
     _, state, current = _load_current(project)
     parse = current.snapshot.get("agent_parse")
@@ -1316,14 +1416,54 @@ def prepare_pdf_only_synthesis_workspace(
             reason_code=_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED,
             result=created,
         )
-    return _synthesis_handoff(
+    try:
+        writer_packet = build_section_writer_packet(
+            project, plan["section_contract"]["section_id"]
+        )
+        request = build_pdf_only_v1_request(
+            evidence,
+            synthesis,
+            writer_packet,
+            session_id=active_session,
+        )
+        from review_writer.agent.generator_runtime import (
+            GeneratorRuntimeError,
+            GeneratorSession,
+        )
+
+        generated = GeneratorSession(project).start(
+            request,
+            expected_revision=state.revision,
+            expected_head_id=state.active_head_id,
+        )
+    except (SectionContractError, GeneratorRuntimeError) as exc:
+        raise LocalPdfParseError(getattr(exc, "code", "SECTION_DRAFT_INVALID")) from exc
+
+    _, generated_state, generated_current = _load_current(project)
+    next_action = {
+        "project_id": project.name,
+        "route": "/draft",
+        "type": _HUMAN_ACTION_REQUIRED,
+        "reason_code": _DRAFT_HUMAN_ACTION_REQUIRED,
+    }
+    trace = record_agent_tool_outcome(
         project,
         session_id=active_session,
-        state=state,
-        current=current,
-        action="SYNTHESIS_WORKSPACE_READY_FOR_DRAFT",
-        reason_code=_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED,
+        tool="build_pdf_only_v1_request",
+        action="GENERATE_SOURCE_BOUND_V1",
+        result=generated,
+        next_action=next_action,
+        next_reason_code=_DRAFT_HUMAN_ACTION_REQUIRED,
+        expected_revision=generated_state.revision,
+        expected_head_id=generated_state.active_head_id,
     )
+    return {
+        **generated,
+        "reason_code": _DRAFT_HUMAN_ACTION_REQUIRED,
+        "next_action": next_action,
+        "current": trace["current"],
+        "agent_trace": trace,
+    }
 
 
 def parse_project_sources(

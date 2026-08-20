@@ -154,5 +154,69 @@ class PdfOnlySynthesisWorkspacePlanTest(unittest.TestCase):
         )
 
 
+class PdfOnlyV1RequestTest(unittest.TestCase):
+    def test_approved_pdf_only_workspace_builds_a_marked_bounded_v1_request(self) -> None:
+        evidence = {
+            "projection_digest": "c" * 64,
+            "workflow_can_continue": True,
+            "rows": [
+                {
+                    "evidence_id": "evidence-case-1",
+                    "study_id": "study-case-1",
+                    "status": "approved",
+                    "statement": "The source reports a bounded observation.",
+                    "field_dependencies": [],
+                }
+            ],
+        }
+        plan = local_pdf_parse.build_pdf_only_synthesis_plan(evidence)
+        request = local_pdf_parse.build_pdf_only_v1_request(
+            evidence,
+            {
+                "workflow_can_continue": True,
+                "rows": [{**plan["synthesis_claim"], "status": "approved"}],
+            },
+            {"sections": [plan["section_contract"]]},
+            session_id="generator-session-case",
+        )
+
+        self.assertEqual(request["session_id"], "generator-session-case")
+        self.assertEqual(request["section_id"], plan["section_contract"]["section_id"])
+        self.assertIn("[evidence:evidence-case-1]", request["body"])
+        self.assertIn(
+            f"[synthesis:{plan['synthesis_claim']['synthesis_id']}]", request["body"]
+        )
+        self.assertIn("Chemical GAP", request["body"])
+        self.assertIn("Single-study", request["body"])
+        self.assertNotIn("SMILES", request["body"])
+        self.assertNotIn("molecule", request["body"].lower())
+        self.assertIn("[synthesis:", request["v2_addition"])
+
+    def test_unapproved_synthesis_cannot_build_a_v1_request(self) -> None:
+        evidence = {
+            "projection_digest": "d" * 64,
+            "workflow_can_continue": True,
+            "rows": [
+                {
+                    "evidence_id": "evidence-case-1",
+                    "study_id": "study-case-1",
+                    "status": "approved",
+                    "statement": "The source reports a bounded observation.",
+                    "field_dependencies": [],
+                }
+            ],
+        }
+        plan = local_pdf_parse.build_pdf_only_synthesis_plan(evidence)
+        with self.assertRaises(local_pdf_parse.LocalPdfParseError) as blocked:
+            local_pdf_parse.build_pdf_only_v1_request(
+                evidence,
+                {"workflow_can_continue": False, "rows": []},
+                {"sections": [plan["section_contract"]]},
+                session_id="generator-session-case",
+            )
+
+        self.assertEqual(blocked.exception.code, "SYNTHESIS_NOT_APPROVED")
+
+
 if __name__ == "__main__":
     unittest.main()
