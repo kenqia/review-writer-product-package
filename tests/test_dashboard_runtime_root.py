@@ -524,8 +524,8 @@ class DashboardRuntimeRootTest(unittest.TestCase):
 class DashboardDraftVersionContextTest(unittest.TestCase):
     project_id = "dashboard-draft-context"
     section_id = "section-draft-1"
-    original_body = "Original source-bound draft."
-    edited_body = "Edited source-bound draft."
+    original_body = "Original source-bound draft [evidence:case-1]."
+    edited_body = "Edited source-bound draft [evidence:case-1]."
 
     def _project(self, *, candidate_digest: str = "a" * 64) -> tuple[Path, Path, dict[str, object], dict[str, object]]:
         temporary = tempfile.TemporaryDirectory()
@@ -602,6 +602,25 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             branch_name="Main",
             project_root=project,
         )
+        self._states_patch = patch.object(
+            manuscript_v2,
+            "_states",
+            return_value=(
+                {
+                    "workflow_can_continue": True,
+                    "projection_digest": "e" * 64,
+                    "rows": [{"evidence_id": "case-1", "status": "approved"}],
+                },
+                {
+                    "workflow_can_continue": True,
+                    "projection_digest": "s" * 64,
+                    "rows": [],
+                },
+                {"workflow_can_continue": True, "projection_digest": "c" * 64, "rows": []},
+            ),
+        )
+        self._states_patch.start()
+        self.addCleanup(self._states_patch.stop)
         return review_root, project, draft, approved
 
     def _payload(self, draft: dict[str, object]) -> dict[str, object]:
@@ -615,6 +634,62 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             "actor_type": "human_researcher",
             "actor_label": "研究者",
         }
+
+    @staticmethod
+    def _fingerprint(path: Path) -> tuple[bytes, str, int, int]:
+        stat_result = path.stat()
+        payload = path.read_bytes()
+        return (
+            payload,
+            hashlib.sha256(payload).hexdigest(),
+            stat_result.st_mtime_ns,
+            stat_result.st_ino,
+        )
+
+    def _tracked_manuscript_state(self, project: Path) -> tuple[dict[Path, tuple[bytes, str, int, int]], list[Path]]:
+        paths = [
+            project / "04_manuscript/section_drafts.jsonl",
+            project / "04_manuscript/manuscript.md",
+            project / "04_manuscript/manuscript_lineage.v2.json",
+            project / ".review-writer/version_context/current.json",
+            *sorted((project / ".review-writer/version_context/versions").iterdir()),
+        ]
+        return {path: self._fingerprint(path) for path in paths}, paths
+
+    def _assert_marker_rejection_is_zero_write(self, invalid_body: str, error_code: str) -> None:
+        review_root, project, draft, _ = self._project()
+        before, tracked = self._tracked_manuscript_state(project)
+        payload = self._payload(draft)
+        payload["edited_body"] = invalid_body
+
+        def reject_after_mutation(root: Path, *_args: object, **_kwargs: object) -> dict[str, object]:
+            (root / "04_manuscript/section_drafts.jsonl").write_bytes(b"mutation-before-rejection\n")
+            raise manuscript_v2.ManuscriptV2Error(error_code)
+
+        with (
+            patch.object(dashboard, "build_manuscript_workspace", return_value={"sections": [draft]}),
+            patch.object(dashboard, "approve_section", side_effect=reject_after_mutation) as approve,
+            patch.object(dashboard, "merge_authoritative_manuscript") as merge,
+        ):
+            with self.assertRaises(ValueError) as error:
+                dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
+
+        self.assertEqual(str(error.exception), error_code)
+        approve.assert_not_called()
+        merge.assert_not_called()
+        self.assertEqual({path: self._fingerprint(path) for path in tracked}, before)
+
+    def test_missing_scientific_marker_rejects_before_any_draft_or_version_write(self) -> None:
+        self._assert_marker_rejection_is_zero_write(
+            "Reported yield increased substantially.",
+            "SCIENTIFIC_CLAIM_UNMARKED",
+        )
+
+    def test_unapproved_evidence_marker_rejects_before_any_draft_or_version_write(self) -> None:
+        self._assert_marker_rejection_is_zero_write(
+            "Reported yield increased [evidence:not-approved].",
+            "CLAIM_NOT_APPROVED",
+        )
 
     def test_reconfirm_simulated_approval_preserves_history_and_rebinds_a_human_decision(self) -> None:
         evidence = {"projection_digest": "e" * 64}
@@ -881,6 +956,9 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             self.assertEqual(section_id, self.section_id)
             self.assertEqual(actor, {"actor_type": "human_researcher", "actor_label": "研究者"})
             self.assertEqual(kwargs["expected_draft_digest"], draft["draft_digest"])
+            self.assertEqual(kwargs["edited_body"], self.edited_body)
+            self.assertEqual(kwargs["reason"], "Checked against the source.")
+            self.assertIn("[evidence:case-1]", kwargs["edited_body"])
             (manuscript_root / "section_drafts.jsonl").write_bytes(b'{"after":"draft"}\n')
             return copy.deepcopy(approved)
 

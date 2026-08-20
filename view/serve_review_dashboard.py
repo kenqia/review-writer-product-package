@@ -100,6 +100,7 @@ from review_writer.project.workflow_projection import (  # noqa: E402
     STAGE_PRESENTATION,
     workflow_state,
 )
+from review_writer.project import manuscript_v2 as manuscript_v2_module  # noqa: E402
 from review_writer.project.paper_evidence import (  # noqa: E402
     PaperEvidenceError,
     apply_paper_evidence_decision,
@@ -8680,6 +8681,12 @@ def _new_route_runtime_for_approval(
     return context, state, current, copy.deepcopy(runtime)
 
 
+def _prevalidate_new_route_draft_body(project: Path, body: object) -> None:
+    """Validate marker bindings before the Dashboard transaction can mutate state."""
+    evidence, synthesis, _ = manuscript_v2_module._states(project)
+    manuscript_v2_module._claim_bindings(body, evidence, synthesis)
+
+
 def _publish_new_route_draft_approval(
     context: VersionContext,
     state: Any,
@@ -8782,6 +8789,7 @@ def _write_new_route_draft_section(
                         or runtime.get("human_decision") is not None
                     ):
                         raise WorkspaceStaleError("WORKSPACE_STALE")
+                _prevalidate_new_route_draft_body(project, data.get("edited_body"))
                 previous = _capture_new_route_draft_transaction(project)
                 try:
                     approved = approve_section(
