@@ -47,6 +47,31 @@
       ].filter(Boolean).join(" · ");
     }).filter(Boolean).join("；") || "尚未安排图位";
   }
+  function appendDecisionControls(parent, kind, item, enabled, disabledTitle) {
+    const controls = document.createElement("div"); controls.className = "workspace-decision-controls";
+    const labelNode = document.createElement("label"); labelNode.textContent = "核对理由 ";
+    const reason = document.createElement("textarea");
+    reason.name = `${kind}-decision-reason`; reason.required = true; reason.setAttribute("aria-label", "核对理由");
+    reason.setAttribute("rows", "3"); reason.setAttribute("maxlength", "2000");
+    labelNode.append(reason);
+    const message = text("p", "", "workspace-error"); message.role = "status";
+    const approve = document.createElement("button"); approve.type = "button"; approve.name = `${kind}-approve`; approve.textContent = "批准";
+    const reject = document.createElement("button"); reject.type = "button"; reject.name = `${kind}-reject`; reject.textContent = "拒绝";
+    const buttons = [approve, reject];
+    function setBusy(value) { buttons.forEach(button => { button.disabled = value || !enabled; }); }
+    setBusy(false);
+    if (!enabled && disabledTitle) buttons.forEach(button => { button.title = disabledTitle; });
+    function submit(action) {
+      const value = reason.value.trim();
+      if (!value) { message.textContent = "请先填写核对理由。"; reason.focus(); return; }
+      message.textContent = "";
+      decide(kind, item, action, value, {setBusy, message});
+    }
+    approve.addEventListener("click", () => submit("approve"));
+    reject.addEventListener("click", () => submit("reject"));
+    controls.append(labelNode, approve, reject, message);
+    parent.append(controls);
+  }
   function targetOptionValue(option) { return `${option.marker}\u0000${option.occurrence}`; }
   function appendFigureTargetControls(parent, item, figures) {
     const manuscript = figures.manuscript || {};
@@ -115,9 +140,13 @@
     protocolPanel.append(text("p", `结论强度：${p.claim_strength || "—"}`));
     if (p.decision) protocolPanel.append(text("p", decisionLine(p.decision), "decision-line"));
     if (!p.decision || protocolNeedsReapproval) {
-      const protocolButton = document.createElement("button"); protocolButton.type = "button"; protocolButton.textContent = protocolNeedsReapproval ? "重新批准比较协议" : "批准比较协议"; protocolButton.disabled = !protocol.evidence_ready;
-      if (!protocol.evidence_ready) protocolButton.title = "先完成 Paper Evidence 审查";
-      protocolButton.addEventListener("click", () => decide("comparison-protocol", {version_token: p.version_token})); protocolPanel.append(protocolButton);
+      appendDecisionControls(
+        protocolPanel,
+        "comparison-protocol",
+        {version_token: p.version_token},
+        protocol.evidence_ready,
+        "先完成 Paper Evidence 审查",
+      );
     }
     const coveragePanel = section("Coverage Map");
     const coverage = synthesis.coverage || {};
@@ -134,10 +163,17 @@
       card.append(text("p", `支持证据：${(item.supporting_evidence_ids || []).length} 条；反证：${(item.counter_evidence_ids || []).length} 条`));
       card.append(text("p", `不确定性：${item.uncertainty}；科学风险：${item.risk_class ? "已标记" : "未提供"}`, "evidence-meta"));
       if (item.decision) card.append(text("p", decisionLine(item.decision), "decision-line"));
-      const button = document.createElement("button"); button.type = "button"; button.textContent = "记录决定"; button.disabled = !synthesis.protocol_ready; if (!synthesis.protocol_ready) button.title = "先批准 Comparison Protocol"; button.addEventListener("click", () => decide("synthesis", item)); card.append(button); claimPanel.append(card);
+      if (!item.decision) appendDecisionControls(card, "synthesis", item, synthesis.protocol_ready, "先批准 Comparison Protocol");
+      claimPanel.append(card);
     });
     const contractPanel = section("Section Contracts");
-    (contracts.items || []).forEach((item, index) => { const card = document.createElement("article"); card.className = "synthesis-card"; card.append(text("strong", label(item.heading, `第 ${index + 1} 节`)), text("p", item.research_question), text("p", `预期综合判断：${item.expected_synthesis}`), text("p", `图计划：${describeFigurePlan(item.figure_plan)}`)); if (item.decision) card.append(text("p", decisionLine(item.decision), "decision-line")); const button = document.createElement("button"); button.type = "button"; button.textContent = "记录决定"; button.disabled = !contracts.synthesis_ready; if (!contracts.synthesis_ready) button.title = "先完成 Synthesis Claims 审查"; button.addEventListener("click", () => decide("section-contracts", item)); card.append(button); contractPanel.append(card); });
+    (contracts.items || []).forEach((item, index) => {
+      const card = document.createElement("article"); card.className = "synthesis-card";
+      card.append(text("strong", label(item.heading, `第 ${index + 1} 节`)), text("p", item.research_question), text("p", `预期综合判断：${item.expected_synthesis}`), text("p", `图计划：${describeFigurePlan(item.figure_plan)}`));
+      if (item.decision) card.append(text("p", decisionLine(item.decision), "decision-line"));
+      if (!item.decision) appendDecisionControls(card, "section-contracts", item, contracts.synthesis_ready, "先完成 Synthesis Claims 审查");
+      contractPanel.append(card);
+    });
     const figurePanel = section("原论文图片");
     (figures.locator_gaps || []).forEach(item => {
       const page = item.page ? `第 ${item.page} 页 · ` : "";
@@ -165,21 +201,22 @@
     (figures.placeholders || []).forEach((item, index) => figurePanel.append(text("p", `任务：${label(item.scientific_question, `综合图任务 ${index + 1}`)}；读者结论：${label(item.reader_takeaway, "未提供")}；${label(item.gap_reason, "缺口原因未提供")}；状态：${window.ReviewAuditUI.humanStatus(item.status)}`, "figure-placeholder-row")));
     root.append(protocolPanel, coveragePanel, claimPanel, contractPanel, figurePanel);
   }
-  async function decide(kind, item) {
-    if (busy) return; busy = true; const reason = kind === "review-figures" ? "" : window.prompt("请记录这项决定的理由", item.decision?.reason || "研究者核对后决定");
-    if (kind !== "review-figures" && !reason) { busy = false; return; }
+  async function decide(kind, item, action = "approve", reason = "", controls = null) {
+    if (busy) return;
+    if (kind !== "review-figures" && !reason) return;
+    busy = true; controls?.setBusy(true);
     const body = kind === "comparison-protocol"
-      ? {action:"approve", reason, version_token:item.version_token}
+      ? {action, reason, version_token:item.version_token}
       : kind === "review-figures"
         ? {figure_id:item.figure_id, selection_status:item.selection_status, version_token:item.version_token, ...(item.target_binding ? {target_binding:item.target_binding} : {})}
-        : {[kind === "synthesis" ? "synthesis_id" : "section_id"]: item[kind === "synthesis" ? "synthesis_id" : "section_id"], action:"approve", reason, version_token:item.version_token};
+        : {[kind === "synthesis" ? "synthesis_id" : "section_id"]: item[kind === "synthesis" ? "synthesis_id" : "section_id"], action, reason, version_token:item.version_token};
     if (kind !== "review-figures") Object.assign(body, window.reviewDecisionActor());
     try {
       await coordinator.mutate(
         id => api(id, kind, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)}),
         {refreshAfterMutation: true, onError: error => { root.prepend(text("p", error.message, "workspace-error")); }},
       );
-    } finally { busy = false; }
+    } finally { busy = false; controls?.setBusy(false); }
   }
   projectSelect.addEventListener("change", coordinator.projectChanged);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", coordinator.refresh);

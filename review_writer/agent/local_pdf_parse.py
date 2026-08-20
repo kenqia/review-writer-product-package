@@ -47,11 +47,25 @@ from review_writer.project.paper_evidence import (
     register_manual_pdf_evidence,
     register_paper_evidence_candidates,
 )
+from review_writer.project.section_contract import (
+    SectionContractError,
+    section_contract_state,
+    register_section_contracts,
+)
 from review_writer.project.path_safety import PathSafetyError, validate_source_file
 from review_writer.project.source_truth import (
     SourceTruthError,
     canonical_digest,
     write_source_truth_bundle,
+)
+from review_writer.project.synthesis import (
+    SynthesisError,
+    comparison_protocol_state,
+    coverage_map_state,
+    register_comparison_protocol,
+    register_coverage_map,
+    register_synthesis_candidates,
+    synthesis_state,
 )
 
 
@@ -60,6 +74,9 @@ _RECEIPT = Path("00_sources/acquisition_final_receipt.json")
 _SHA256 = set("0123456789abcdef")
 _HUMAN_ACTION_REQUIRED = "HUMAN_ACTION_REQUIRED"
 _PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED = "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
+_SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED = "SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED"
+_SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED = "SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED"
+_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED = "SECTION_CONTRACT_HUMAN_ACTION_REQUIRED"
 _CHEMICAL_GAP_LIMITATION = (
     "Chemical GAP: no verified Chemical Paper binding is available from the PDF-only input; "
     "chemical-field-dependent claims remain unsupported."
@@ -980,6 +997,333 @@ def register_pdf_only_evidence(
         "next_action": next_action,
         "agent_trace": trace,
     }
+
+
+def _approved_pdf_only_evidence_rows(evidence_state: object) -> tuple[str, list[dict[str, Any]]]:
+    if not isinstance(evidence_state, dict):
+        raise LocalPdfParseError("PAPER_EVIDENCE_NOT_APPROVED")
+    digest = evidence_state.get("projection_digest")
+    rows = evidence_state.get("rows")
+    if (
+        evidence_state.get("workflow_can_continue") is not True
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in _SHA256 for char in digest)
+        or not isinstance(rows, list)
+    ):
+        raise LocalPdfParseError("PAPER_EVIDENCE_NOT_APPROVED")
+    approved = [copy.deepcopy(row) for row in rows if isinstance(row, dict) and row.get("status") == "approved"]
+    if not approved or len(approved) != len(rows):
+        raise LocalPdfParseError("PAPER_EVIDENCE_NOT_APPROVED")
+    for row in approved:
+        if (
+            not isinstance(row.get("evidence_id"), str)
+            or not row["evidence_id"].strip()
+            or not isinstance(row.get("study_id"), str)
+            or not row["study_id"].strip()
+            or row.get("field_dependencies") != []
+        ):
+            raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
+    return digest, approved
+
+
+def build_pdf_only_synthesis_plan(evidence_state: object) -> dict[str, dict[str, Any]]:
+    """Create bounded, non-chemical review candidates from approved PDF-only Evidence.
+
+    This producer deliberately produces only candidates.  The existing
+    protocol, synthesis, and section-contract decision producers remain the
+    sole authorities that can approve the workspace for drafting.
+    """
+
+    evidence_digest, rows = _approved_pdf_only_evidence_rows(evidence_state)
+    study_ids = {str(row["study_id"]) for row in rows}
+    if len(study_ids) != 1:
+        raise LocalPdfParseError("PDF_ONLY_SINGLE_STUDY_REQUIRED")
+    evidence_ids = sorted(str(row["evidence_id"]) for row in rows)
+    plan_id = canonical_digest(
+        {
+            "paper_evidence_projection_digest": evidence_digest,
+            "evidence_ids": evidence_ids,
+            "mode": "pdf_only_single_study",
+        }
+    )[:16]
+    comparison_id = f"pdf-only-case-{plan_id}"
+    claim_id = f"pdf-only-case-claim-{plan_id}"
+    section_id = f"pdf-only-case-section-{plan_id}"
+    chemical_gap = (
+        "Chemical GAP: no verified Chemical Paper binding is available; "
+        "SMILES, molecule, molblock, reaction-structure, and related chemical "
+        "claims remain unsupported."
+    )
+    single_study_limit = (
+        "Single-study case report only: no cross-study comparison, generalization, "
+        "or extrapolation is permitted."
+    )
+    protocol = {
+        "comparison_id": comparison_id,
+        "comparison_objects": evidence_ids,
+        "axes": ["source-reported observation", "study-level limitations"],
+        "normalization_rules": [
+            "Retain source-bound wording and original PDF locators.",
+            "Do not infer or normalize unavailable chemical fields.",
+        ],
+        "missing_value_policy": "Missing values remain unknown and are not imputed.",
+        "incomparability_rules": [single_study_limit, chemical_gap],
+        "counterevidence_rules": [
+            "Record absent counterevidence and unresolved limitations explicitly."
+        ],
+        "claim_strength": "single-study case report; bounded source-reported wording only",
+        "paper_evidence_projection_digest": evidence_digest,
+    }
+    coverage = {
+        "comparison_id": comparison_id,
+        "corpus_kind": "calibration_corpus",
+        "axes": [
+            {
+                "axis_id": "source-reported-observation",
+                "question": "What does the approved source-bound Evidence report?",
+                "evidence_ids": evidence_ids,
+                "counterevidence_ids": [],
+                "incomparable_items": ["No independent study is available for comparison."],
+                "missing_units": ["Cross-study comparator", "chemical structure fields"],
+                "impact_on_conclusion": "Only a bounded case report may be drafted.",
+            },
+            {
+                "axis_id": "study-level-limitations",
+                "question": "Which limits prevent broader interpretation?",
+                "evidence_ids": evidence_ids,
+                "counterevidence_ids": [],
+                "incomparable_items": ["Single-study corpus."],
+                "missing_units": ["Chemical Paper binding", "independent replication"],
+                "impact_on_conclusion": "Chemical and comparative conclusions remain unsupported.",
+            },
+        ],
+        "known_omissions": [single_study_limit, chemical_gap],
+    }
+    claim = {
+        "synthesis_id": claim_id,
+        "proposition": "The approved Evidence supports one bounded, source-reported case report.",
+        "comparison_axis": "source-reported observation",
+        "supporting_evidence_ids": evidence_ids,
+        "counter_evidence_ids": [],
+        "applicability_boundary": single_study_limit,
+        "mechanism_evidence_grade": "not_applicable",
+        "uncertainty": f"{single_study_limit} {chemical_gap}",
+        "risk_class": "GAP",
+        "single_study": True,
+        "paper_evidence_projection_digest": evidence_digest,
+    }
+    contract = {
+        "section_id": section_id,
+        "research_question": "What does the approved Evidence report in this single study?",
+        "comparison_axes": ["source-reported observation", "study-level limitations"],
+        "expected_synthesis": "Present one bounded case report and state its limitations without extrapolation.",
+        "counterevidence_and_limitations": [single_study_limit, chemical_gap],
+        "evidence_budget": len(evidence_ids),
+        "synthesis_budget": 1,
+        "figure_plan": [
+            {
+                "kind": "source_locator_table",
+                "purpose": "List source PDF pages and Evidence locators without any chemical structure depiction.",
+                "source_figure_ids": [],
+                "placeholder_ids": [],
+            }
+        ],
+        "allowed_wording_strength": "bounded single-study case report",
+    }
+    return {
+        "comparison_protocol": protocol,
+        "coverage_map": coverage,
+        "synthesis_claim": claim,
+        "section_contract": contract,
+    }
+
+
+def _active_parse_session(project: Path, requested_session_id: str | None) -> tuple[str, Any, Any]:
+    _, state, current = _load_current(project)
+    parse = current.snapshot.get("agent_parse")
+    if not isinstance(parse, dict):
+        raise LocalPdfParseError("GENERATOR_SESSION_NOT_FOUND")
+    session = parse.get("session_id")
+    if not isinstance(session, str) or not session:
+        raise LocalPdfParseError("GENERATOR_SESSION_NOT_FOUND")
+    if requested_session_id is not None and requested_session_id != session:
+        raise LocalPdfParseError("GENERATOR_SESSION_NOT_FOUND")
+    if not isinstance(parse.get("tool_trace"), list):
+        raise LocalPdfParseError("AGENT_TRACE_INVALID")
+    return session, state, current
+
+
+def _synthesis_handoff(
+    project: Path,
+    *,
+    session_id: str,
+    state: Any,
+    current: Any,
+    action: str,
+    reason_code: str,
+    result: object | None = None,
+) -> dict[str, Any]:
+    next_action = {
+        "project_id": project.name,
+        "route": "/review",
+        "type": _HUMAN_ACTION_REQUIRED,
+        "reason_code": reason_code,
+    }
+    trace: dict[str, Any] | None = None
+    if result is not None:
+        trace = record_agent_tool_outcome(
+            project,
+            session_id=session_id,
+            tool="prepare_pdf_only_synthesis_workspace",
+            action=action,
+            result=result,
+            next_action=next_action,
+            next_reason_code=reason_code,
+            expected_revision=state.revision,
+            expected_head_id=state.active_head_id,
+        )
+        current_payload = trace["current"]
+    else:
+        current_payload = {
+            "version_id": current.version_id,
+            "revision": state.revision,
+            "snapshot_digest": current.snapshot_digest,
+        }
+    return {
+        "status": _HUMAN_ACTION_REQUIRED,
+        "reason_code": reason_code,
+        "project_id": project.name,
+        "session_id": session_id,
+        "action": action,
+        "next_action": next_action,
+        "current": current_payload,
+        "agent_trace": trace,
+    }
+
+
+def prepare_pdf_only_synthesis_workspace(
+    explicit_project_root: str | Path,
+    *,
+    session_id: str | None = None,
+    expected_revision: int | None = None,
+    expected_head_id: str | None = None,
+) -> dict[str, Any]:
+    """Advance one approved PDF-only Evidence project to its next review gate.
+
+    The function only creates the next missing canonical candidate.  It never
+    signs a protocol, claim, or section contract, and therefore always stops
+    at the existing Dashboard human-decision seam until drafting is legal.
+    """
+
+    project = _registered_project(explicit_project_root)
+    active_session, state, current = _active_parse_session(project, session_id)
+    if (
+        (expected_revision is not None and expected_revision != state.revision)
+        or (expected_head_id is not None and expected_head_id != state.active_head_id)
+    ):
+        raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
+    try:
+        evidence = paper_evidence_state(project)
+        plan = build_pdf_only_synthesis_plan(evidence)
+        protocol = comparison_protocol_state(project)
+    except (PaperEvidenceError, SynthesisError) as exc:
+        raise LocalPdfParseError(getattr(exc, "code", "SYNTHESIS_WORKSPACE_INVALID")) from exc
+
+    protocol_path = project / "02_synthesis" / "comparison_protocol.json"
+    if not protocol_path.exists():
+        try:
+            created = register_comparison_protocol(project, plan["comparison_protocol"])
+        except SynthesisError as exc:
+            raise LocalPdfParseError(exc.code) from exc
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="CREATE_COMPARISON_PROTOCOL_CANDIDATE",
+            reason_code=_SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED,
+            result=created,
+        )
+    if not protocol.get("workflow_can_continue"):
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="AWAIT_COMPARISON_PROTOCOL_DECISION",
+            reason_code=_SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED,
+        )
+
+    coverage_path = project / "02_synthesis" / "coverage_map.json"
+    try:
+        coverage = coverage_map_state(project)
+        synthesis = synthesis_state(project)
+    except SynthesisError as exc:
+        raise LocalPdfParseError(exc.code) from exc
+    if coverage_path.exists() and not coverage.get("workflow_can_continue"):
+        raise LocalPdfParseError("SYNTHESIS_WORKSPACE_STALE")
+    if not coverage_path.exists():
+        try:
+            register_coverage_map(project, plan["coverage_map"])
+            claims = register_synthesis_candidates(project, plan["synthesis_claim"])
+        except SynthesisError as exc:
+            raise LocalPdfParseError(exc.code) from exc
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="CREATE_SINGLE_STUDY_SYNTHESIS_CANDIDATE",
+            reason_code=_SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED,
+            result={"coverage_map": plan["coverage_map"], "claims": claims},
+        )
+    if not synthesis.get("workflow_can_continue"):
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="AWAIT_SYNTHESIS_CLAIM_DECISION",
+            reason_code=_SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED,
+        )
+
+    contract_path = project / "02_synthesis" / "section_contracts.jsonl"
+    try:
+        contracts = section_contract_state(project)
+    except (SectionContractError, SynthesisError) as exc:
+        raise LocalPdfParseError(getattr(exc, "code", "SECTION_CONTRACT_INVALID")) from exc
+    if contract_path.exists() and not contracts.get("workflow_can_continue"):
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="AWAIT_SECTION_CONTRACT_DECISION",
+            reason_code=_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED,
+        )
+    if not contract_path.exists():
+        try:
+            created = register_section_contracts(project, plan["section_contract"])
+        except SectionContractError as exc:
+            raise LocalPdfParseError(exc.code) from exc
+        return _synthesis_handoff(
+            project,
+            session_id=active_session,
+            state=state,
+            current=current,
+            action="CREATE_SECTION_CONTRACT_CANDIDATE",
+            reason_code=_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED,
+            result=created,
+        )
+    return _synthesis_handoff(
+        project,
+        session_id=active_session,
+        state=state,
+        current=current,
+        action="SYNTHESIS_WORKSPACE_READY_FOR_DRAFT",
+        reason_code=_SECTION_CONTRACT_HUMAN_ACTION_REQUIRED,
+    )
 
 
 def parse_project_sources(

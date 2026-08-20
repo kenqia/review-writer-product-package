@@ -35,9 +35,15 @@ itself and reports the resulting project state and clickable Dashboard URL.
    evidence, bypass a human decision, or create a Provider, RAG, schema,
    store, or workflow engine.
 3. Record the native Agent session/run and tool outcomes in the existing
-   project-owned seams. Generate the English v1 only from current,
-   source-bound Evidence. `GeneratorSession` is the current owner of the
-   v1 -> human decision -> marker-preserving v2 loop.
+   project-owned seams. After current PDF-only Evidence is approved,
+   `GeneratorSession` reuses that parse session to create the existing
+   comparison protocol, coverage map, synthesis claim, and section-contract
+   candidates. It stops at each existing Dashboard decision seam; it never
+   auto-approves a protocol, claim, or contract. The bounded PDF-only path
+   keeps the Chemical GAP/unsupported limitation and never emits
+   chemical-field-dependent claims. Generate English v1 only after those
+   candidates are explicitly approved. `GeneratorSession` is the current
+   owner of the v1 -> human decision -> marker-preserving v2 loop.
 4. When a current producer returns `HUMAN_ACTION_REQUIRED`, start or reuse the
    existing local Dashboard for the project's parent review root. Return its
    real `http://127.0.0.1:<port>/review?project_id=<project ID>` URL and pause.

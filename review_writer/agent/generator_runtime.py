@@ -45,6 +45,15 @@ HUMAN_ACTION_REQUIRED = "HUMAN_ACTION_REQUIRED"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _LOCK_PATH = ".paper_evidence.lock"
 _DRAFT_PATH = Path("04_manuscript/section_drafts.jsonl")
+_PDF_ONLY_SYNTHESIS_NOT_APPLICABLE = frozenset(
+    {
+        "GENERATOR_SESSION_NOT_FOUND",
+        "AGENT_TRACE_INVALID",
+        "PAPER_EVIDENCE_NOT_APPROVED",
+        "PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID",
+        "PDF_ONLY_SINGLE_STUDY_REQUIRED",
+    }
+)
 
 
 class GeneratorRuntimeError(ValueError):
@@ -400,6 +409,34 @@ class GeneratorSession:
         try:
             candidate = register_section_draft(self.root, tool_payload)
         except (ManuscriptV2Error, PaperEvidenceStoreError, OSError, ValueError) as exc:
+            if isinstance(exc, ManuscriptV2Error) and exc.code in {
+                "SYNTHESIS_NOT_APPROVED",
+                "SECTION_CONTRACT_NOT_APPROVED",
+            }:
+                # PDF-only Evidence has a bounded producer for the existing
+                # synthesis decision objects. It is deliberately invoked only
+                # after the ordinary draft gate proves they are absent.
+                try:
+                    with project_write_lock(self.root):
+                        _restore_draft_state(self.root, draft_before)
+                except Exception as rollback_exc:
+                    raise GeneratorRuntimeError(
+                        "SECTION_DRAFT_ROLLBACK_FAILED"
+                    ) from rollback_exc
+                from review_writer.agent.local_pdf_parse import (
+                    LocalPdfParseError,
+                    prepare_pdf_only_synthesis_workspace,
+                )
+
+                try:
+                    return prepare_pdf_only_synthesis_workspace(self.root)
+                except LocalPdfParseError as synthesis_exc:
+                    # Only a current, traced, single-study PDF-only project
+                    # may enter the bounded candidate producer. Otherwise the
+                    # original draft gate remains the public error contract.
+                    if synthesis_exc.code in _PDF_ONLY_SYNTHESIS_NOT_APPLICABLE:
+                        raise _tool_error(exc) from exc
+                    raise _tool_error(synthesis_exc) from synthesis_exc
             try:
                 with project_write_lock(self.root):
                     _restore_draft_state(self.root, draft_before)
@@ -537,7 +574,27 @@ class GeneratorSession:
             expected_head_id=expected_head_id,
         )
         runtime = _runtime(current.snapshot)
-        if runtime is None or runtime.get("session_id") != session_id:
+        if runtime is None:
+            from review_writer.agent.local_pdf_parse import (
+                LocalPdfParseError,
+                prepare_pdf_only_synthesis_workspace,
+            )
+
+            try:
+                return prepare_pdf_only_synthesis_workspace(
+                    self.root,
+                    session_id=session_id,
+                    expected_revision=state.revision,
+                    expected_head_id=state.active_head_id,
+                )
+            except LocalPdfParseError as synthesis_exc:
+                if synthesis_exc.code in {
+                    "GENERATOR_SESSION_NOT_FOUND",
+                    "AGENT_TRACE_INVALID",
+                }:
+                    raise GeneratorRuntimeError("GENERATOR_SESSION_NOT_FOUND") from synthesis_exc
+                raise _tool_error(synthesis_exc) from synthesis_exc
+        if runtime.get("session_id") != session_id:
             raise GeneratorRuntimeError("GENERATOR_SESSION_NOT_FOUND")
         if runtime.get("phase") == "v2":
             return _response(

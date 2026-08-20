@@ -104,11 +104,13 @@ Windows 用户可使用同样含义的路径，例如 `C:\Users\researcher\Docum
 Agent 到达人工 gate 时会返回一个本机 Dashboard 链接。直接点击 Agent 返回的链接，然后按界面完成：
 
 1. 在来源与证据区域核对 PDF、MAIN/SI 身份、解析质量与 Evidence decision。
-2. 在正文区域编辑并批准内容，保留 `USER_EDITED` 或 `RESEARCHER_AUTHORED` 标记与理由。
-3. 在图表区域检查来源署名、许可上下文和正文绑定；不完整时保持 GAP。
-4. 在发布区域查看质量状态，并导出同一版本的 Markdown 和 DOCX。
-5. 正文改变后，旧 release 会标记为 stale；通过 Dashboard 的 regenerate 得到新版本，不能把旧文件当作最新发布物。
-6. 在 History 查看、compare、branch 或 undo；仅查看历史不应移动 current。
+2. Evidence 批准后，Agent 会自动创建三个**待审**工作区对象：`Comparison Protocol`、`Synthesis Claim` 和 `Section Contract`。这一步只创建候选，不会替你批准。
+3. 在“正文/来源与证据”工作区按顺序填写理由并分别点击：批准 `Comparison Protocol` → 批准 `Synthesis Claim` → 批准 `Section Contract`。如果只看到其中一个，先完成当前对象的决定，再让 Agent 从同一 project root 继续；不要自己运行内部命令。
+4. 三个对象都批准后，Agent 才会生成 English v1；然后在正文区域编辑并批准内容，保留 `USER_EDITED` 或 `RESEARCHER_AUTHORED` 标记与理由。
+5. 在图表区域检查来源署名、许可上下文和正文绑定；不完整时保持 GAP。
+6. 在发布区域查看质量状态，并导出同一版本的 Markdown 和 DOCX。
+7. 正文改变后，旧 release 会标记为 stale；通过 Dashboard 的 regenerate 得到新版本，不能把旧文件当作最新发布物。
+8. 在 History 查看、compare、branch 或 undo；仅查看历史不应移动 current。
 
 Dashboard 是人工工作台，不是第二事实源，也不会替你批准科学结论。项目目录中的 `.review-writer/version_context` 是 sources、Evidence、正文、图件、release、current 和版本的唯一 durable authority。
 
