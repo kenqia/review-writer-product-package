@@ -6,7 +6,7 @@
       id: "home",
       label: "首页",
       href: "/review",
-      matches: ({page, hash}) => page === "review" && hash !== "#evidence",
+      matches: ({page, hash}) => page === "review" && hash !== "#evidence" && hash !== "#manuscript",
       children: [],
     },
     {
@@ -23,9 +23,11 @@
     {
       id: "manuscript",
       label: "正文",
-      href: "/blueprint",
-      matches: ({page}) => ["blueprint", "sections", "draft"].includes(page),
+      href: "/review#manuscript",
+      matches: ({page, hash}) => ["blueprint", "sections", "draft"].includes(page)
+        || (page === "review" && hash === "#manuscript"),
       children: [
+        {id: "manuscript-workspace", label: "编辑与批准", href: "/review#manuscript", matches: ({page, hash}) => page === "review" && hash === "#manuscript"},
         {id: "blueprint", label: "写作大纲", href: "/blueprint", matches: ({page}) => page === "blueprint"},
         {id: "sections", label: "Sections", href: "/sections", matches: ({page}) => page === "sections"},
         {id: "draft", label: "Draft", href: "/draft", matches: ({page}) => page === "draft"},
@@ -360,13 +362,21 @@
 
   function syncReviewFocus() {
     if (!document.body || !document.body.classList.contains("page-review")) return;
-    const evidenceFocused = location.hash.toLowerCase() === "#evidence";
-    document.body.classList.toggle("rw-overview-focus", !evidenceFocused);
+    const hash = location.hash.toLowerCase();
+    const evidenceFocused = hash === "#evidence";
+    const manuscriptFocused = hash === "#manuscript";
+    document.body.classList.toggle("rw-overview-focus", !evidenceFocused && !manuscriptFocused);
     document.body.classList.toggle("rw-evidence-focus", evidenceFocused);
-    document.body.dataset.reviewFocus = evidenceFocused ? "evidence" : "overview";
+    document.body.classList.toggle("rw-manuscript-focus", manuscriptFocused);
+    document.body.dataset.reviewFocus = manuscriptFocused ? "manuscript" : evidenceFocused ? "evidence" : "overview";
     if (evidenceFocused) {
       window.requestAnimationFrame(() => {
         document.getElementById("evidence-synthesis-workspace")?.scrollIntoView({block: "start"});
+      });
+    }
+    if (manuscriptFocused) {
+      window.requestAnimationFrame(() => {
+        document.getElementById("manuscript-workspace")?.scrollIntoView({block: "start"});
       });
     }
   }

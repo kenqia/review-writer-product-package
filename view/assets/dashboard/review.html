@@ -126,6 +126,8 @@
           <p class="section-label">Next action</p>
           <h3 id="overview-next-heading">唯一下一动作</h3>
           <p id="overview-next-action" class="overview-next-action">—</p>
+          <p id="overview-next-action-guide" class="overview-next-action-guide" role="status" aria-live="polite"></p>
+          <button id="overview-next-action-go" class="overview-next-action-go" type="button" hidden aria-describedby="overview-next-action-guide"></button>
         </section>
       </div>
       <section id="resume-hold" class="resume-hold" aria-labelledby="resume-hold-heading" role="status">
@@ -820,6 +822,8 @@
     function setProjectLoadBusy(busy) {
       projectLoadBusy = busy;
       applyWorkbenchBusyState(editorBusy || projectLoadBusy);
+      const nextActionButton = $('overview-next-action-go');
+      if (nextActionButton && !nextActionButton.hidden) nextActionButton.disabled = busy;
     }
 
     function setEmptyProjectWorkspace(empty) {
@@ -928,6 +932,38 @@
       }[value] || value || '状态待核对');
     }
 
+    function overviewNextActionGuide() {
+      const activeStage = progressPayload.active_stage;
+      if (activeStage === 'drafting') {
+        return {
+          detail: draftPayload.available
+            ? '下一步：打开正文工作室，检查这一节的 v1。需要调整就直接修改正文，填写修改原因，再点“保存并批准”。'
+            : '正文尚未建立。请回到 Codex 对话，请 Agent 根据已批准的 Evidence 和 Section Contract 生成 v1。',
+          label: '打开正文工作室',
+          targetId: draftPayload.available ? 'manuscript-workspace' : '',
+          workspace: draftPayload.available ? 'manuscript' : '',
+        };
+      }
+      return {
+        detail: '请在当前工作台处理上方显示的唯一待办；完成后系统会自动给出下一步。',
+        label: '',
+        targetId: '',
+        workspace: '',
+      };
+    }
+
+    function goToOverviewNextAction() {
+      const guide = overviewNextActionGuide();
+      if (!guide.targetId || !guide.workspace) return;
+      window.location.hash = 'manuscript';
+      setWorkspace(guide.workspace);
+      const target = $(guide.targetId);
+      if (!target) return;
+      target.setAttribute('tabindex', '-1');
+      target.scrollIntoView({behavior:'smooth', block:'start'});
+      target.focus({preventScroll:true});
+    }
+
     function renderResearchWorkbenchOverview() {
       const root = $('research-workbench-overview');
       if (!root) return;
@@ -973,6 +1009,12 @@
       const next = progressPayload.unique_next_action || progressPayload.recommended_next
         || projectState.next_action || (gaps[0] || '核对当前研究证据');
       $('overview-next-action').textContent = next;
+      const guide = overviewNextActionGuide();
+      $('overview-next-action-guide').textContent = guide.detail;
+      const nextButton = $('overview-next-action-go');
+      nextButton.hidden = !guide.targetId;
+      nextButton.disabled = !guide.targetId || projectLoadBusy;
+      nextButton.textContent = guide.label;
 
       const listNode = $('overview-evidence-list');
       clear(listNode);
@@ -3087,7 +3129,12 @@
         renderCockpit();
         renderDraft();
         setEmptyProjectWorkspace(false);
-        setWorkspace(projectState.default_workspace);
+        const requestedWorkspace = window.location.hash === '#manuscript'
+          && draftPayload.available
+          && !parseQualityGateActive()
+          ? 'manuscript'
+          : projectState.default_workspace;
+        setWorkspace(requestedWorkspace);
         $('workbench-message').textContent = '';
         return 'loaded';
       } catch (error) {
@@ -3244,6 +3291,7 @@
       });
     });
     $('project').addEventListener('change', selectProject);
+    $('overview-next-action-go').addEventListener('click', goToOverviewNextAction);
     $('blank-project-form').addEventListener('submit', createBlankProject);
     $('confirm-brief').addEventListener('click', confirmBrief);
     $('confirm-brief-primary').addEventListener('click', confirmBrief);

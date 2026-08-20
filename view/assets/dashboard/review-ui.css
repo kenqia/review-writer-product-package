@@ -1192,6 +1192,31 @@ textarea.editor,
   overflow-wrap: anywhere;
 }
 
+.overview-next-action-guide {
+  margin: 8px 0 0;
+  color: var(--rw-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.overview-next-action-go {
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--rw-green);
+  border-radius: 6px;
+  background: var(--rw-green);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.overview-next-action-go:hover { background: #245243; }
+.overview-next-action-go:focus-visible { outline: 3px solid var(--rw-amber); outline-offset: 2px; }
+.overview-next-action-go:disabled { cursor: not-allowed; opacity: .5; }
+
 .resume-hold {
   display: flex;
   align-items: flex-start;
@@ -2633,6 +2658,12 @@ body.page-review.rw-evidence-focus #manuscript-workspace {
   display: none !important;
 }
 
+body.page-review.rw-manuscript-focus #workspace-switcher,
+body.page-review.rw-manuscript-focus #research-workbench-overview,
+body.page-review.rw-manuscript-focus #cockpit-workspace {
+  display: none !important;
+}
+
 body.page-review.rw-evidence-focus .cockpit-layout {
   display: block !important;
 }
@@ -2678,6 +2709,11 @@ body.page-review[data-review-focus="evidence"] #cockpit-workspace {
 
 body.page-review[data-review-focus="evidence"] #research-workbench-overview,
 body.page-review[data-review-focus="evidence"] #manuscript-workspace {
+  display: none !important;
+}
+
+body.page-review[data-review-focus="manuscript"] #research-workbench-overview,
+body.page-review[data-review-focus="manuscript"] #cockpit-workspace {
   display: none !important;
 }
 
