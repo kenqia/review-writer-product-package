@@ -10,6 +10,12 @@
 .evidence-links, .figure-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
 .evidence-links a, .figure-links a { color: var(--rw-strong); text-decoration: underline; }
 .evidence-card blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--rw-strong); color: #4e5148; overflow-wrap: anywhere; }
+.evidence-decision-form { display: grid; gap: 6px; margin-top: 14px; }
+.evidence-decision-label { color: var(--rw-ink); font-size: 13px; font-weight: 600; }
+.evidence-decision-form textarea { box-sizing: border-box; width: 100%; min-height: 76px; resize: vertical; border: 1px solid var(--rw-line); border-radius: 5px; background: var(--rw-paper); color: var(--rw-ink); font: inherit; line-height: 1.45; padding: 8px; }
+.evidence-decision-form textarea:focus-visible { outline: 3px solid #2d6f56; outline-offset: 2px; }
+.evidence-decision-status { min-height: 1.4em; margin: 2px 0 0; color: var(--rw-muted); font-size: 13px; }
+.evidence-decision-status.workspace-error { padding: 0; color: #9a3228; }
 .workspace-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .workspace-actions button, .synthesis-card button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--rw-line); border-radius: 5px; background: var(--rw-paper); color: var(--rw-ink); cursor: pointer; }
 .synthesis-panel > button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--rw-line); border-radius: 5px; background: var(--rw-paper); color: var(--rw-ink); cursor: pointer; }

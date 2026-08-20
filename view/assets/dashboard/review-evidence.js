@@ -38,10 +38,18 @@
     author_interpretation: "作者解释",
     proposed_mechanism: "提出的机制",
   };
-  const api = (id, suffix, options) => fetch(`/api/project/${encodeURIComponent(id)}/${suffix}`, options).then(response => {
-    if (!response.ok) throw new Error(response.status === 409 ? "内容已更新，请刷新后重新核对。" : "工作台暂不可用。");
+  const api = async (id, suffix, options) => {
+    const response = await fetch(`/api/project/${encodeURIComponent(id)}/${suffix}`, options);
+    if (!response.ok) {
+      let details = null;
+      try { details = await response.json(); } catch (_) { /* A plain HTTP error has no safe detail to show. */ }
+      const detail = typeof details?.error === "string" ? details.error : details?.message;
+      throw new Error(response.status === 409
+        ? "内容已更新，请刷新后重新核对。"
+        : (typeof detail === "string" && detail.trim() ? detail.trim() : `决定未保存（${response.status}）。`));
+    }
     return response.json();
-  });
+  };
   let busy = false;
 
   const coordinator = window.ReviewSessionUI.createProjectSurfaceCoordinator({
@@ -116,24 +124,63 @@
       const references = document.createElement("p"); references.className = "evidence-links";
       [[item.pdf_page_url, "打开原论文页"], [item.parsed_text_url, "打开解析正文"]].forEach(([href, label]) => { if (!href) return; const link = document.createElement("a"); link.href = href; link.target = "_blank"; link.rel = "noopener"; link.textContent = label; references.append(link); });
       card.append(references);
+      const decisionForm = document.createElement("div"); decisionForm.className = "evidence-decision-form";
+      const reasonLabel = text("label", "核对理由", "evidence-decision-label");
+      const reason = document.createElement("textarea"); reason.name = "evidence-decision-reason"; reason.required = true; reason.rows = 3; reason.placeholder = "说明你为何批准、修改或拒绝这条证据。";
+      reason.value = item.decision?.reason || ""; reasonLabel.htmlFor = `evidence-reason-${index}`; reason.id = reasonLabel.htmlFor;
+      const replacementLabel = text("label", "修改后的证据表述", "evidence-decision-label");
+      const replacement = document.createElement("textarea"); replacement.name = "evidence-replacement-statement"; replacement.required = false; replacement.rows = 3; replacement.placeholder = "仅在选择“修改后批准”时填写。";
+      replacementLabel.htmlFor = `evidence-replacement-${index}`; replacement.id = replacementLabel.htmlFor; replacement.hidden = true; replacementLabel.hidden = true;
+      const decisionStatus = text("p", "", "evidence-decision-status"); decisionStatus.setAttribute("role", "status"); decisionStatus.setAttribute("aria-live", "polite");
+      decisionForm.append(reasonLabel, reason, replacementLabel, replacement, decisionStatus);
       const actions = document.createElement("div"); actions.className = "workspace-actions";
+      const actionButtons = [];
       ["approve", "revise_and_approve", "reject"].forEach(action => {
         const button = document.createElement("button"); button.type = "button"; button.textContent = {approve:"批准", revise_and_approve:"修改后批准", reject:"拒绝"}[action];
-        button.addEventListener("click", () => decide(item, action)); actions.append(button);
-      }); card.append(actions); listNode.append(card);
+        button.addEventListener("click", () => decide(item, action, {reason, replacement, replacementLabel, status:decisionStatus, buttons:actionButtons})); actionButtons.push(button); actions.append(button);
+      }); card.append(decisionForm, actions); listNode.append(card);
     }); root.append(listNode);
   }
 
-  async function decide(item, action) {
-    if (busy) return; busy = true;
-    const reason = window.prompt("请记录这项决定的理由", item.decision?.reason || "研究者核对后决定");
-    if (!reason) { busy = false; return; }
+  function decisionError(controls, value) {
+    controls.status.textContent = value;
+    controls.status.className = "evidence-decision-status workspace-error";
+  }
+
+  function decisionBusy(controls, value) {
+    controls.buttons.forEach(button => { button.disabled = value; });
+  }
+
+  async function decide(item, action, controls) {
+    if (busy) return;
+    controls.status.textContent = "";
+    controls.status.className = "evidence-decision-status";
+    if (action === "revise_and_approve") {
+      controls.replacement.hidden = false;
+      controls.replacementLabel.hidden = false;
+      controls.replacement.required = true;
+    }
+    const reason = controls.reason.value.trim();
+    if (!reason) {
+      decisionError(controls, "请先填写核对理由；本次决定不会保存。");
+      controls.reason.focus();
+      return;
+    }
+    const replacement = controls.replacement.value.trim();
+    if (action === "revise_and_approve" && !replacement) {
+      decisionError(controls, "“修改后批准”需要填写修改后的证据表述；本次决定不会保存。");
+      controls.replacement.focus();
+      return;
+    }
+    busy = true; decisionBusy(controls, true);
+    const body = {evidence_id:item.evidence_id, action, reason, version_token:item.version_token, ...window.reviewDecisionActor()};
+    if (action === "revise_and_approve") body.replacement_statement = replacement;
     try {
       await coordinator.mutate(
-        id => api(id, "paper-evidence", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({evidence_id:item.evidence_id, action, reason, version_token:item.version_token, ...window.reviewDecisionActor()})}),
-        {renderResult: render, refreshAfterMutation: true, onError: error => { message.textContent = error.message; }},
+        id => api(id, "paper-evidence", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)}),
+        {renderResult: render, refreshAfterMutation: true, onError: error => { decisionError(controls, error.message); }},
       );
-    } finally { busy = false; }
+    } finally { busy = false; decisionBusy(controls, false); }
   }
 
   projectSelect.addEventListener("change", coordinator.projectChanged);
