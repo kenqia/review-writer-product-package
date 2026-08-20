@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
+import json
+from urllib.parse import urlsplit
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -117,6 +120,50 @@ def test_invalid_archive_digest_is_stale_without_publishing_bytes(tmp_path: Path
 
     assert error.value.code == "AUTHORIZED_PDF_STALE"
     assert not (tmp_path / "00_sources").exists()
+
+
+def test_n3_preflight_matches_every_authorized_member_row(tmp_path: Path) -> None:
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    _write_pdf(folder, "b.pdf", b"B")
+    _write_pdf(folder, "a.pdf", b"A")
+    _write_pdf(folder, "c.pdf", b"C")
+    archive_path, source_set = fresh_bootstrap._build_authorized_archive(
+        fresh_bootstrap._authorized_pdfs(folder), tmp_path
+    )
+    members = [
+        {
+            "member_id": row["member_id"],
+            "member_display_name": row["name"],
+            "name": row["name"],
+            "sha256": row["sha256"],
+            "size_bytes": row["size_bytes"],
+            "download_id": row["download_id"],
+            "source_id": row["source_id"],
+            "study_id": row["study_id"],
+        }
+        for row in source_set
+    ]
+    expected_preflight = {
+        "status": "awaiting_confirmation",
+        "archive_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        "members": members,
+        "role_options": ["MAIN", "SI"],
+    }
+
+    with patch.object(
+        fresh_bootstrap,
+        "_source_archive_preflight",
+        return_value=expected_preflight,
+    ):
+        observed = fresh_bootstrap._preflight_source_archive(archive_path, source_set)
+
+    assert observed is expected_preflight
+    assert [row["member_id"] for row in observed["members"]] == [
+        "MEMBER-0001",
+        "MEMBER-0002",
+        "MEMBER-0003",
+    ]
 
 
 def test_malformed_pdf_is_rejected_before_project_write(tmp_path: Path) -> None:
@@ -252,7 +299,7 @@ def test_source_role_or_stale_preflight_failure_is_zero_write(
     assert not project_root.exists()
 
 
-def test_n3_bootstrap_stops_at_existing_single_member_dashboard_binding_without_write(
+def test_n3_bootstrap_reaches_existing_dashboard_batch_role_gate(
     tmp_path: Path,
 ) -> None:
     folder = tmp_path / "authorized"
@@ -261,15 +308,98 @@ def test_n3_bootstrap_stops_at_existing_single_member_dashboard_binding_without_
         _write_pdf(folder, name, payload)
     project_root = tmp_path / "projects" / "n3-review"
     project_root.parent.mkdir()
-    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
-
-    with pytest.raises(fresh_bootstrap.FreshAgentBootstrapError) as error:
-        fresh_bootstrap.FreshAgentBootstrap(project_root).start(
+    result: dict[str, object] | None = None
+    try:
+        result = fresh_bootstrap.FreshAgentBootstrap(project_root).start(
             topic="A bounded source-set review",
             authorized_pdf_folder=folder,
         )
+        assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert len(
+            VersionContext.load(project_root)
+            .view_version(VersionContext.load(project_root).state().current_version_id)
+            .snapshot["agent_bootstrap"]["authorized_source_set"]
+        ) == 3
+        assert project_root.joinpath(
+            "00_sources/manual_upload/inbox/source_bundle.zip"
+        ).is_file()
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
+                result["dashboard_pid"]
+            )
 
-    after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
-    assert error.value.code == "SOURCE_ARCHIVE_MEMBER_MAPPING_REQUIRED"
-    assert after == before
-    assert not project_root.exists()
+
+def test_n3_native_bootstrap_maps_all_members_through_real_dashboard(
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    for name, payload in (("a.pdf", b"A"), ("b.pdf", b"B"), ("c.pdf", b"C")):
+        _write_pdf(folder, name, payload)
+    project_root = tmp_path / "projects" / "n3-native-dashboard"
+    project_root.parent.mkdir()
+    result: dict[str, object] | None = None
+
+    def request(method: str, path: str, payload: dict[str, object] | None = None) -> tuple[int, dict[str, object]]:
+        url = urlsplit(result["dashboard_url"])
+        body = b"" if payload is None else json.dumps(payload).encode()
+        connection = http.client.HTTPConnection(url.hostname, url.port, timeout=10)
+        try:
+            connection.request(
+                method,
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode())
+        finally:
+            connection.close()
+
+    try:
+        result = fresh_bootstrap.FreshAgentBootstrap(project_root).start(
+            topic="A bounded source-set review",
+            authorized_pdf_folder=folder,
+        )
+        project_id = result["project_id"]
+        status, sources = request("GET", f"/api/project/{project_id}/sources")
+        assert status == 200
+        preflight = sources["preflight"]
+        status, history = request("GET", f"/api/project/{project_id}/history")
+        assert status == 200
+        rows = [
+            {
+                "member_id": member["member_id"],
+                "name": member["name"],
+                "sha256": member["sha256"],
+                "download_id": member["download_id"],
+                "source_id": member["source_id"],
+                "study_id": member["study_id"],
+                "document_role": "MAIN" if index == 0 else "SI",
+            }
+            for index, member in enumerate(preflight["members"])
+        ]
+        status, mapped = request(
+            "POST",
+            f"/api/project/{project_id}/source-mapping",
+            {
+                "members": rows,
+                "archive_sha256": preflight["archive_sha256"],
+                "expected_revision": history["revision"],
+            },
+        )
+        assert status == 200
+        assert mapped["status"] == "mapped"
+        status, selected = request("GET", f"/api/project/{project_id}/sources")
+        assert status == 200
+        assert len(selected["sources"]) == 3
+        assert {source["currentness"] for source in selected["sources"]} == {"current"}
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
+                result["dashboard_pid"]
+            )

@@ -1947,6 +1947,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("mapping body is invalid")
+            batch_mapping_fields = {"members", "archive_sha256", "expected_revision"}
+            if set(data) == batch_mapping_fields:
+                with SOURCE_TRANSACTION_LOCK:
+                    preflight, mappings = _source_mapping_batch_request(project, data)
+                    result = _publish_manual_source_record(project, preflight, mappings)
+                self.send_json(result)
+                return
             blank_mapping_fields = {
                 "member_id",
                 "download_id",
@@ -1968,36 +1975,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     or re.fullmatch(r"[0-9a-f]{64}", data["archive_sha256"]) is None
                 ):
                     raise ValueError("blank source mapping identifiers are invalid")
-                try:
-                    with SOURCE_TRANSACTION_LOCK:
-                        archive_path = project / SOURCE_ARCHIVE_RELATIVE
-                        preflight = _source_archive_preflight(archive_path)
-                        member = preflight["member"]
-                        if (
-                            preflight["archive_sha256"] != data["archive_sha256"]
-                            or member.get("member_id") != data["member_id"]
-                            or member.get("download_id") != data["download_id"]
-                        ):
-                            raise SourceArchivePreflightError(
-                                "SOURCE_ARCHIVE_STALE",
-                                "来源压缩包在确认前发生变化，请重新读取来源清单。",
-                                HTTPStatus.CONFLICT,
-                            )
-                        result = _publish_manual_source_record(
-                            project,
-                            preflight,
-                            data["document_role"],
+                with SOURCE_TRANSACTION_LOCK:
+                    archive_path = project / SOURCE_ARCHIVE_RELATIVE
+                    preflight = _source_archive_preflight(archive_path)
+                    member = preflight.get("member")
+                    if (
+                        not isinstance(member, dict)
+                        or preflight.get("archive_sha256") != data["archive_sha256"]
+                        or member.get("member_id") != data["member_id"]
+                        or member.get("download_id") != data["download_id"]
+                        or member.get("source_id") != data["source_id"]
+                        or member.get("study_id") != data["study_id"]
+                    ):
+                        raise SourceArchivePreflightError(
+                            "SOURCE_ARCHIVE_STALE",
+                            "来源压缩包在确认前发生变化，请重新读取来源清单。",
+                            HTTPStatus.CONFLICT,
                         )
-                except SourceArchivePreflightError as exc:
-                    self.send_json(
-                        {
-                            "status": "rejected",
-                            "error_code": exc.code,
-                            "message": str(exc),
-                        },
-                        status=exc.status,
+                    result = _publish_manual_source_record(
+                        project,
+                        preflight,
+                        data["document_role"],
                     )
-                    return
                 self.send_json(result)
                 return
             if set(data) != {"member_id", "download_id"}:
@@ -2055,6 +2054,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     project / "00_sources",
                     member_overrides=overrides,
                 )
+        except SourceArchivePreflightError as exc:
+            status = exc.status
+            if status == HTTPStatus.UNPROCESSABLE_ENTITY:
+                status = HTTPStatus.CONFLICT if exc.code.endswith("STALE") else HTTPStatus.BAD_REQUEST
+            self.send_json(
+                {
+                    "status": "rejected",
+                    "error_code": exc.code,
+                    "message": str(exc),
+                },
+                status=status,
+            )
+            return
         except (json.JSONDecodeError, UnicodeError, OSError, ValueError, ManualArchiveError):
             self.send_error(HTTPStatus.BAD_REQUEST, "source mapping is invalid")
             return
@@ -3879,6 +3891,7 @@ def _source_archive_preflight(archive_path: Path) -> dict[str, Any]:
     archive_sha256, archive_size, initial = _source_archive_file_digest(archive_path)
     members: list[dict[str, Any]] = []
     seen_names: set[str] = set()
+    seen_digests: set[str] = set()
     declared_total = 0
     try:
         with zipfile.ZipFile(archive_path, "r") as archive:
@@ -3948,12 +3961,20 @@ def _source_archive_preflight(archive_path: Path) -> dict[str, Any]:
                             "SOURCE_ARCHIVE_PDF_INVALID",
                             "来源压缩包中的 PDF 未通过格式核验。",
                         )
+                    digest_value = digest.hexdigest()
+                    if digest_value in seen_digests:
+                        raise SourceArchivePreflightError(
+                            "SOURCE_ARCHIVE_MEMBER_DUPLICATE_HASH",
+                            "来源压缩包包含重复内容的 PDF 文件。",
+                        )
+                    seen_digests.add(digest_value)
                     members.append(
                         {
                             "member_id": f"MEMBER-{len(members) + 1:04d}",
                             "member_display_name": parts[-1],
+                            "name": parts[-1],
                             "member_path": "/".join(parts),
-                            "sha256": digest.hexdigest(),
+                            "sha256": digest_value,
                             "size_bytes": actual_size,
                         }
                     )
@@ -3982,28 +4003,31 @@ def _source_archive_preflight(archive_path: Path) -> dict[str, Any]:
             "SOURCE_ARCHIVE_STALE",
             "来源压缩包在核验期间发生变化，请重新上传。",
         )
-    if len(members) != 1:
+    if not members:
         raise SourceArchivePreflightError(
             "SOURCE_ARCHIVE_MEMBER_MAPPING_REQUIRED",
             "来源压缩包需要恰好一个可确认的 PDF 文件。",
         )
-    member = members[0]
-    upload_id = f"UPLOAD-{member['sha256'][:20]}"
-    member.update(
-        {
-            "download_id": upload_id,
-            "source_id": upload_id,
-            "study_id": upload_id,
-            "safe_locator": f"00_sources/manual_upload/inbox/source_bundle.zip#{member['member_id']}",
-        }
-    )
-    return {
+    for member in members:
+        upload_id = f"UPLOAD-{member['sha256'][:20]}"
+        member.update(
+            {
+                "download_id": upload_id,
+                "source_id": upload_id,
+                "study_id": upload_id,
+                "safe_locator": f"00_sources/manual_upload/inbox/source_bundle.zip#{member['member_id']}",
+            }
+        )
+    preflight = {
         "status": "awaiting_confirmation",
         "archive_sha256": archive_sha256,
         "archive_size_bytes": archive_size,
-        "member": member,
+        "members": members,
         "role_options": ["MAIN", "SI"],
     }
+    if len(members) == 1:
+        preflight["member"] = members[0]
+    return preflight
 
 
 def _source_archive_preflight_payload(project: Path) -> dict[str, Any] | None:
@@ -4811,34 +4835,112 @@ def _replace_json_pair(updates: list[tuple[Path, dict[str, Any]]]) -> None:
                 backup.unlink(missing_ok=True)
 
 
-def _manual_source_manifest(preflight: dict[str, Any], role: str) -> dict[str, Any]:
-    member = preflight.get("member") if isinstance(preflight, dict) else None
-    if not isinstance(member, dict) or role not in {"MAIN", "SI"}:
-        raise SourceArchivePreflightError(
-            "SOURCE_MAPPING_REQUEST_INVALID",
-            "来源确认请求无效。",
-            HTTPStatus.BAD_REQUEST,
-        )
-    download_id = member.get("download_id")
-    study_id = member.get("study_id")
-    if (
-        not isinstance(download_id, str)
-        or not re.fullmatch(r"UPLOAD-[0-9a-f]{20}", download_id)
-        or study_id != download_id
-        or not isinstance(member.get("sha256"), str)
-        or re.fullmatch(r"[0-9a-f]{64}", member["sha256"]) is None
+def _source_preflight_members(preflight: dict[str, Any]) -> list[dict[str, Any]]:
+    members = preflight.get("members")
+    if members is None:
+        member = preflight.get("member")
+        members = [member] if isinstance(member, dict) else []
+    if not isinstance(members, list) or not members or not all(
+        isinstance(member, dict) for member in members
     ):
         raise SourceArchivePreflightError(
             "SOURCE_MAPPING_REQUEST_INVALID",
             "来源确认请求无效。",
             HTTPStatus.BAD_REQUEST,
         )
-    return {
-        "schema_version": "public-corpus-acquisition.v1",
-        "downloads": [
+    return members
+
+
+def _manual_source_manifest_batch(
+    preflight: dict[str, Any], mappings: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    members = _source_preflight_members(preflight)
+    members_by_id: dict[str, dict[str, Any]] = {}
+    for member in members:
+        member_id = member.get("member_id")
+        if (
+            not isinstance(member_id, str)
+            or not re.fullmatch(r"MEMBER-\d{4}", member_id)
+            or member_id in members_by_id
+        ):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求无效。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        members_by_id[member_id] = member
+
+    selected: list[dict[str, Any]] = []
+    seen_member_ids: set[str] = set()
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求无效。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        member_id = mapping.get("member_id")
+        role = mapping.get("document_role")
+        member = members_by_id.get(member_id)
+        if (
+            not isinstance(member_id, str)
+            or member_id in seen_member_ids
+            or member is None
+            or role not in {"MAIN", "SI"}
+        ):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求无效。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        expected_name = member.get("name", member.get("member_display_name"))
+        supplied_name = mapping.get("name", mapping.get("member_display_name"))
+        if (
+            supplied_name != expected_name
+            or mapping.get("sha256") != member.get("sha256")
+            or mapping.get("download_id") != member.get("download_id")
+            or mapping.get("source_id") != member.get("source_id")
+            or mapping.get("study_id") != member.get("study_id")
+        ):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求中的成员身份与当前压缩包不一致。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        download_id = member.get("download_id")
+        study_id = member.get("study_id")
+        digest = member.get("sha256")
+        if (
+            not isinstance(download_id, str)
+            or not re.fullmatch(r"UPLOAD-[0-9a-f]{20}", download_id)
+            or study_id != download_id
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求无效。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        seen_member_ids.add(member_id)
+        selected.append({"member": member, "document_role": role})
+
+    if len(selected) != len(members):
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REQUEST_INCOMPLETE",
+            "必须一次确认压缩包中的全部来源成员。",
+            HTTPStatus.BAD_REQUEST,
+        )
+
+    downloads = []
+    for item in selected:
+        member = item["member"]
+        role = item["document_role"]
+        download_id = member["download_id"]
+        downloads.append(
             {
                 "download_id": download_id,
-                "study_id": study_id,
+                "study_id": member["study_id"],
                 "document_role": role,
                 "url": f"https://manual-upload.invalid/{download_id}.pdf",
                 "target_path": f"manual_upload/inbox/{download_id}.pdf",
@@ -4847,19 +4949,40 @@ def _manual_source_manifest(preflight: dict[str, Any], role: str) -> dict[str, A
                 "expected_sha256": member["sha256"],
                 "archive_names": [],
             }
-        ],
+        )
+    return {"schema_version": "public-corpus-acquisition.v1", "downloads": downloads}, selected
+
+
+def _manual_source_manifest(preflight: dict[str, Any], role: str) -> dict[str, Any]:
+    members = _source_preflight_members(preflight)
+    if len(members) != 1 or role not in {"MAIN", "SI"}:
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REQUEST_INVALID",
+            "来源确认请求无效。",
+            HTTPStatus.BAD_REQUEST,
+        )
+    member = members[0]
+    mapping = {
+        **member,
+        "name": member.get("name", member.get("member_display_name")),
+        "document_role": role,
     }
+    manifest, _ = _manual_source_manifest_batch(preflight, [mapping])
+    return manifest
 
 
 def _publish_manual_source_record(
     project: Path,
     preflight: dict[str, Any],
-    role: str,
+    role: str | list[dict[str, Any]],
 ) -> dict[str, Any]:
-    manifest = _manual_source_manifest(preflight, role)
-    member = preflight["member"]
-    download_id = member["download_id"]
-    study_id = member["study_id"]
+    if isinstance(role, str):
+        manifest = _manual_source_manifest(preflight, role)
+        members = _source_preflight_members(preflight)
+        selected = [{"member": members[0], "document_role": role}]
+    else:
+        manifest, selected = _manual_source_manifest_batch(preflight, role)
+    selected_members = [item["member"] for item in selected]
     archive_path = project / SOURCE_ARCHIVE_RELATIVE
     relative_paths = (
         Path("00_discovery/acquisition_manifest.json"),
@@ -4881,10 +5004,7 @@ def _publish_manual_source_record(
         json.dumps(manifest, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
     ).encode("utf-8")
     imported: dict[str, Any] | None = None
-    imported_status: str | None = None
-    target_path: Path | None = None
     published = False
-    expected_pdf_sha256 = member["sha256"]
     try:
         with tempfile.TemporaryDirectory(prefix="review-writer-source-manifest-") as temporary_root:
             temporary_manifest = Path(temporary_root) / "acquisition_manifest.json"
@@ -4894,7 +5014,10 @@ def _publish_manual_source_record(
                     temporary_manifest,
                     archive_path,
                     project / "00_sources",
-                    member_overrides={member["member_id"]: download_id},
+                    member_overrides={
+                        member["member_id"]: member["download_id"]
+                        for member in selected_members
+                    },
                 )
             except (ManualArchiveError, OSError, ValueError) as exc:
                 raise SourceArchivePreflightError(
@@ -4902,54 +5025,96 @@ def _publish_manual_source_record(
                     "来源压缩包未能生成可审计的来源记录。",
                 ) from exc
         results = imported.get("results") if isinstance(imported, dict) else None
-        if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        if (
+            not isinstance(results, list)
+            or len(results) != len(selected)
+            or not all(isinstance(result, dict) for result in results)
+        ):
             raise SourceArchivePreflightError(
                 "SOURCE_ARCHIVE_IMPORT_INVALID",
                 "来源压缩包未能生成可审计的来源记录。",
             )
-        result = results[0]
-        if result.get("status") not in {"IMPORTED", "VERIFIED_EXISTING"}:
-            raise SourceArchivePreflightError(
-                "SOURCE_ARCHIVE_IMPORT_INCOMPLETE",
-                "来源文件未通过当前来源核验。",
+        source_records: list[dict[str, Any]] = []
+        identity_results: list[dict[str, Any]] = []
+        coverage_studies: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        descriptors: list[tuple[Path, str, str]] = []
+        for item, result in zip(selected, results, strict=True):
+            member = item["member"]
+            item_role = item["document_role"]
+            if result.get("status") not in {"IMPORTED", "VERIFIED_EXISTING"}:
+                raise SourceArchivePreflightError(
+                    "SOURCE_ARCHIVE_IMPORT_INCOMPLETE",
+                    "来源文件未通过当前来源核验。",
+                )
+            target_path = _acquisition_source_relative_path(result.get("target_path"))
+            if target_path is None or result.get("sha256") != member["sha256"]:
+                raise SourceArchivePreflightError(
+                    "SOURCE_ARCHIVE_IMPORT_STALE",
+                    "来源文件摘要与上传内容不一致，请重新上传。",
+                )
+            descriptor = {
+                "path": target_path.relative_to(Path("00_sources")).as_posix(),
+                "sha256": result["sha256"],
+                "size_bytes": result["size_bytes"],
+            }
+            descriptors.append((project / target_path, result["status"], member["sha256"]))
+            source_record = {
+                "study_id": member["study_id"],
+                "source_id": member["source_id"],
+                "download_id": member["download_id"],
+                "doi": None,
+                "title": None,
+                "tier": "core",
+                "document_role": item_role,
+                "status": "ACQUIRED",
+                "archive_sha256": preflight["archive_sha256"],
+                "source_sha256": descriptor["sha256"],
+            }
+            source_record["main_pdf" if item_role == "MAIN" else "si_pdf"] = descriptor
+            source_records.append(source_record)
+            identity_results.append(
+                {
+                    "candidate_id": member["study_id"],
+                    "study_id": member["study_id"],
+                    "source_id": member["source_id"],
+                    "document_role": item_role,
+                    "source_sha256": descriptor["sha256"],
+                    "verdict": "PASS",
+                    "source": "RESEARCHER_MANUAL_UPLOAD",
+                }
             )
-        imported_status = result.get("status")
-        if result.get("sha256") != expected_pdf_sha256:
-            raise SourceArchivePreflightError(
-                "SOURCE_ARCHIVE_IMPORT_STALE",
-                "来源文件摘要与上传内容不一致，请重新上传。",
+            coverage_studies.append(
+                {
+                    "study_id": member["study_id"],
+                    "available_roles": [item_role],
+                    "main_policy": "REQUIRED",
+                    "si_policy": "NOT_REQUIRED",
+                    "study_status": "READY" if item_role == "MAIN" else "PARTIAL",
+                }
             )
-        target_path = _acquisition_source_relative_path(result.get("target_path"))
-        if target_path is None:
-            raise SourceArchivePreflightError(
-                "SOURCE_ARCHIVE_IMPORT_INVALID",
-                "来源记录的安全定位不可用。",
+            candidates.append(
+                {
+                    "candidate_id": member["study_id"],
+                    "study_id": member["study_id"],
+                    "source_id": member["source_id"],
+                    "doi": None,
+                    "title": None,
+                    "tier": "core",
+                    "document_role": item_role,
+                }
             )
-        descriptor = {
-            "path": target_path.relative_to(Path("00_sources")).as_posix(),
-            "sha256": result["sha256"],
-            "size_bytes": result["size_bytes"],
-        }
-        source_record = {
-            "study_id": study_id,
-            "source_id": member["source_id"],
-            "download_id": download_id,
-            "doi": None,
-            "title": None,
-            "tier": "core",
-            "document_role": role,
-            "status": "ACQUIRED",
-            "archive_sha256": preflight["archive_sha256"],
-            "source_sha256": descriptor["sha256"],
-        }
-        source_record["main_pdf" if role == "MAIN" else "si_pdf"] = descriptor
+        counts: dict[str, int] = {}
+        for result in results:
+            status = result["status"]
+            counts[status] = counts.get(status, 0) + 1
         acquisition_receipt = {
             "schema_version": "public-corpus-acquisition-receipt.v1",
             "created_at": now_utc(),
             "manifest_path": "acquisition_manifest.json",
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
-            "results": [result],
-            "counts": {result["status"]: 1},
+            "results": results,
+            "counts": counts,
             "manual_queue_count": 0,
             "policy": {
                 "public_direct_only": False,
@@ -4961,48 +5126,20 @@ def _publish_manual_source_record(
         final_receipt = {
             "schema_version": "acquisition-final-receipt.v1",
             "source_origin": "RESEARCHER_MANUAL_UPLOAD",
-            "total_studies": 1,
-            "studies": [source_record],
+            "total_studies": len(source_records),
+            "studies": source_records,
         }
         identity_audit = {
             "schema_version": "source-identity-audit.v1",
-            "results": [
-                {
-                    "candidate_id": study_id,
-                    "study_id": study_id,
-                    "source_id": member["source_id"],
-                    "document_role": role,
-                    "source_sha256": descriptor["sha256"],
-                    "verdict": "PASS",
-                    "source": "RESEARCHER_MANUAL_UPLOAD",
-                }
-            ],
+            "results": identity_results,
         }
         coverage = {
             "schema_version": "source-coverage.v1",
-            "studies": [
-                {
-                    "study_id": study_id,
-                    "available_roles": [role],
-                    "main_policy": "REQUIRED",
-                    "si_policy": "NOT_REQUIRED",
-                    "study_status": "READY" if role == "MAIN" else "PARTIAL",
-                }
-            ],
+            "studies": coverage_studies,
         }
         candidate_pool = {
             "schema_version": "candidate-pool.v1",
-            "candidates": [
-                {
-                    "candidate_id": study_id,
-                    "study_id": study_id,
-                    "source_id": member["source_id"],
-                    "doi": None,
-                    "title": None,
-                    "tier": "core",
-                    "document_role": "MAIN",
-                }
-            ],
+            "candidates": candidates,
         }
         _replace_json_pair(
             [
@@ -5018,6 +5155,14 @@ def _publish_manual_source_record(
         return {
             "status": "mapped",
             "message": "文件归属已确认",
+            "mapped_members": [
+                {
+                    "member_id": item["member"]["member_id"],
+                    "download_id": item["member"]["download_id"],
+                    "document_role": item["document_role"],
+                }
+                for item in selected
+            ],
         }
     except SourceArchivePreflightError:
         raise
@@ -5028,13 +5173,15 @@ def _publish_manual_source_record(
             HTTPStatus.INTERNAL_SERVER_ERROR,
         ) from exc
     finally:
-        if imported_status == "IMPORTED" and not published and target_path is not None:
-            target = project / target_path
-            try:
-                if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == expected_pdf_sha256:
-                    target.unlink()
-            except OSError:
-                pass
+        if not published:
+            for target, imported_status, expected_sha256 in locals().get("descriptors", ()):
+                if imported_status != "IMPORTED":
+                    continue
+                try:
+                    if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == expected_sha256:
+                        target.unlink()
+                except OSError:
+                    pass
         if imported is not None and not published:
             manual_receipt = project / "00_sources/manual_import_receipt.json"
             try:
@@ -5042,6 +5189,94 @@ def _publish_manual_source_record(
                     manual_receipt.unlink()
             except OSError:
                 pass
+
+
+def _source_mapping_batch_request(
+    project: Path, data: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if set(data) != {"members", "archive_sha256", "expected_revision"}:
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REQUEST_INVALID",
+            "来源确认请求无效。",
+            HTTPStatus.BAD_REQUEST,
+        )
+    expected_revision = data.get("expected_revision")
+    archive_sha256 = data.get("archive_sha256")
+    mappings = data.get("members")
+    if (
+        not isinstance(expected_revision, int)
+        or isinstance(expected_revision, bool)
+        or expected_revision < 0
+        or not isinstance(archive_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", archive_sha256) is None
+        or not isinstance(mappings, list)
+        or not mappings
+        or len(mappings) > DEFAULT_MAX_MEMBERS
+    ):
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REQUEST_INVALID",
+            "来源确认请求无效。",
+            HTTPStatus.BAD_REQUEST,
+        )
+    try:
+        context = VersionContext.load(project)
+        revision = context.state().revision
+    except (OSError, ProductFoundationError, ValueError) as exc:
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REVISION_INVALID",
+            "项目当前版本不可用于来源确认。",
+            HTTPStatus.CONFLICT,
+        ) from exc
+    if expected_revision != revision:
+        raise SourceArchivePreflightError(
+            "VERSION_CONFLICT",
+            "项目当前版本已变化，请重新读取来源清单。",
+            HTTPStatus.CONFLICT,
+        )
+    archive_path = project / SOURCE_ARCHIVE_RELATIVE
+    try:
+        validate_project_path_components(project, (SOURCE_ARCHIVE_RELATIVE,))
+        preflight = _source_archive_preflight(archive_path)
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, SourceArchivePreflightError):
+            raise
+        raise SourceArchivePreflightError(
+            "SOURCE_MAPPING_REQUEST_INVALID",
+            "当前来源压缩包不可用于确认。",
+            HTTPStatus.BAD_REQUEST,
+        ) from exc
+    if preflight.get("archive_sha256") != archive_sha256:
+        raise SourceArchivePreflightError(
+            "SOURCE_ARCHIVE_STALE",
+            "来源压缩包在确认前发生变化，请重新读取来源清单。",
+            HTTPStatus.CONFLICT,
+        )
+    normalized_mappings: list[dict[str, Any]] = []
+    required_fields = {
+        "member_id",
+        "name",
+        "sha256",
+        "download_id",
+        "source_id",
+        "study_id",
+        "document_role",
+    }
+    legacy_name_fields = required_fields | {"member_display_name"}
+    for mapping in mappings:
+        if not isinstance(mapping, dict) or not (
+            set(mapping) == required_fields or set(mapping) == legacy_name_fields
+        ):
+            raise SourceArchivePreflightError(
+                "SOURCE_MAPPING_REQUEST_INVALID",
+                "来源确认请求中的成员字段不完整。",
+                HTTPStatus.BAD_REQUEST,
+            )
+        normalized = dict(mapping)
+        if "name" not in normalized:
+            normalized["name"] = normalized.get("member_display_name")
+        normalized_mappings.append(normalized)
+    _manual_source_manifest_batch(preflight, normalized_mappings)
+    return preflight, normalized_mappings
 
 
 _PUBLIC_PARSE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$")
@@ -5698,8 +5933,13 @@ def project_source_handoff_payload(review_root: Path, project_id: str) -> dict[s
                 "download_ids": safe_download_ids,
             }
         )
+    try:
+        revision = VersionContext.load(project).state().revision
+    except (OSError, ProductFoundationError, ValueError):
+        revision = None
     return {
         "project_id": project_id,
+        "revision": revision,
         "counts": {
             "total": len(sources),
             "ready": ready_count,

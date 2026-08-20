@@ -5,10 +5,12 @@ from __future__ import annotations
 import copy
 import hashlib
 import http.client
+import io
 import json
 import tempfile
 import threading
 import unittest
+import zipfile
 from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +20,21 @@ from review_writer.agent.generator_runtime import GeneratorSession, RUNTIME_KEY,
 from review_writer.product_foundation import PersistenceError, VersionContext
 from review_writer.project import manuscript_v2
 from review_writer.project.source_truth import canonical_digest
+
+
+def _valid_pdf_bytes(label: bytes) -> bytes:
+    body = b"%PDF-1.7\n% " + label + b"\n1 0 obj\n<< /Length 0 >>\nstream\nendstream\nendobj\n"
+    xref_offset = len(body)
+    object_offset = len(b"%PDF-1.7\n% ") + len(label) + 1
+    return (
+        body
+        + b"xref\n0 2\n0000000000 65535 f \n"
+        + f"{object_offset:010d}".encode()
+        + b" 00000 n \n"
+        + b"trailer\n<< /Size 2 >>\nstartxref\n"
+        + str(xref_offset).encode()
+        + b"\n%%EOF\n"
+    )
 
 
 class DashboardRuntimeRootTest(unittest.TestCase):
@@ -66,6 +83,326 @@ class DashboardRuntimeRootTest(unittest.TestCase):
             return response.status, json.loads(response.read().decode("utf-8"))
         finally:
             connection.close()
+
+    def _prepare_n3_archive(
+        self,
+        server: dashboard.ThreadingHTTPServer,
+        project_id: str,
+    ) -> tuple[dict[str, object], dict[str, object], Path]:
+        status, _ = self._request(
+            server,
+            "POST",
+            "/api/projects",
+            {
+                "project_id": project_id,
+                "brief": {
+                    "topic": "N3 source mapping",
+                    "review_question": "Can all authorized source members be mapped?",
+                },
+            },
+        )
+        self.assertEqual(status, 201)
+        status, _ = self._request(
+            server,
+            "PUT",
+            f"/api/project/{project_id}/review-state",
+            {"action": "confirm_brief", "project_id": project_id},
+        )
+        self.assertEqual(status, 200)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name in ("a.pdf", "b.pdf", "c.pdf"):
+                archive.writestr(name, _valid_pdf_bytes(name.encode()))
+        status, _ = self._binary_request(
+            server,
+            f"/api/project/{project_id}/source-archive",
+            buffer.getvalue(),
+        )
+        self.assertEqual(status, 201)
+        status, sources = self._request(
+            server, "GET", f"/api/project/{project_id}/sources"
+        )
+        self.assertEqual(status, 200)
+        status, history = self._request(
+            server, "GET", f"/api/project/{project_id}/history"
+        )
+        self.assertEqual(status, 200)
+        return sources["preflight"], history, Path(server.RequestHandlerClass.review_root) / project_id
+
+    def test_source_archive_preflight_exposes_all_n3_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "source_bundle.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for name in ("a.pdf", "b.pdf", "c.pdf"):
+                    archive.writestr(name, _valid_pdf_bytes(name.encode()))
+
+            preflight = dashboard._source_archive_preflight(archive_path)
+
+            self.assertEqual(
+                [member["member_id"] for member in preflight["members"]],
+                ["MEMBER-0001", "MEMBER-0002", "MEMBER-0003"],
+            )
+            self.assertEqual(
+                [member["member_display_name"] for member in preflight["members"]],
+                ["a.pdf", "b.pdf", "c.pdf"],
+            )
+            self.assertEqual(
+                [member["source_id"] for member in preflight["members"]],
+                [member["download_id"] for member in preflight["members"]],
+            )
+
+    def test_n3_source_mapping_batch_posts_all_members_and_keeps_current_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            review_root = Path(temporary)
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                project_id = "n3-source-mapping"
+                status, _ = self._request(
+                    server,
+                    "POST",
+                    "/api/projects",
+                    {
+                        "project_id": project_id,
+                        "brief": {
+                            "topic": "N3 source mapping",
+                            "review_question": "Can all authorized source members be mapped?",
+                        },
+                    },
+                )
+                self.assertEqual(status, 201)
+                status, _ = self._request(
+                    server,
+                    "PUT",
+                    f"/api/project/{project_id}/review-state",
+                    {"action": "confirm_brief", "project_id": project_id},
+                )
+                self.assertEqual(status, 200)
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w") as archive:
+                    for name in ("a.pdf", "b.pdf", "c.pdf"):
+                        archive.writestr(name, _valid_pdf_bytes(name.encode()))
+                status, _ = self._binary_request(
+                    server,
+                    f"/api/project/{project_id}/source-archive",
+                    buffer.getvalue(),
+                )
+                self.assertEqual(status, 201)
+                status, sources = self._request(
+                    server, "GET", f"/api/project/{project_id}/sources"
+                )
+                self.assertEqual(status, 200)
+                preflight = sources["preflight"]
+                self.assertEqual(len(preflight["members"]), 3)
+                status, history = self._request(
+                    server, "GET", f"/api/project/{project_id}/history"
+                )
+                self.assertEqual(status, 200)
+                rows = [
+                    {
+                        "member_id": member["member_id"],
+                        "name": member["name"],
+                        "sha256": member["sha256"],
+                        "download_id": member["download_id"],
+                        "source_id": member["source_id"],
+                        "study_id": member["study_id"],
+                        "document_role": "MAIN" if index == 0 else "SI",
+                    }
+                    for index, member in enumerate(preflight["members"])
+                ]
+                status, mapped = self._request(
+                    server,
+                    "POST",
+                    f"/api/project/{project_id}/source-mapping",
+                    {
+                        "members": rows,
+                        "archive_sha256": preflight["archive_sha256"],
+                        "expected_revision": history["revision"],
+                    },
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(mapped["status"], "mapped")
+                status, selected = self._request(
+                    server, "GET", f"/api/project/{project_id}/sources"
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(len(selected["sources"]), 3)
+                self.assertEqual(
+                    {source["currentness"] for source in selected["sources"]},
+                    {"current"},
+                )
+                self.assertEqual(
+                    {source["role"] for source in selected["sources"]},
+                    {"MAIN", "SI"},
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
+    def test_n3_source_mapping_rejects_identity_and_concurrency_errors_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            review_root = Path(temporary)
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                preflight, history, project = self._prepare_n3_archive(server, "n3-negative-mapping")
+                members = preflight["members"]
+                valid_rows = [
+                    {
+                        "member_id": member["member_id"],
+                        "name": member["name"],
+                        "sha256": member["sha256"],
+                        "download_id": member["download_id"],
+                        "source_id": member["source_id"],
+                        "study_id": member["study_id"],
+                        "document_role": "MAIN" if index == 0 else "SI",
+                    }
+                    for index, member in enumerate(members)
+                ]
+                base = {
+                    "members": valid_rows,
+                    "archive_sha256": preflight["archive_sha256"],
+                    "expected_revision": history["revision"],
+                }
+                cases = {
+                    "missing_name": {
+                        **base,
+                        "members": [{key: value for key, value in valid_rows[0].items() if key != "name"}, *valid_rows[1:]],
+                    },
+                    "duplicate_member": {**base, "members": [valid_rows[0], valid_rows[0], valid_rows[2]]},
+                    "wrong_member": {
+                        **base,
+                        "members": [{**valid_rows[0], "member_id": "MEMBER-0099"}, *valid_rows[1:]],
+                    },
+                    "wrong_hash": {
+                        **base,
+                        "members": [{**valid_rows[0], "sha256": "0" * 64}, *valid_rows[1:]],
+                    },
+                    "wrong_name": {
+                        **base,
+                        "members": [{**valid_rows[0], "name": "wrong.pdf"}, *valid_rows[1:]],
+                    },
+                    "wrong_source": {
+                        **base,
+                        "members": [{**valid_rows[0], "source_id": "UPLOAD-00000000000000000000"}, *valid_rows[1:]],
+                    },
+                    "wrong_study": {
+                        **base,
+                        "members": [{**valid_rows[0], "study_id": "UPLOAD-00000000000000000000"}, *valid_rows[1:]],
+                    },
+                    "wrong_role": {
+                        **base,
+                        "members": [{**valid_rows[0], "document_role": "OTHER"}, *valid_rows[1:]],
+                    },
+                    "stale_archive": {**base, "archive_sha256": "0" * 64},
+                    "revision_conflict": {**base, "expected_revision": history["revision"] + 1},
+                }
+                before = {
+                    path.relative_to(project).as_posix(): (
+                        path.stat().st_mtime_ns,
+                        path.read_bytes(),
+                    )
+                    for path in project.rglob("*")
+                    if path.is_file()
+                }
+                for label, payload in cases.items():
+                    with self.subTest(label=label):
+                        status, body = self._request(
+                            server,
+                            "POST",
+                            "/api/project/n3-negative-mapping/source-mapping",
+                            payload,
+                        )
+                        self.assertIn(status, {400, 409})
+                        self.assertEqual(body["status"], "rejected")
+                        self.assertEqual(
+                            {
+                                path.relative_to(project).as_posix(): (
+                                    path.stat().st_mtime_ns,
+                                    path.read_bytes(),
+                                )
+                                for path in project.rglob("*")
+                                if path.is_file()
+                            },
+                            before,
+                        )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
+    def test_n1_source_mapping_payload_and_member_response_remain_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            review_root = Path(temporary)
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                project_id = "n1-source-mapping"
+                status, _ = self._request(
+                    server,
+                    "POST",
+                    "/api/projects",
+                    {
+                        "project_id": project_id,
+                        "brief": {
+                            "topic": "N1 source mapping",
+                            "review_question": "Can one authorized source be mapped?",
+                        },
+                    },
+                )
+                self.assertEqual(status, 201)
+                status, _ = self._request(
+                    server,
+                    "PUT",
+                    f"/api/project/{project_id}/review-state",
+                    {"action": "confirm_brief", "project_id": project_id},
+                )
+                self.assertEqual(status, 200)
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w") as archive:
+                    archive.writestr("a.pdf", _valid_pdf_bytes(b"a"))
+                status, _ = self._binary_request(
+                    server,
+                    f"/api/project/{project_id}/source-archive",
+                    buffer.getvalue(),
+                )
+                self.assertEqual(status, 201)
+                status, sources = self._request(
+                    server, "GET", f"/api/project/{project_id}/sources"
+                )
+                self.assertEqual(status, 200)
+                preflight = sources["preflight"]
+                self.assertIn("member", preflight)
+                member = preflight["member"]
+                status, mapped = self._request(
+                    server,
+                    "POST",
+                    f"/api/project/{project_id}/source-mapping",
+                    {
+                        "member_id": member["member_id"],
+                        "download_id": member["download_id"],
+                        "source_id": member["source_id"],
+                        "study_id": member["study_id"],
+                        "document_role": "MAIN",
+                        "archive_sha256": preflight["archive_sha256"],
+                    },
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(mapped["status"], "mapped")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
 
     def test_sidecar_data_root_is_writable_but_foreign_checkout_is_read_only(self) -> None:
         product_sidecar = Path("/home/kenqia/my_folder/test/review-projects")

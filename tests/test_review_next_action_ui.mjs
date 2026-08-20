@@ -18,3 +18,15 @@ test("Overview next action gives the drafting stage a plain-language jump to the
   assert.match(source, /window\.location\.hash = 'manuscript'/);
   assert.match(source, /nextActionButton\.disabled = busy/);
 });
+
+test("Source preflight renders all members and submits one batch mapping", async () => {
+  const source = await readFile(reviewPath, "utf8");
+
+  assert.match(source, /preflight\.members/);
+  assert.match(source, /submitSourceMappingBatch\(/);
+  assert.match(source, /document_role/);
+  assert.match(source, /expected_revision/);
+  assert.match(source, /MAIN/);
+  assert.match(source, /SI/);
+  assert.match(source, /members:.*archive_sha256/s);
+});

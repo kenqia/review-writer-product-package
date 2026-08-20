@@ -1446,32 +1446,47 @@
       clear(preflightList);
       preflightPanel.hidden = !preflight;
       if (preflight?.status === 'awaiting_confirmation') {
-        const member = preflight.member || {};
-        const row = document.createElement('article');
-        row.className = 'source-row missing';
-        const copy = document.createElement('div');
-        copy.append(textElement('strong', '', member.source_id || '待确认来源身份'));
-        copy.append(textElement(
-          'span',
-          '',
-          `${member.member_display_name || 'PDF'} · ${member.member_id || '待确认成员'} · SHA-256 ${member.sha256 || '未知'} · ${member.size_bytes || 0} bytes`,
-        ));
-        const select = document.createElement('select');
-        select.setAttribute('aria-label', '确认来源角色');
-        (preflight.role_options || ['MAIN', 'SI']).forEach(role => {
-          const option = document.createElement('option');
-          option.value = role;
-          option.textContent = role === 'MAIN' ? 'MAIN · 主文献全文' : 'SI · 补充信息';
-          option.selected = role === 'MAIN';
-          select.append(option);
+        const members = Array.isArray(preflight.members)
+          ? preflight.members
+          : preflight.member
+          ? [preflight.member]
+          : [];
+        const selections = [];
+        members.forEach((member, index) => {
+          const row = document.createElement('article');
+          row.className = 'source-row missing';
+          const copy = document.createElement('div');
+          copy.append(textElement('strong', '', member.source_id || `待确认来源 ${index + 1}`));
+          copy.append(textElement(
+            'span',
+            '',
+            `${member.name || member.member_display_name || 'PDF'} · ${member.member_id || '待确认成员'} · SHA-256 ${member.sha256 || '未知'} · ${member.size_bytes || 0} bytes`,
+          ));
+          const select = document.createElement('select');
+          select.setAttribute('aria-label', `确认 ${member.member_id || `来源 ${index + 1}`} 角色`);
+          (preflight.role_options || ['MAIN', 'SI']).forEach(role => {
+            const option = document.createElement('option');
+            option.value = role;
+            option.textContent = role === 'MAIN' ? 'MAIN · 主文献全文' : 'SI · 补充信息';
+            option.selected = role === 'MAIN';
+            select.append(option);
+          });
+          selections.push({member, select});
+          row.append(copy, select);
+          preflightList.append(row);
         });
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'stage-primary-action';
-        button.textContent = '确认来源并进入解析';
-        button.addEventListener('click', () => submitSourcePreflight(member, select.value, preflight.archive_sha256));
-        row.append(copy, select, button);
-        preflightList.append(row);
+        button.textContent = members.length > 1
+          ? `一次确认 ${members.length} 个来源并进入解析`
+          : '确认来源并进入解析';
+        button.disabled = !members.length;
+        button.addEventListener('click', () => submitSourceMappingBatch(
+          selections.map(({member, select}) => ({member, role:select.value})),
+          preflight.archive_sha256,
+        ));
+        preflightList.append(button);
       } else if (preflight?.status === 'invalid') {
         preflightList.append(textElement(
           'p',
@@ -2935,33 +2950,52 @@
       }
     }
 
-    async function submitSourcePreflight(member, role, archiveSha256) {
+    async function submitSourceMappingBatch(selections, archiveSha256) {
       if (
         sourceMappingBusy
         || projectLoadBusy
         || !projectId
-        || !member?.member_id
-        || !member?.download_id
-        || !member?.source_id
-        || !member?.study_id
         || !archiveSha256
-        || !role
+        || !Array.isArray(selections)
+        || !selections.length
       ) return;
+      const expectedRevision = Number.isInteger(historyPayload?.revision)
+        ? historyPayload.revision
+        : Number.isInteger(sourcePayload?.revision)
+        ? sourcePayload.revision
+        : null;
+      if (!Number.isInteger(expectedRevision)) {
+        $('source-mapping-message').textContent = '当前版本不可用；请重新读取项目后再确认来源。';
+        return;
+      }
+      const members = selections.map(({member, role}) => ({
+        member_id:member?.member_id,
+        name:member?.name || member?.member_display_name,
+        sha256:member?.sha256,
+        download_id:member?.download_id,
+        source_id:member?.source_id,
+        study_id:member?.study_id,
+        document_role:role,
+      }));
+      if (members.some(member => (
+        !member.member_id
+        || !member.name
+        || !member.sha256
+        || !member.download_id
+        || !member.source_id
+        || !member.study_id
+        || !['MAIN', 'SI'].includes(member.document_role)
+      ))) return;
       sourceMappingBusy = true;
       applyWorkbenchBusyState(true);
-      $('source-mapping-message').textContent = '正在确认来源身份和角色…';
+      $('source-mapping-message').textContent = members.length > 1
+        ? `正在一次确认 ${members.length} 个来源身份和角色…`
+        : '正在确认来源身份和角色…';
       try {
         await getPayload(`/api/project/${encodeURIComponent(projectId)}/source-mapping`, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            member_id:member.member_id,
-            download_id:member.download_id,
-            source_id:member.source_id,
-            study_id:member.study_id,
-            document_role:role,
-            archive_sha256:archiveSha256,
-          }),
+          body:JSON.stringify({members:members,archive_sha256:archiveSha256,expected_revision:expectedRevision}),
         });
         $('source-mapping-message').textContent = '来源记录已确认，正在进入解析阶段。';
         await loadProject();
@@ -2973,6 +3007,10 @@
         sourceMappingBusy = false;
         applyWorkbenchBusyState(editorBusy || projectLoadBusy);
       }
+    }
+
+    async function submitSourcePreflight(member, role, archiveSha256) {
+      return submitSourceMappingBatch([{member, role}], archiveSha256);
     }
 
     async function submitSourceMapping(memberId, downloadId) {

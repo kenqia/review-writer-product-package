@@ -255,21 +255,22 @@ def _preflight_source_archive(
         preflight = _source_archive_preflight(archive)
     except SourceArchivePreflightError as exc:
         raise FreshAgentBootstrapError(exc.code) from exc
-    member = preflight.get("member") if isinstance(preflight, dict) else None
-    if (
-        len(expected_rows) != 1
-        or not isinstance(member, dict)
-        or member.get("sha256") != expected_rows[0].get("sha256")
-        or (
-            isinstance(expected_rows[0].get("name"), str)
-            and member.get("member_display_name") != expected_rows[0].get("name")
-        )
-        or (
-            isinstance(expected_rows[0].get("member_id"), str)
-            and member.get("member_id") != expected_rows[0].get("member_id")
-        )
-    ):
+    members = preflight.get("members") if isinstance(preflight, dict) else None
+    if members is None and isinstance(preflight, dict):
+        member = preflight.get("member")
+        members = [member] if isinstance(member, dict) else []
+    if not isinstance(members, list) or len(expected_rows) != len(members):
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_STALE")
+    for expected, observed in zip(expected_rows, members, strict=True):
+        if not isinstance(observed, dict):
+            raise FreshAgentBootstrapError("AUTHORIZED_PDF_STALE")
+        observed_name = observed.get("name", observed.get("member_display_name"))
+        for key in ("sha256", "member_id", "source_id", "study_id", "download_id", "size_bytes"):
+            expected_value = expected.get(key)
+            if expected_value is not None and observed.get(key) != expected_value:
+                raise FreshAgentBootstrapError("AUTHORIZED_PDF_STALE")
+        if isinstance(expected.get("name"), str) and observed_name != expected["name"]:
+            raise FreshAgentBootstrapError("AUTHORIZED_PDF_STALE")
     return preflight
 
 
