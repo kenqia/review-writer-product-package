@@ -730,9 +730,16 @@
 
     function confirmDiscardDraftChanges() {
       if (!editorDirty) return true;
-      if (!window.confirm('当前章节有未保存修改。确定要丢弃这些修改吗？')) return false;
+      if (!window.confirm('当前正文或修改理由尚未保存。选择“取消”会留在本页继续编辑；选择“确定”才会丢弃，并继续切换。')) return false;
       editorDirty = false;
       return true;
+    }
+
+    function markEditorDirty() {
+      if (!editorDirty) {
+        $('save-message').textContent = '当前正文或修改理由尚未保存。可继续编辑并保存；刷新、切换项目或章节时会先询问是否丢弃。';
+      }
+      editorDirty = true;
     }
 
     function confirmDiscardRiskDecisions() {
@@ -2624,6 +2631,11 @@
             $('save-message').textContent = '请先填写本次高风险修改的核对理由。';
             return;
           }
+          if (submittedBody === String(activeSection.body || '')) {
+            editorDirty = true;
+            $('save-message').textContent = '未保存：这是高风险章节，必须直接修改章节正文，不能原样批准。当前输入仍保留在页面中。';
+            return;
+          }
           const outcome = await ReviewManuscriptUI.saveEdit({
             request:fetch,
             url:`/api/project/${encodeURIComponent(submittedProjectId)}/draft`,
@@ -2639,7 +2651,9 @@
             return;
           }
           if (outcome.status !== 'saved') {
-            const error = new Error('request failed'); error.status = outcome.httpStatus; throw error;
+            editorDirty = true;
+            $('save-message').textContent = ReviewManuscriptUI.draftSaveErrorMessage(outcome);
+            return;
           }
           result = outcome.payload;
         } else {
@@ -3331,10 +3345,10 @@
     $('reload-conflicted-section').addEventListener('click', () => resolveManuscriptConflict(false));
     $('keep-conflicted-section').addEventListener('click', () => resolveManuscriptConflict(true));
     $('section-editor').addEventListener('input', event => {
-      editorDirty = true;
+      markEditorDirty();
       renderSectionReading(event.target.value);
     });
-    $('high-risk-reason').addEventListener('input', () => { editorDirty = true; });
+    $('high-risk-reason').addEventListener('input', markEditorDirty);
     $('restore-verified').addEventListener('click', async () => {
       const pending = pendingForSection(activeSectionId);
       if (pending) {

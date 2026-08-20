@@ -119,6 +119,40 @@
     };
   }
 
+  function errorCodeFromResponseText(value) {
+    const text = string(value);
+    const match = text.match(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/g);
+    return match ? match.at(-1) : "";
+  }
+
+  async function responseErrorCode(response) {
+    try {
+      return errorCodeFromResponseText(await response.text());
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function draftSaveErrorMessage(outcome) {
+    const code = string(outcome?.errorCode);
+    const retained = "当前输入仍保留在页面中。";
+    if (code === "HIGH_RISK_EDIT_PENDING") {
+      return `未保存：这是高风险章节，必须直接修改章节正文，不能原样批准；保留证据和综合标记，填写修改理由后再试。${retained}`;
+    }
+    if (code === "APPROVAL_REASON_REQUIRED") {
+      return `未保存：请填写修改理由后再保存。${retained}`;
+    }
+    if (code === "SECTION_DRAFT_INVALID") {
+      return `未保存：章节正文不能为空。${retained}`;
+    }
+    if (code === "SECTION_DRAFT_STALE" || code === "WORKSPACE_STALE") {
+      return `未保存：服务器正文已更新。${retained}请读取最新版本，或保留文字后重新核对。`;
+    }
+    return code
+      ? `未保存：服务器拒绝了此次保存（${code}）。${retained}请检查正文和修改理由后重试。`
+      : `未保存：保存请求未完成。${retained}请检查网络后重试。`;
+  }
+
   async function saveEdit(options) {
     const response = await options.request.call(globalThis, options.url, {
       method: "PUT",
@@ -129,7 +163,13 @@
       if (typeof options.onConflict === "function") options.onConflict();
       return {status: "conflict"};
     }
-    if (!response.ok) return {status: "error", httpStatus: response.status};
+    if (!response.ok) {
+      return {
+        status: "error",
+        httpStatus: response.status,
+        errorCode: await responseErrorCode(response),
+      };
+    }
     const payload = await response.json();
     if (typeof options.onSuccess === "function") options.onSuccess(payload);
     return {status: "saved", payload};
@@ -150,5 +190,12 @@
     return {evidence: visibleEvidence, synthesis: visibleSynthesis, source_figures: visibleFigures};
   }
 
-  return {buildEditRequest, contextForSection, projectManuscript, saveEdit, sectionId};
+  return {
+    buildEditRequest,
+    contextForSection,
+    draftSaveErrorMessage,
+    projectManuscript,
+    saveEdit,
+    sectionId,
+  };
 }));
