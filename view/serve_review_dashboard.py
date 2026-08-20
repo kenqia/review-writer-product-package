@@ -8636,8 +8636,14 @@ def _restore_new_route_draft_transaction(
         path = project / relative
         previous = snapshots[relative]
         if previous is None:
-            path.unlink(missing_ok=True)
-        else:
+            if os.path.lexists(path):
+                path.unlink()
+            continue
+        try:
+            unchanged = path.is_file() and not path.is_symlink() and path.read_bytes() == previous
+        except OSError:
+            unchanged = False
+        if not unchanged:
             _atomic_write_bytes(path, previous)
 
 
@@ -8792,7 +8798,7 @@ def _write_new_route_draft_section(
                 _prevalidate_new_route_draft_body(project, data.get("edited_body"))
                 previous = _capture_new_route_draft_transaction(project)
                 try:
-                    approved = approve_section(
+                    approved = manuscript_v2_module._approve_section_locked(
                         project,
                         str(section_id),
                         {
@@ -8804,7 +8810,7 @@ def _write_new_route_draft_section(
                         expected_draft_digest=str(draft_digest),
                         reconfirm_simulated_approval=reconfirm_simulated_approval,
                     )
-                    merge_authoritative_manuscript(project)
+                    manuscript_v2_module._merge_approved_sections_locked(project)
                     _publish_new_route_draft_approval(
                         context, state, current, runtime, approved
                     )

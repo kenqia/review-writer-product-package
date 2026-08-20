@@ -12,7 +12,7 @@ import tempfile
 import threading
 import unittest
 import zipfile
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -670,6 +670,352 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
                 self.assertEqual(public_source.count("with project_write_lock("), 1)
                 self.assertNotIn("with project_write_lock(", private_source)
 
+    def _real_http_project(self) -> tuple[Path, Path, dict[str, object], dict[str, object]]:
+        review_root, project, draft, _ = self._project()
+        (project / "01_evidence/source_truth").mkdir(parents=True)
+        (project / "03_figures").mkdir()
+        (project / "04_manuscript/section_drafts.jsonl").write_text(
+            json.dumps(
+                {
+                    "schema_version": "manuscript-section-draft.v1",
+                    "section_id": self.section_id,
+                    "heading": "Bounded section",
+                    "body": self.original_body,
+                    "contract_digest": "f" * 64,
+                    "paper_evidence_projection_digest": "e" * 64,
+                    "synthesis_projection_digest": "d" * 64,
+                    "section_contract_projection_digest": "c" * 64,
+                    "generation_content_agent_result_digest": "d" * 64,
+                    "claim_bindings": [
+                        {
+                            "marker": "[evidence:case-1]",
+                            "paper_evidence_ids": ["case-1"],
+                            "synthesis_ids": [],
+                        }
+                    ],
+                    "high_risk_reasons": ["Edited source-bound statement"],
+                    "decision": None,
+                    "draft_digest": "a" * 64,
+                    "status": "needs_human_edit",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return review_root, project, draft, self._payload(draft)
+
+    def _real_http_patches(self, draft: dict[str, object]) -> ExitStack:
+        stack = ExitStack()
+        stack.enter_context(
+            patch.object(
+                dashboard,
+                "workflow_state",
+                return_value={"route": "evidence-to-release.v1"},
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                dashboard,
+                "build_manuscript_workspace",
+                return_value={"sections": [draft]},
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                manuscript_v2,
+                "_states",
+                return_value=(
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "e" * 64,
+                        "rows": [
+                            {
+                                "evidence_id": "case-1",
+                                "status": "approved",
+                                "study_id": "study-1",
+                            }
+                        ],
+                    },
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "d" * 64,
+                        "rows": [],
+                    },
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "c" * 64,
+                        "rows": [
+                            {
+                                "section_id": self.section_id,
+                                "status": "approved",
+                                "contract_digest": "f" * 64,
+                            }
+                        ],
+                    },
+                ),
+            )
+        )
+        stack.enter_context(patch.object(manuscript_v2, "_draft_is_current", return_value=True))
+        stack.enter_context(
+            patch.object(
+                manuscript_v2,
+                "workflow_state",
+                return_value={
+                    "route": "evidence-to-release.v1",
+                    "workflow_digest": "a" * 64,
+                },
+            )
+        )
+        stack.enter_context(
+            patch.object(manuscript_v2, "_parse_object_digests", return_value=["b" * 64])
+        )
+        stack.enter_context(patch.object(manuscript_v2, "_figure_digests", return_value=(None, None)))
+        return stack
+
+    def test_http_user_edited_approval_returns_without_reentrant_lock_hang(self) -> None:
+        review_root, project, draft, _ = self._project()
+        (project / "01_evidence/source_truth").mkdir(parents=True)
+        (project / "03_figures").mkdir()
+        (project / "04_manuscript/section_drafts.jsonl").write_text(
+            json.dumps(
+                {
+                    "schema_version": "manuscript-section-draft.v1",
+                    "section_id": self.section_id,
+                    "heading": "Bounded section",
+                    "body": self.original_body,
+                    "contract_digest": "f" * 64,
+                    "paper_evidence_projection_digest": "e" * 64,
+                    "synthesis_projection_digest": "d" * 64,
+                    "section_contract_projection_digest": "c" * 64,
+                    "generation_content_agent_result_digest": "d" * 64,
+                    "claim_bindings": [
+                        {
+                            "marker": "[evidence:case-1]",
+                            "paper_evidence_ids": ["case-1"],
+                            "synthesis_ids": [],
+                        }
+                    ],
+                    "high_risk_reasons": ["Edited source-bound statement"],
+                    "decision": None,
+                    "draft_digest": "a" * 64,
+                    "status": "needs_human_edit",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        payload = self._payload(draft)
+
+        with (
+            patch.object(
+                dashboard,
+                "workflow_state",
+                return_value={"route": "evidence-to-release.v1"},
+            ),
+            patch.object(
+                dashboard,
+                "build_manuscript_workspace",
+                return_value={"sections": [draft]},
+            ),
+            patch.object(
+                manuscript_v2,
+                "_states",
+                return_value=(
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "e" * 64,
+                        "rows": [
+                            {
+                                "evidence_id": "case-1",
+                                "status": "approved",
+                                "study_id": "study-1",
+                            }
+                        ],
+                    },
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "d" * 64,
+                        "rows": [],
+                    },
+                    {
+                        "workflow_can_continue": True,
+                        "projection_digest": "c" * 64,
+                        "rows": [
+                            {
+                                "section_id": self.section_id,
+                                "status": "approved",
+                                "contract_digest": "f" * 64,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            patch.object(manuscript_v2, "_draft_is_current", return_value=True),
+            patch.object(
+                manuscript_v2,
+                "workflow_state",
+                return_value={
+                    "route": "evidence-to-release.v1",
+                    "workflow_digest": "a" * 64,
+                },
+            ),
+            patch.object(manuscript_v2, "_parse_object_digests", return_value=["b" * 64]),
+            patch.object(manuscript_v2, "_figure_digests", return_value=(None, None)),
+        ):
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection(*server.server_address, timeout=3.0)
+            try:
+                body = json.dumps(payload).encode("utf-8")
+                connection.request(
+                    "PUT",
+                    f"/api/project/{self.project_id}/draft",
+                    body=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Content-Length": str(len(body)),
+                    },
+                )
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 200)
+                before_stale, stale_tracked = self._tracked_manuscript_state(project)
+                stale_connection = http.client.HTTPConnection(*server.server_address, timeout=3.0)
+                try:
+                    stale_connection.request(
+                        "PUT",
+                        f"/api/project/{self.project_id}/draft",
+                        body=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(body)),
+                        },
+                    )
+                    stale_response = stale_connection.getresponse()
+                    stale_response.read()
+                    self.assertEqual(stale_response.status, 409)
+                finally:
+                    stale_connection.close()
+                self.assertEqual(
+                    {path: self._fingerprint(path) for path in stale_tracked},
+                    before_stale,
+                )
+            finally:
+                connection.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+    def test_http_concurrent_same_candidate_commits_once_and_preserves_v1(self) -> None:
+        review_root, project, draft, payload = self._real_http_project()
+
+        def files_snapshot() -> dict[Path, tuple[bytes, str, int, int]]:
+            return {
+                path.relative_to(project): self._fingerprint(path)
+                for path in project.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            }
+
+        before = files_snapshot()
+        with self._real_http_patches(draft):
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            barrier = threading.Barrier(2)
+            statuses: list[int] = []
+            errors: list[str] = []
+
+            def send_request() -> None:
+                connection = http.client.HTTPConnection(*server.server_address, timeout=4.0)
+                try:
+                    barrier.wait(timeout=2)
+                    body = json.dumps(payload).encode("utf-8")
+                    connection.request(
+                        "PUT",
+                        f"/api/project/{self.project_id}/draft",
+                        body=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(body)),
+                        },
+                    )
+                    response = connection.getresponse()
+                    response.read()
+                    statuses.append(response.status)
+                except Exception as exc:  # pragma: no cover - assertion reports the detail
+                    errors.append(repr(exc))
+                finally:
+                    connection.close()
+
+            workers = [threading.Thread(target=send_request, daemon=True) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+            try:
+                self.assertTrue(all(not worker.is_alive() for worker in workers))
+                self.assertEqual(errors, [])
+                self.assertEqual(sorted(statuses), [200, 409])
+                state = VersionContext.load(project).state()
+                self.assertEqual(state.revision, 1)
+                self.assertEqual(state.current_version_id, state.active_head_id)
+                self.assertNotEqual(state.current_version_id, "v1")
+                current = VersionContext.load(project).view_version(state.current_version_id)
+                runtime = current.snapshot[RUNTIME_KEY]
+                self.assertEqual(runtime["phase"], "v1")
+                self.assertEqual(runtime["human_decision"]["actor_type"], "human_researcher")
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=2)
+
+        after = files_snapshot()
+        changed = {
+            path
+            for path in set(before) | set(after)
+            if before.get(path) != after.get(path)
+        }
+        new_versions = {
+            path
+            for path in set(after) - set(before)
+            if path.parts[:3] == (".review-writer", "version_context", "versions")
+        }
+        self.assertEqual(len(new_versions), 1)
+        self.assertTrue(next(iter(new_versions)).name.startswith("dashboard-draft-"))
+        self.assertEqual(
+            changed - new_versions,
+            {
+                Path("04_manuscript/section_drafts.jsonl"),
+                Path("04_manuscript/manuscript.md"),
+                Path("04_manuscript/manuscript_lineage.v2.json"),
+                Path(".review-writer/version_context/current.json"),
+                Path(".review-writer/version_context/branches/main.json"),
+            },
+        )
+
+    def test_extra_draft_action_bytes_are_rejected_without_any_write(self) -> None:
+        review_root, project, draft, payload = self._real_http_project()
+        before = {
+            path: self._fingerprint(path)
+            for path in project.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        payload["unexpected"] = "reject-me"
+        with self.assertRaises(ValueError) as error:
+            dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
+        self.assertEqual(str(error.exception), "new-route draft payload is invalid")
+        self.assertEqual(
+            {
+                path: self._fingerprint(path)
+                for path in project.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            },
+            before,
+        )
+
     def _assert_marker_rejection_is_zero_write(self, invalid_body: str, error_code: str) -> None:
         review_root, project, draft, _ = self._project()
         before, tracked = self._tracked_manuscript_state(project)
@@ -682,8 +1028,8 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
 
         with (
             patch.object(dashboard, "build_manuscript_workspace", return_value={"sections": [draft]}),
-            patch.object(dashboard, "approve_section", side_effect=reject_after_mutation) as approve,
-            patch.object(dashboard, "merge_authoritative_manuscript") as merge,
+            patch.object(manuscript_v2, "_approve_section_locked", side_effect=reject_after_mutation) as approve,
+            patch.object(manuscript_v2, "_merge_approved_sections_locked") as merge,
         ):
             with self.assertRaises(ValueError) as error:
                 dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
@@ -911,8 +1257,8 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
 
         with (
             patch.object(dashboard, "build_manuscript_workspace", side_effect=[{"sections": [legacy]}, {"sections": [approved]}]),
-            patch.object(dashboard, "approve_section", side_effect=approve),
-            patch.object(dashboard, "merge_authoritative_manuscript", side_effect=merge),
+            patch.object(manuscript_v2, "_approve_section_locked", side_effect=approve),
+            patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
         ):
             dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
 
@@ -942,25 +1288,20 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
         self.assertEqual(continuation["candidate"]["version"], "v2")
 
         mismatch_root, mismatch_project, _, _ = self._project(candidate_digest="f" * 64)
-        before = {
-            path: path.read_bytes()
-            for path in (
-                mismatch_project / "04_manuscript/section_drafts.jsonl",
-                mismatch_project / "04_manuscript/manuscript.md",
-                mismatch_project / "04_manuscript/manuscript_lineage.v2.json",
-                mismatch_project / ".review-writer/version_context/current.json",
-            )
-        }
+        before, tracked = self._tracked_manuscript_state(mismatch_project)
         with (
             patch.object(dashboard, "build_manuscript_workspace", return_value={"sections": [legacy]}),
-            patch.object(dashboard, "approve_section") as mismatch_approve,
-            patch.object(dashboard, "merge_authoritative_manuscript") as mismatch_merge,
+            patch.object(manuscript_v2, "_approve_section_locked") as mismatch_approve,
+            patch.object(manuscript_v2, "_merge_approved_sections_locked") as mismatch_merge,
         ):
             with self.assertRaises(dashboard.WorkspaceStaleError):
                 dashboard._write_new_route_draft_section(mismatch_root, self.project_id, payload)
         mismatch_approve.assert_not_called()
         mismatch_merge.assert_not_called()
-        self.assertEqual({path: path.read_bytes() for path in before}, before)
+        self.assertEqual(
+            {path: self._fingerprint(path) for path in tracked},
+            before,
+        )
 
     def test_new_route_approval_publishes_the_same_generator_session_before_v2_continue(self) -> None:
         review_root, project, draft, approved = self._project()
@@ -987,8 +1328,8 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
                 "build_manuscript_workspace",
                 side_effect=[{"sections": [draft]}, {"sections": [approved], "status": "approved"}],
             ),
-            patch.object(dashboard, "approve_section", side_effect=approve),
-            patch.object(dashboard, "merge_authoritative_manuscript", side_effect=merge),
+            patch.object(manuscript_v2, "_approve_section_locked", side_effect=approve),
+            patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
         ):
             dashboard._write_new_route_draft_section(review_root, self.project_id, self._payload(draft))
 
@@ -1058,8 +1399,8 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
                 "build_manuscript_workspace",
                 return_value={"sections": [draft]},
             ),
-            patch.object(dashboard, "approve_section", side_effect=approve),
-            patch.object(dashboard, "merge_authoritative_manuscript", side_effect=merge),
+            patch.object(manuscript_v2, "_approve_section_locked", side_effect=approve),
+            patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
             patch.object(
                 VersionContext,
                 "publish_active_head",
@@ -1091,8 +1432,8 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
                 "build_manuscript_workspace",
                 return_value={"sections": [draft]},
             ),
-            patch.object(dashboard, "approve_section") as approve,
-            patch.object(dashboard, "merge_authoritative_manuscript") as merge,
+            patch.object(manuscript_v2, "_approve_section_locked") as approve,
+            patch.object(manuscript_v2, "_merge_approved_sections_locked") as merge,
         ):
             with self.assertRaises(dashboard.WorkspaceStaleError):
                 dashboard._write_new_route_draft_section(review_root, self.project_id, self._payload(draft))
