@@ -68,7 +68,7 @@ function flush() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-async function loadSynthesisWorkspace() {
+async function loadSynthesisWorkspace({synthesisDecision = null} = {}) {
   const root = new FakeElement("div");
   const projectSelect = new FakeElement("select");
   projectSelect.value = "automated-qa-project";
@@ -106,6 +106,7 @@ async function loadSynthesisWorkspace() {
       uncertainty: "Chemical GAP",
       risk_class: "GAP",
       version_token: "synthesis-token-1",
+      ...(synthesisDecision ? {decision: synthesisDecision} : {}),
     }],
     coverage: {status: "approved", axes: []},
   };
@@ -236,4 +237,40 @@ test("Synthesis decisions use inline reasons and never require a browser prompt"
   assert.equal(rejected.requests.length, 1);
   assert.equal(rejected.requests[0].url, "/api/project/automated-qa-project/synthesis");
   assert.equal(rejected.requests[0].body.action, "reject");
+});
+
+test("Rejected synthesis claims remain reviewable with the current version token", async () => {
+  const workspace = await loadSynthesisWorkspace({
+    synthesisDecision: {
+      action: "reject",
+      reason: "Automated QA rejected the earlier review.",
+      actor_type: "simulated_researcher_agent",
+      actor_label: "automated-qa",
+    },
+  });
+  const reason = one(
+    workspace.root,
+    node => node.name === "synthesis-decision-reason",
+    "reopened synthesis decision reason",
+  );
+  assert.equal(reason.value, "Automated QA rejected the earlier review.");
+  const approve = one(
+    workspace.root,
+    node => node.name === "synthesis-approve",
+    "reopened synthesis approve button",
+  );
+  reason.value = "Automated QA approves the bounded, non-chemical case report.";
+  approve.click();
+  await flush();
+  assert.deepEqual(workspace.requests, [{
+    url: "/api/project/automated-qa-project/synthesis",
+    body: {
+      synthesis_id: "synthesis-1",
+      action: "approve",
+      reason: "Automated QA approves the bounded, non-chemical case report.",
+      version_token: "synthesis-token-1",
+      actor_type: "simulated_researcher_agent",
+      actor_label: "automated-qa",
+    },
+  }]);
 });

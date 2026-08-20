@@ -49,10 +49,11 @@
   }
   function appendDecisionControls(parent, kind, item, enabled, disabledTitle) {
     const controls = document.createElement("div"); controls.className = "workspace-decision-controls";
-    const labelNode = document.createElement("label"); labelNode.textContent = "核对理由 ";
+    const labelNode = document.createElement("label"); labelNode.textContent = item.decision ? "重新审查理由 " : "核对理由 ";
     const reason = document.createElement("textarea");
     reason.name = `${kind}-decision-reason`; reason.required = true; reason.setAttribute("aria-label", "核对理由");
     reason.setAttribute("rows", "3"); reason.setAttribute("maxlength", "2000");
+    reason.value = item.decision?.reason || "";
     labelNode.append(reason);
     const message = text("p", "", "workspace-error"); message.role = "status";
     const approve = document.createElement("button"); approve.type = "button"; approve.name = `${kind}-approve`; approve.textContent = "批准";
@@ -163,7 +164,7 @@
       card.append(text("p", `支持证据：${(item.supporting_evidence_ids || []).length} 条；反证：${(item.counter_evidence_ids || []).length} 条`));
       card.append(text("p", `不确定性：${item.uncertainty}；科学风险：${item.risk_class ? "已标记" : "未提供"}`, "evidence-meta"));
       if (item.decision) card.append(text("p", decisionLine(item.decision), "decision-line"));
-      if (!item.decision) appendDecisionControls(card, "synthesis", item, synthesis.protocol_ready, "先批准 Comparison Protocol");
+      if (!item.decision || item.decision.action === "reject") appendDecisionControls(card, "synthesis", item, synthesis.protocol_ready, "先批准 Comparison Protocol");
       claimPanel.append(card);
     });
     const contractPanel = section("Section Contracts");
