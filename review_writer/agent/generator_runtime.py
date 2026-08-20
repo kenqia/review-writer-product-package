@@ -51,7 +51,6 @@ _PDF_ONLY_SYNTHESIS_NOT_APPLICABLE = frozenset(
         "AGENT_TRACE_INVALID",
         "PAPER_EVIDENCE_NOT_APPROVED",
         "PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID",
-        "PDF_ONLY_SINGLE_STUDY_REQUIRED",
     }
 )
 
@@ -431,7 +430,7 @@ class GeneratorSession:
                 try:
                     return prepare_pdf_only_synthesis_workspace(self.root)
                 except LocalPdfParseError as synthesis_exc:
-                    # Only a current, traced, single-study PDF-only project
+                    # Only a current, traced, source-bound PDF-only project
                     # may enter the bounded candidate producer. Otherwise the
                     # original draft gate remains the public error contract.
                     if synthesis_exc.code in _PDF_ONLY_SYNTHESIS_NOT_APPLICABLE:

@@ -1026,6 +1026,16 @@ def _approved_pdf_only_evidence_rows(evidence_state: object) -> tuple[str, list[
             or row.get("field_dependencies") != []
         ):
             raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
+    evidence_ids = [row["evidence_id"] for row in approved]
+    if len(evidence_ids) != len(set(evidence_ids)):
+        raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
+    source_studies: dict[str, set[str]] = {}
+    for row in approved:
+        source_id = row.get("source_id")
+        if isinstance(source_id, str) and source_id.strip():
+            source_studies.setdefault(source_id, set()).add(row["study_id"])
+    if any(len(studies) > 1 for studies in source_studies.values()):
+        raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
     return digest, approved
 
 
@@ -1038,101 +1048,205 @@ def build_pdf_only_synthesis_plan(evidence_state: object) -> dict[str, dict[str,
     """
 
     evidence_digest, rows = _approved_pdf_only_evidence_rows(evidence_state)
-    study_ids = {str(row["study_id"]) for row in rows}
-    if len(study_ids) != 1:
-        raise LocalPdfParseError("PDF_ONLY_SINGLE_STUDY_REQUIRED")
+    study_ids = sorted({str(row["study_id"]) for row in rows})
+    multi_study = len(study_ids) > 1
     evidence_ids = sorted(str(row["evidence_id"]) for row in rows)
     plan_id = canonical_digest(
         {
             "paper_evidence_projection_digest": evidence_digest,
             "evidence_ids": evidence_ids,
-            "mode": "pdf_only_single_study",
+            "mode": "pdf_only_multi_study" if multi_study else "pdf_only_single_study",
         }
     )[:16]
-    comparison_id = f"pdf-only-case-{plan_id}"
-    claim_id = f"pdf-only-case-claim-{plan_id}"
-    section_id = f"pdf-only-case-section-{plan_id}"
+    comparison_id = f"pdf-only-multi-{plan_id}" if multi_study else f"pdf-only-case-{plan_id}"
+    claim_id = f"pdf-only-multi-claim-{plan_id}" if multi_study else f"pdf-only-case-claim-{plan_id}"
+    section_id = f"pdf-only-multi-section-{plan_id}" if multi_study else f"pdf-only-case-section-{plan_id}"
     chemical_gap = (
         "Chemical GAP: no verified Chemical Paper binding is available; "
         "SMILES, molecule, molblock, reaction-structure, and related chemical "
         "claims remain unsupported."
     )
-    single_study_limit = (
-        "Single-study case report only: no cross-study comparison, generalization, "
-        "or extrapolation is permitted."
-    )
-    protocol = {
-        "comparison_id": comparison_id,
-        "comparison_objects": evidence_ids,
-        "axes": ["source-reported observation", "study-level limitations"],
-        "normalization_rules": [
-            "Retain source-bound wording and original PDF locators.",
-            "Do not infer or normalize unavailable chemical fields.",
-        ],
-        "missing_value_policy": "Missing values remain unknown and are not imputed.",
-        "incomparability_rules": [single_study_limit, chemical_gap],
-        "counterevidence_rules": [
-            "Record absent counterevidence and unresolved limitations explicitly."
-        ],
-        "claim_strength": "single-study case report; bounded source-reported wording only",
-        "paper_evidence_projection_digest": evidence_digest,
-    }
-    coverage = {
-        "comparison_id": comparison_id,
-        "corpus_kind": "calibration_corpus",
-        "axes": [
+    if multi_study:
+        multi_study_limit = (
+            "Multi-study source-bound comparison only: retain each observation's "
+            "study/source boundary; no unsupported generalization or extrapolation is permitted."
+        )
+        rows_by_study = {
+            study_id: sorted(
+                (row for row in rows if row["study_id"] == study_id),
+                key=lambda row: row["evidence_id"],
+            )
+            for study_id in study_ids
+        }
+        study_gap_disclosures = []
+        for study_id in study_ids:
+            details = []
+            for row in rows_by_study[study_id]:
+                limitations = row.get("limitations", [])
+                risks = row.get("risk_classes", [])
+                if isinstance(limitations, list):
+                    details.extend(str(item) for item in limitations if isinstance(item, str) and item.strip())
+                if isinstance(risks, list):
+                    details.extend(f"risk={item}" for item in risks if isinstance(item, str) and item.strip())
+            study_gap_disclosures.append(
+                f"{study_id}: " + "; ".join(sorted(set(details)))
+                if details
+                else f"{study_id}: retain study-specific limitations and unresolved GAPs."
+            )
+        protocol = {
+            "comparison_id": comparison_id,
+            "comparison_objects": evidence_ids,
+            "axes": [
+                "study-specific source-reported observation",
+                "cross-study comparability and limitations",
+            ],
+            "normalization_rules": [
+                "Retain each study/source boundary and original PDF locators.",
+                "Compare only explicitly shared conditions; preserve NOT_COMPARABLE or GAP otherwise.",
+                "Do not infer or normalize unavailable chemical fields.",
+            ],
+            "missing_value_policy": "Missing values remain unknown and are not imputed.",
+            "incomparability_rules": [
+                multi_study_limit,
+                "Mismatched conditions, units, or endpoints remain NOT_COMPARABLE or GAP.",
+                chemical_gap,
+            ],
+            "counterevidence_rules": [
+                "Record absent counterevidence and unresolved per-study limitations explicitly."
+            ],
+            "claim_strength": "multi-study source-bound comparison candidate; bounded wording only",
+            "paper_evidence_projection_digest": evidence_digest,
+        }
+        coverage_axes = [
             {
-                "axis_id": "source-reported-observation",
-                "question": "What does the approved source-bound Evidence report?",
-                "evidence_ids": evidence_ids,
+                "axis_id": f"study-{study_id}-source-reported-observation",
+                "question": f"What does the approved source-bound Evidence report for {study_id}?",
+                "study_id": study_id,
+                "evidence_ids": [row["evidence_id"] for row in rows_by_study[study_id]],
                 "counterevidence_ids": [],
-                "incomparable_items": ["No independent study is available for comparison."],
-                "missing_units": ["Cross-study comparator", "chemical structure fields"],
-                "impact_on_conclusion": "Only a bounded case report may be drafted.",
-            },
-            {
-                "axis_id": "study-level-limitations",
-                "question": "Which limits prevent broader interpretation?",
-                "evidence_ids": evidence_ids,
-                "counterevidence_ids": [],
-                "incomparable_items": ["Single-study corpus."],
-                "missing_units": ["Chemical Paper binding", "independent replication"],
-                "impact_on_conclusion": "Chemical and comparative conclusions remain unsupported.",
-            },
-        ],
-        "known_omissions": [single_study_limit, chemical_gap],
-    }
-    claim = {
-        "synthesis_id": claim_id,
-        "proposition": "The approved Evidence supports one bounded, source-reported case report.",
-        "comparison_axis": "source-reported observation",
-        "supporting_evidence_ids": evidence_ids,
-        "counter_evidence_ids": [],
-        "applicability_boundary": single_study_limit,
-        "mechanism_evidence_grade": "not_applicable",
-        "uncertainty": f"{single_study_limit} {chemical_gap}",
-        "risk_class": "GAP",
-        "single_study": True,
-        "paper_evidence_projection_digest": evidence_digest,
-    }
-    contract = {
-        "section_id": section_id,
-        "research_question": "What does the approved Evidence report in this single study?",
-        "comparison_axes": ["source-reported observation", "study-level limitations"],
-        "expected_synthesis": "Present one bounded case report and state its limitations without extrapolation.",
-        "counterevidence_and_limitations": [single_study_limit, chemical_gap],
-        "evidence_budget": len(evidence_ids),
-        "synthesis_budget": 1,
-        "figure_plan": [
-            {
-                "kind": "source_locator_table",
-                "purpose": "List source PDF pages and Evidence locators without any chemical structure depiction.",
-                "source_figure_ids": [],
-                "placeholder_ids": [],
+                "incomparable_items": ["Cross-study conditions remain unverified unless explicitly reported."],
+                "missing_units": ["Chemical Paper binding", "chemical structure fields"],
+                "impact_on_conclusion": "Retain a study-specific source-bound observation and disclose its GAPs.",
             }
-        ],
-        "allowed_wording_strength": "bounded single-study case report",
-    }
+            for study_id in study_ids
+        ]
+        coverage = {
+            "comparison_id": comparison_id,
+            "corpus_kind": "calibration_corpus",
+            "axes": coverage_axes,
+            "known_omissions": [multi_study_limit, chemical_gap, *study_gap_disclosures],
+        }
+        claim = {
+            "synthesis_id": claim_id,
+            "proposition": "The approved Evidence supports a bounded comparison of source-reported observations across the authorized studies.",
+            "comparison_axis": "study-specific source-reported observation",
+            "supporting_evidence_ids": evidence_ids,
+            "counter_evidence_ids": [],
+            "applicability_boundary": multi_study_limit,
+            "mechanism_evidence_grade": "not_applicable",
+            "uncertainty": f"{multi_study_limit} {chemical_gap}",
+            "risk_class": "GAP",
+            "single_study": False,
+            "paper_evidence_projection_digest": evidence_digest,
+        }
+        contract = {
+            "section_id": section_id,
+            "research_question": "What do the approved Evidence rows report across the authorized studies?",
+            "comparison_axes": [
+                "study-specific source-reported observation",
+                "cross-study comparability and limitations",
+            ],
+            "expected_synthesis": "Present study-specific source-bound observations, state explicit comparability limits, and preserve every GAP without extrapolation.",
+            "counterevidence_and_limitations": [multi_study_limit, chemical_gap, *study_gap_disclosures],
+            "evidence_budget": len(evidence_ids),
+            "synthesis_budget": 1,
+            "figure_plan": [
+                {
+                    "kind": "source_locator_table",
+                    "purpose": "List each study's source PDF pages and Evidence locators without any chemical structure depiction.",
+                    "source_figure_ids": [],
+                    "placeholder_ids": [],
+                }
+            ],
+            "allowed_wording_strength": "bounded multi-study source-bound comparison",
+        }
+    else:
+        single_study_limit = (
+            "Single-study case report only: no cross-study comparison, generalization, "
+            "or extrapolation is permitted."
+        )
+        protocol = {
+            "comparison_id": comparison_id,
+            "comparison_objects": evidence_ids,
+            "axes": ["source-reported observation", "study-level limitations"],
+            "normalization_rules": [
+                "Retain source-bound wording and original PDF locators.",
+                "Do not infer or normalize unavailable chemical fields.",
+            ],
+            "missing_value_policy": "Missing values remain unknown and are not imputed.",
+            "incomparability_rules": [single_study_limit, chemical_gap],
+            "counterevidence_rules": [
+                "Record absent counterevidence and unresolved limitations explicitly."
+            ],
+            "claim_strength": "single-study case report; bounded source-reported wording only",
+            "paper_evidence_projection_digest": evidence_digest,
+        }
+        coverage = {
+            "comparison_id": comparison_id,
+            "corpus_kind": "calibration_corpus",
+            "axes": [
+                {
+                    "axis_id": "source-reported-observation",
+                    "question": "What does the approved source-bound Evidence report?",
+                    "evidence_ids": evidence_ids,
+                    "counterevidence_ids": [],
+                    "incomparable_items": ["No independent study is available for comparison."],
+                    "missing_units": ["Cross-study comparator", "chemical structure fields"],
+                    "impact_on_conclusion": "Only a bounded case report may be drafted.",
+                },
+                {
+                    "axis_id": "study-level-limitations",
+                    "question": "Which limits prevent broader interpretation?",
+                    "evidence_ids": evidence_ids,
+                    "counterevidence_ids": [],
+                    "incomparable_items": ["Single-study corpus."],
+                    "missing_units": ["Chemical Paper binding", "independent replication"],
+                    "impact_on_conclusion": "Chemical and comparative conclusions remain unsupported.",
+                },
+            ],
+            "known_omissions": [single_study_limit, chemical_gap],
+        }
+        claim = {
+            "synthesis_id": claim_id,
+            "proposition": "The approved Evidence supports one bounded, source-reported case report.",
+            "comparison_axis": "source-reported observation",
+            "supporting_evidence_ids": evidence_ids,
+            "counter_evidence_ids": [],
+            "applicability_boundary": single_study_limit,
+            "mechanism_evidence_grade": "not_applicable",
+            "uncertainty": f"{single_study_limit} {chemical_gap}",
+            "risk_class": "GAP",
+            "single_study": True,
+            "paper_evidence_projection_digest": evidence_digest,
+        }
+        contract = {
+            "section_id": section_id,
+            "research_question": "What does the approved Evidence report in this single study?",
+            "comparison_axes": ["source-reported observation", "study-level limitations"],
+            "expected_synthesis": "Present one bounded case report and state its limitations without extrapolation.",
+            "counterevidence_and_limitations": [single_study_limit, chemical_gap],
+            "evidence_budget": len(evidence_ids),
+            "synthesis_budget": 1,
+            "figure_plan": [
+                {
+                    "kind": "source_locator_table",
+                    "purpose": "List source PDF pages and Evidence locators without any chemical structure depiction.",
+                    "source_figure_ids": [],
+                    "placeholder_ids": [],
+                }
+            ],
+            "allowed_wording_strength": "bounded single-study case report",
+        }
     return {
         "comparison_protocol": protocol,
         "coverage_map": coverage,
@@ -1152,14 +1266,15 @@ def build_pdf_only_v1_request(
 
     This is deliberately a request producer, not another draft authority.  The
     existing ``GeneratorSession`` and ``register_section_draft`` remain the
-    only writer for v1.  The bounded wording prevents a single PDF-only study
-    from becoming a chemical or comparative conclusion.
+    only writer for v1.  The bounded wording prevents a PDF-only source set
+    from becoming an unsupported chemical or comparative conclusion.
     """
 
     session = _identifier(session_id, "SESSION_ID_INVALID")
     plan = build_pdf_only_synthesis_plan(evidence_state)
     evidence_digest, evidence_rows = _approved_pdf_only_evidence_rows(evidence_state)
     evidence_ids = sorted(str(row["evidence_id"]) for row in evidence_rows)
+    multi_study = len({str(row["study_id"]) for row in evidence_rows}) > 1
     if not isinstance(synthesis, dict) or synthesis.get("workflow_can_continue") is not True:
         raise LocalPdfParseError("SYNTHESIS_NOT_APPROVED")
     synthesis_rows = synthesis.get("rows")
@@ -1180,7 +1295,7 @@ def build_pdf_only_v1_request(
     if (
         approved_claim is None
         or approved_claim.get("supporting_evidence_ids") != evidence_ids
-        or approved_claim.get("single_study") is not True
+        or approved_claim.get("single_study") is not (not multi_study)
         or approved_claim.get("risk_class") != "GAP"
         or approved_claim.get("paper_evidence_projection_digest") != evidence_digest
     ):
@@ -1196,11 +1311,6 @@ def build_pdf_only_v1_request(
     if len(sections) != 1:
         raise LocalPdfParseError("SECTION_CONTRACT_NOT_APPROVED")
 
-    evidence_id = evidence_ids[0]
-    statement = evidence_rows[0].get("statement")
-    if not isinstance(statement, str) or not statement.strip():
-        raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
-    normalized_statement = " ".join(statement.split())
     forbidden_fields = (
         "smiles",
         "molecule",
@@ -1209,33 +1319,63 @@ def build_pdf_only_v1_request(
         "reaction-structure",
         "main_layout",
     )
-    if any(field in normalized_statement.casefold() for field in forbidden_fields):
-        evidence_sentence = (
-            "The approved source-bound Evidence is retained without reproducing "
-            "unsupported chemical-field content."
-        )
-    else:
-        evidence_sentence = f"The approved source-bound Evidence reports: {normalized_statement}"
+    evidence_sentences = []
+    for row in evidence_rows:
+        statement = row.get("statement")
+        if not isinstance(statement, str) or not statement.strip():
+            raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
+        evidence_id = str(row["evidence_id"])
+        normalized_statement = " ".join(statement.split())
+        if any(field in normalized_statement.casefold() for field in forbidden_fields):
+            evidence_sentence = (
+                (
+                    f"The approved source-bound Evidence for study {row['study_id']} is retained "
+                    "without reproducing unsupported chemical-field content."
+                )
+                if multi_study
+                else "The approved source-bound Evidence is retained without reproducing "
+                "unsupported chemical-field content."
+            )
+        elif multi_study:
+            evidence_sentence = (
+                f"The approved source-bound Evidence for study {row['study_id']} reports: "
+                f"{normalized_statement}"
+            )
+        else:
+            evidence_sentence = f"The approved source-bound Evidence reports: {normalized_statement}"
+        evidence_sentences.append(f"{evidence_sentence} [evidence:{evidence_id}]")
+    scope_sentence = (
+        "Multi-study source-bound comparison only: each observation remains bound to its "
+        "study/source; mismatched conditions remain NOT_COMPARABLE or GAP, with no "
+        "unsupported generalization or extrapolation."
+        if multi_study
+        else "Single-study case report only: the approved synthesis permits no "
+        "cross-study comparison, generalization, or extrapolation."
+    )
+    heading = "Source-Bound Multi-Study Synthesis" if multi_study else "Source-Bound Single-Study Case Report"
+    v2_addition = (
+        "This addition retains the multi-study source/study boundaries and all "
+        "comparability and Chemical GAP limitations; no broader claim is added. "
+        f"[synthesis:{synthesis_id}]"
+        if multi_study
+        else "This addition retains the single-study and Chemical GAP limitations; "
+        f"no broader claim is added. [synthesis:{synthesis_id}]"
+    )
     body = "\n\n".join(
         (
-            f"{evidence_sentence} [evidence:{evidence_id}]",
-            "Single-study case report only: the approved synthesis permits no "
-            "cross-study comparison, generalization, or extrapolation. "
-            f"[synthesis:{synthesis_id}]",
+            *evidence_sentences,
+            f"{scope_sentence} [synthesis:{synthesis_id}]",
             "Chemical GAP: no verified Chemical Paper binding is available; "
             "chemical-field-dependent claims remain unsupported. "
-            f"[evidence:{evidence_id}]",
+            f"[evidence:{evidence_ids[0]}]",
         )
     )
     return {
         "session_id": session,
         "section_id": str(section_id),
-        "heading": "Source-Bound Single-Study Case Report",
+        "heading": heading,
         "body": body,
-        "v2_addition": (
-            "This addition retains the single-study and Chemical GAP limitations; "
-            f"no broader claim is added. [synthesis:{synthesis_id}]"
-        ),
+        "v2_addition": v2_addition,
     }
 
 
