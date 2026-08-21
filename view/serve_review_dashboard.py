@@ -20,6 +20,7 @@ import threading
 import unicodedata
 import uuid
 import zipfile
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -126,6 +127,7 @@ from review_writer.project.review_figures import (  # noqa: E402
     current_manuscript_target_projection,
     current_source_figure_asset_sha256,
     load_source_figure_registry,
+    materialize_source_figure_registry,
     source_figure_target_binding_status,
     source_figure_target_options,
     source_figure_workspace_revision,
@@ -6698,6 +6700,38 @@ def _agent_figure_candidate_projection(project: Path) -> dict[str, Any] | None:
     return copy.deepcopy(candidates)
 
 
+def _agent_figure_candidate_binding(
+    project: Path, candidates: Mapping[str, Any]
+) -> tuple[VersionContext, Any, Any, dict[str, Any]] | None:
+    """Bind candidate-only figures to the immutable current VersionContext."""
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+        digest = canonical_digest(candidates)
+        version_id = current.version_id
+        revision = state.revision
+        snapshot_digest = current.snapshot_digest
+    except (OSError, ProductFoundationError, TypeError, ValueError, AttributeError):
+        return None
+    if (
+        not isinstance(version_id, str)
+        or not version_id
+        or type(revision) is not int
+        or revision < 0
+        or not isinstance(snapshot_digest, str)
+        or not snapshot_digest
+    ):
+        return None
+    binding = {
+        "candidate_set_digest": digest,
+        "version_id": version_id,
+        "revision": revision,
+        "snapshot_digest": snapshot_digest,
+    }
+    return context, state, current, binding
+
+
 def project_review_figures_workspace_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id); workflow = workflow_state(project)
     if workflow.get("route") != "evidence-to-release.v1":
@@ -6709,11 +6743,13 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
     registry_path = project / "03_figures/source_figure_registry.json"
     registry_status = "current"
     candidate_only = False
-    if not registry_path.is_file():
+    candidate_binding = None
+    if not os.path.lexists(registry_path):
         candidate_projection = _agent_figure_candidate_projection(project)
         if candidate_projection is not None:
             registry_status = "candidate_only"
             candidate_only = True
+            candidate_binding = _agent_figure_candidate_binding(project, candidate_projection)
             registry = {
                 "figures": candidate_projection["figures"],
                 "locator_gaps": candidate_projection["gaps"],
@@ -6809,7 +6845,15 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         if candidate_only:
             item["target_binding_status"] = "not_available"
             item["target_options"] = []
-            item["version_token"] = None
+            item["version_token"] = (
+                _workspace_token(
+                    "review-figures",
+                    str(row.get("figure_id")),
+                    candidate_binding[3],
+                )
+                if candidate_binding is not None
+                else None
+            )
             item["image_url"] = None
         else:
             current_asset_sha256 = None
@@ -6948,6 +6992,157 @@ def _restore_figure_transaction_file(path: Path, previous: bytes | None) -> None
         raise ReviewFigureError("FIGURE_TRANSACTION_ROLLBACK_FAILED") from exc
 
 
+_CANDIDATE_RIGHTS_FIELDS = frozenset(
+    {"rights_status", "license_or_rights_basis", "attribution", "rights_evidence_reference"}
+)
+_CANDIDATE_RIGHTS_KEYS = _CANDIDATE_RIGHTS_FIELDS | {"rights_license"}
+
+
+def _candidate_only_rights_overlay(
+    candidates: dict[str, Any], figure_id: object, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Apply only explicit researcher rights fields to the requested candidate."""
+    supplied = {key: payload[key] for key in _CANDIDATE_RIGHTS_KEYS if key in payload}
+    if not supplied:
+        return candidates
+    if not isinstance(figure_id, str) or not figure_id:
+        raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    rows = candidates.get("figures")
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("figure_id") == figure_id
+    ] if isinstance(rows, list) else []
+    if len(matches) != 1:
+        raise ReviewFigureError("FIGURE_NOT_FOUND")
+    if "rights_license" in supplied:
+        raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    if "rights_status" not in supplied:
+        raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    rights_status = supplied["rights_status"]
+    if rights_status not in {"unknown", "cleared"}:
+        raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    if rights_status == "cleared":
+        required = {"license_or_rights_basis", "attribution", "rights_evidence_reference"}
+        if set(supplied) != {"rights_status", *required}:
+            raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+        if any(
+            not isinstance(supplied[field], str) or not supplied[field].strip()
+            for field in required
+        ):
+            raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    elif set(supplied) != {"rights_status"}:
+        raise ReviewFigureError("FIGURE_RIGHTS_INVALID")
+    projected = copy.deepcopy(candidates)
+    projected_rows = projected["figures"]
+    target = next(row for row in projected_rows if row.get("figure_id") == figure_id)
+    target.update(copy.deepcopy(supplied))
+    return projected
+
+
+def _write_candidate_only_figure_decision(
+    review_root: Path, project_id: str, project: Path, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Materialize one candidate decision and publish its current-version metadata."""
+    actor_type = payload.get("actor_type", "human_researcher")
+    actor_label = payload.get("actor_label", "local-researcher")
+    if actor_type != "human_researcher" or not isinstance(actor_label, str) or not actor_label.strip():
+        raise ReviewFigureError("FIGURE_ACTOR_INVALID")
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+    except (OSError, ProductFoundationError, TypeError, ValueError, AttributeError) as exc:
+        raise WorkspaceStaleError("WORKSPACE_STALE") from exc
+    if (
+        state.project_id != project.name
+        or current.version_id != state.current_version_id
+        or not getattr(current, "is_current", True)
+        or not getattr(current, "is_active_head", True)
+        or not getattr(current, "can_write", True)
+    ):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    snapshot = current.snapshot
+    agent_parse = snapshot.get("agent_parse") if isinstance(snapshot, dict) else None
+    candidates = agent_parse.get("figure_candidates") if isinstance(agent_parse, dict) else None
+    if not isinstance(candidates, dict):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    bound = _agent_figure_candidate_binding(project, candidates)
+    if bound is None:
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    _bound_context, bound_state, bound_current, binding = bound
+    if (
+        bound_state.current_version_id != state.current_version_id
+        or bound_state.revision != state.revision
+        or bound_current.snapshot_digest != current.snapshot_digest
+    ):
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    figure_id = payload.get("figure_id")
+    token = payload.get("version_token", payload.get("token"))
+    expected_token = _workspace_token("review-figures", str(figure_id), binding)
+    if not isinstance(token, str) or token != expected_token:
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+
+    registry_path = project / "03_figures/source_figure_registry.json"
+    previous = _snapshot_figure_transaction_file(registry_path)
+    try:
+        candidates_for_materialization = _candidate_only_rights_overlay(
+            candidates, figure_id, payload
+        )
+        registry = materialize_source_figure_registry(
+            project,
+            candidates_for_materialization,
+            figure_id=figure_id,
+            selection_status=payload.get("selection_status"),
+        )
+        next_snapshot = copy.deepcopy(dict(current.snapshot))
+        target = next(
+            (
+                row
+                for row in registry.get("figures", [])
+                if isinstance(row, dict) and row.get("figure_id") == figure_id
+            ),
+            None,
+        )
+        if not isinstance(target, dict):
+            raise ReviewFigureError("FIGURE_NOT_FOUND")
+        next_snapshot["review_figures"] = {
+            "registry_digest": registry.get("registry_digest"),
+            "candidate_set_digest": binding["candidate_set_digest"],
+            "version_id": binding["version_id"],
+            "revision": binding["revision"],
+            "snapshot_digest": binding["snapshot_digest"],
+            "decision": {
+                "figure_id": figure_id,
+                "selection_status": payload.get("selection_status"),
+                "rights_status": target.get("rights_status", "unknown"),
+                "rights_license": target.get("rights_license"),
+                "rights_evidence_reference": target.get("rights_evidence_reference"),
+                "actor_type": actor_type,
+                "actor_label": actor_label.strip(),
+            },
+        }
+        context.publish_active_head(
+            next_snapshot,
+            expected_head_id=state.active_head_id,
+            expected_revision=state.revision,
+            version_id=f"dashboard-review-figures-{uuid.uuid4().hex}",
+        )
+        return project_review_figures_workspace_payload(review_root, project_id)
+    except Exception as exc:
+        try:
+            _restore_figure_transaction_file(registry_path, previous)
+        except ReviewFigureError as rollback_error:
+            raise rollback_error from exc
+        if isinstance(exc, (ReviewFigureError, WorkspaceStaleError)):
+            raise
+        if isinstance(exc, ProductFoundationError):
+            raise WorkspaceStaleError("WORKSPACE_STALE") from exc
+        code = getattr(exc, "code", None)
+        raise ReviewFigureError(
+            code if isinstance(code, str) and code else "FIGURE_MATERIALIZATION_FAILED"
+        ) from exc
+
+
 def write_project_workspace_decision(review_root: Path, project_id: str, kind: str, payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict): raise ValueError("invalid workspace payload")
     project = project_dir(review_root, project_id)
@@ -6995,6 +7190,12 @@ def write_project_workspace_decision(review_root: Path, project_id: str, kind: s
         apply_section_contract_decision(project, {"section_id": sid, "action": payload.get("action"), "reason": payload.get("reason"), "actor_type": payload.get("actor_type", "human_researcher"), "actor_label": payload.get("actor_label", "local-researcher")})
         return project_section_contracts_payload(review_root, project_id)
     if kind == "review-figures":
+        if not os.path.lexists(project / "03_figures/source_figure_registry.json"):
+            with SOURCE_TRANSACTION_LOCK:
+                with project_write_lock(project):
+                    return _write_candidate_only_figure_decision(
+                        review_root, project_id, project, payload
+                    )
         manuscript_path = project / "04_manuscript/manuscript.md"
         lineage_path = project / "04_manuscript/manuscript_lineage.v2.json"
         registry_path = project / "03_figures/source_figure_registry.json"
@@ -7016,7 +7217,7 @@ def write_project_workspace_decision(review_root: Path, project_id: str, kind: s
             kwargs["target_binding"] = payload.get("target_binding")
         try:
             with SOURCE_TRANSACTION_LOCK:
-                write_source_figure_selection(project, **kwargs)
+                selection_result = write_source_figure_selection(project, **kwargs)
                 if refresh_lineage:
                     merge_authoritative_manuscript(project)
                 result = project_review_figures_workspace_payload(review_root, project_id)
@@ -7032,7 +7233,7 @@ def write_project_workspace_decision(review_root: Path, project_id: str, kind: s
             raise ReviewFigureError(
                 code if isinstance(code, str) and code else "FIGURE_LINEAGE_REFRESH_FAILED"
             ) from exc
-        return result
+        return result if result else selection_result
     raise ValueError("unknown workspace")
 
 

@@ -1127,6 +1127,123 @@ def project_source_figure_candidates(
     }
 
 
+def materialize_source_figure_registry(
+    project: Path,
+    candidate_set: object,
+    *,
+    figure_id: object,
+    selection_status: object,
+) -> dict[str, Any]:
+    """Materialize one human figure decision from the current Agent candidates."""
+    root = _safe_project(project)
+    if (
+        not isinstance(candidate_set, Mapping)
+        or candidate_set.get("schema_version") != "review-writer.agent-figure-candidates.v1"
+        or candidate_set.get("project_id") != root.name
+        or not isinstance(candidate_set.get("figures"), list)
+        or not isinstance(candidate_set.get("gaps"), list)
+        or not isinstance(figure_id, str)
+        or not figure_id
+        or selection_status not in {"selected", "available", "rejected"}
+    ):
+        _fail("FIGURE_CANDIDATES_INVALID")
+    rows = candidate_set["figures"]
+    matches = [row for row in rows if isinstance(row, Mapping) and row.get("figure_id") == figure_id]
+    if len(matches) != 1:
+        _fail("FIGURE_NOT_FOUND")
+
+    from review_writer.delivery.figure_policy import FigurePolicyError, candidate_figure_release_gate
+
+    normalized_rows: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for raw in rows:
+        if not isinstance(raw, Mapping):
+            _fail("FIGURE_CANDIDATE_INVALID")
+        candidate = copy.deepcopy(dict(raw))
+        candidate_id = candidate.get("figure_id")
+        if not isinstance(candidate_id, str) or not candidate_id or candidate_id in seen_ids:
+            _fail("FIGURE_CANDIDATE_INVALID")
+        seen_ids.add(candidate_id)
+        try:
+            rights = candidate_figure_release_gate(candidate)
+        except FigurePolicyError as exc:
+            raise ReviewFigureError(exc.code) from exc
+        rights_status = candidate.get("rights_status", "unknown")
+        target_status = selection_status if candidate_id == figure_id else "available"
+        if target_status == "selected" and rights_status != "cleared":
+            _fail("FIGURE_RIGHTS_NOT_CLEARED")
+        candidate.update(rights)
+        allowed = {
+            "figure_id",
+            "study_id",
+            "source_id",
+            "page",
+            "figure_label",
+            "caption",
+            "asset_path",
+            "asset_sha256",
+            "source_pdf_sha256",
+            "chemical_paper_import_digest",
+            "evidence_ids",
+            "fragments",
+            "selection_reason",
+            "rights_status",
+            "rights_license",
+            "rights_evidence_reference",
+        }
+        normalized = {key: copy.deepcopy(candidate[key]) for key in allowed if key in candidate}
+        normalized["rights_status"] = rights_status
+        normalized["selection_status"] = target_status
+        try:
+            _validate(normalized, SOURCE_FIGURE_SCHEMA, "FIGURE_CANDIDATE_INVALID")
+            asset = _safe_asset(root, str(normalized["asset_path"]))
+            if _sha256(asset) != normalized["asset_sha256"]:
+                _fail("FIGURE_ASSET_HASH_MISMATCH")
+            for fragment in normalized["fragments"]:
+                fragment_asset = _safe_asset(root, str(fragment["asset_path"]))
+                if _sha256(fragment_asset) != fragment["asset_sha256"]:
+                    _fail("FIGURE_ASSET_HASH_MISMATCH")
+        except KeyError as exc:
+            raise ReviewFigureError("FIGURE_CANDIDATE_INVALID") from exc
+        normalized_rows.append(normalized)
+
+    source_truth_digest = _source_truth_digest(root)
+    content_list_v2_digest = _content_list_v2_digest(root)
+    chemical_digest, _ = _chemical_paper_bindings(root)
+    selected_count = sum(row["selection_status"] == "selected" for row in normalized_rows)
+    minimum, maximum = 5, 8
+    required_count = max(minimum - selected_count, 0)
+    registry = {
+        "schema_version": "review-writer-source-figure-registry.v1",
+        "project_id": root.name,
+        "figure_policy": FIGURE_POLICY,
+        "figures": normalized_rows,
+        "selected_count": selected_count,
+        "available_count": len(normalized_rows),
+        "required_count": required_count,
+        "target_figure_slots": {"minimum": minimum, "maximum": maximum},
+        "source_truth_digest": source_truth_digest,
+        "content_list_v2_digest": content_list_v2_digest,
+        "chemical_paper_project_binding_digest": chemical_digest,
+        "locator_gaps": copy.deepcopy(candidate_set["gaps"]),
+        "figure_budget": {
+            "status": "needs_human_selection" if selected_count < minimum else "within_target",
+            "selected_count": selected_count,
+            "required_count": required_count,
+            "minimum": minimum,
+            "maximum": maximum,
+            "gaps": (
+                [f"Select {required_count} additional non-duplicative source figure(s) or register a synthesis placeholder."]
+                if selected_count < minimum
+                else []
+            ),
+        },
+    }
+    registry["registry_digest"] = source_figure_registry_digest(registry)
+    _atomic_json(root, REGISTRY_PATH, registry)
+    return load_source_figure_registry(root)
+
+
 def build_source_figure_registry(project: Path) -> dict[str, Any]:
     """Rebuild source-figure entries from current Source Truth bytes."""
     root = _safe_project(project)
