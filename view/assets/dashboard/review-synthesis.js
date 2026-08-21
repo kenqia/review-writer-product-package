@@ -74,6 +74,72 @@
     parent.append(controls);
   }
   function targetOptionValue(option) { return `${option.marker}\u0000${option.occurrence}`; }
+  function appendFigureRightsControls(parent, item) {
+    if (!item.candidate_only) return null;
+    const panel = document.createElement("div"); panel.className = "figure-rights-controls";
+    panel.append(text("strong", "复用权利核对"));
+    const statusLabel = document.createElement("label"); statusLabel.textContent = "rights_status ";
+    const status = document.createElement("select"); status.name = "figure-rights-status"; status.setAttribute("aria-label", "rights_status");
+    const unknown = document.createElement("option"); unknown.value = "unknown"; unknown.textContent = "unknown · 尚未确认";
+    const cleared = document.createElement("option"); cleared.value = "cleared"; cleared.textContent = "cleared · 已确认可复用";
+    status.append(unknown, cleared);
+    status.value = item.rights_context?.status === "cleared" ? "cleared" : "unknown";
+    statusLabel.append(status); panel.append(statusLabel);
+
+    const field = (name, labelText, initial = "") => {
+      const labelNode = document.createElement("label"); labelNode.textContent = `${labelText} `;
+      const input = document.createElement("input"); input.type = "text"; input.name = name; input.value = initial;
+      input.setAttribute("aria-label", labelText); labelNode.append(input); panel.append(labelNode);
+      return input;
+    };
+    const basis = field(
+      "figure-license-or-rights-basis",
+      "license_or_rights_basis",
+      item.rights_context?.license || "",
+    );
+    const attribution = field("figure-attribution", "attribution");
+    const evidence = field(
+      "figure-rights-evidence-reference",
+      "rights_evidence_reference",
+      item.rights_context?.evidence_reference || "",
+    );
+    const message = text("p", "", "workspace-error"); message.role = "status";
+    panel.append(message);
+
+    function updateRequired() {
+      const isCleared = status.value === "cleared";
+      basis.required = isCleared; attribution.required = isCleared; evidence.required = isCleared;
+    }
+    status.addEventListener("change", updateRequired);
+    updateRequired();
+    parent.append(panel);
+    return {
+      validate(selectionStatus) {
+        const rightsStatus = status.value;
+        if (selectionStatus === "selected" && rightsStatus !== "cleared") {
+          message.textContent = "选择原图前必须将 rights_status 设为 cleared，并提供权利依据。";
+          return null;
+        }
+        if (rightsStatus === "cleared" && [basis, attribution, evidence].some(input => !input.value.trim())) {
+          message.textContent = "rights_status=cleared 时必须填写 license_or_rights_basis、attribution 和 rights_evidence_reference。";
+          return null;
+        }
+        if (rightsStatus !== "unknown" && rightsStatus !== "cleared") {
+          message.textContent = "rights_status 只能是 unknown 或 cleared。";
+          return null;
+        }
+        message.textContent = "";
+        return rightsStatus === "cleared"
+          ? {
+              rights_status: rightsStatus,
+              license_or_rights_basis: basis.value.trim(),
+              attribution: attribution.value.trim(),
+              rights_evidence_reference: evidence.value.trim(),
+            }
+          : {rights_status: rightsStatus};
+      },
+    };
+  }
   function appendFigureTargetControls(parent, item, figures) {
     const manuscript = figures.manuscript || {};
     const sections = Array.isArray(manuscript.sections) ? manuscript.sections : [];
@@ -194,9 +260,20 @@
       previews.forEach((url, index) => { const preview = document.createElement("img"); preview.src = url; preview.alt = `${item.caption || item.figure_label || "原论文图片"} · 图块 ${index + 1}`; preview.loading = "lazy"; preview.className = "source-figure-preview"; details.append(preview); });
       const links = document.createElement("div"); links.className = "figure-links";
       [[item.image_url, "新标签查看原图"], [item.pdf_page_url, "打开论文页"]].forEach(([href, label]) => { if (!href) return; const link = document.createElement("a"); link.href = href; link.target = "_blank"; link.rel = "noopener"; link.textContent = label; links.append(link); });
-      details.append(links); appendFigureTargetControls(details, item, figures); row.append(details);
+      details.append(links);
+      const rightsControls = appendFigureRightsControls(details, item);
+      appendFigureTargetControls(details, item, figures); row.append(details);
       const button = document.createElement("button"); button.type = "button"; button.textContent = item.selection_status === "selected" ? "取消选择" : "选择原图";
-      button.addEventListener("click", () => decide("review-figures", {...item, selection_status: item.selection_status === "selected" ? "available" : "selected"})); row.append(button); figurePanel.append(row);
+      button.addEventListener("click", () => {
+        const selectionStatus = item.selection_status === "selected" ? "available" : "selected";
+        const rightsPayload = rightsControls?.validate(selectionStatus);
+        if (rightsControls && !rightsPayload) return;
+        decide("review-figures", {
+          ...item,
+          selection_status: selectionStatus,
+          ...(rightsPayload ? {figure_rights_payload: rightsPayload} : {}),
+        });
+      }); row.append(button); figurePanel.append(row);
     });
     figurePanel.append(text("h4", "综合图制图任务", "placeholder-heading"));
     (figures.placeholders || []).forEach((item, index) => figurePanel.append(text("p", `任务：${label(item.scientific_question, `综合图任务 ${index + 1}`)}；读者结论：${label(item.reader_takeaway, "未提供")}；${label(item.gap_reason, "缺口原因未提供")}；状态：${window.ReviewAuditUI.humanStatus(item.status)}`, "figure-placeholder-row")));
@@ -209,7 +286,7 @@
     const body = kind === "comparison-protocol"
       ? {action, reason, version_token:item.version_token}
       : kind === "review-figures"
-        ? {figure_id:item.figure_id, selection_status:item.selection_status, version_token:item.version_token, ...(item.target_binding ? {target_binding:item.target_binding} : {})}
+      ? {figure_id:item.figure_id, selection_status:item.selection_status, version_token:item.version_token, ...(item.figure_rights_payload || {}), ...(item.target_binding ? {target_binding:item.target_binding} : {})}
         : {[kind === "synthesis" ? "synthesis_id" : "section_id"]: item[kind === "synthesis" ? "synthesis_id" : "section_id"], action, reason, version_token:item.version_token};
     if (kind !== "review-figures") Object.assign(body, window.reviewDecisionActor());
     try {

@@ -68,7 +68,7 @@ function flush() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-async function loadSynthesisWorkspace({synthesisDecision = null} = {}) {
+async function loadSynthesisWorkspace({synthesisDecision = null, sourceFigures = []} = {}) {
   const root = new FakeElement("div");
   const projectSelect = new FakeElement("select");
   projectSelect.value = "automated-qa-project";
@@ -121,7 +121,7 @@ async function loadSynthesisWorkspace({synthesisDecision = null} = {}) {
       version_token: "contract-token-1",
     }],
   };
-  const figures = {route: "evidence-to-release.v1", source_figures: [], placeholders: [], locator_gaps: [], manuscript: {}};
+  const figures = {route: "evidence-to-release.v1", source_figures: sourceFigures, placeholders: [], locator_gaps: [], manuscript: {}};
   const window = {
     document: {
       readyState: "complete",
@@ -273,4 +273,145 @@ test("Rejected synthesis claims remain reviewable with the current version token
       actor_label: "automated-qa",
     },
   }]);
+});
+
+test("Candidate-only figure selection refuses unknown rights before sending an incomplete PUT", async () => {
+  const workspace = await loadSynthesisWorkspace({
+    sourceFigures: [{
+      figure_id: "study-1:source-1:figure-1",
+      candidate_only: true,
+      study_id: "study-1",
+      source_id: "source-1",
+      page: 2,
+      figure_label: "Figure 1",
+      caption: "Reaction overview.",
+      selection_status: "available",
+      asset_sha256: "a".repeat(64),
+      version_token: "candidate-figure-token",
+      rights_context: {status: "unknown"},
+      target_binding: {
+        figure_id: "study-1:source-1:figure-1",
+        asset_sha256: "a".repeat(64),
+        manuscript_sha256: "b".repeat(64),
+        section_id: "section-1",
+        marker: "[source:source-1]",
+        occurrence: 1,
+      },
+    }],
+  });
+  const select = one(
+    workspace.root,
+    node => node.name === "figure-rights-status",
+    "candidate figure rights status",
+  );
+  assert.equal(select.value, "unknown");
+  const choose = one(
+    workspace.root,
+    node => node.tagName === "BUTTON" && node.textContent === "选择原图",
+    "candidate figure selection button",
+  );
+  choose.click();
+  await flush();
+  assert.equal(workspace.requests.length, 0);
+  const status = one(
+    workspace.root,
+    node => node.role === "status" && /rights_status|cleared/.test(node.textContent),
+    "candidate figure rights error",
+  );
+  assert.match(status.textContent, /cleared/);
+});
+
+test("Candidate-only figure selection sends cleared rights and preserves target binding", async () => {
+  const workspace = await loadSynthesisWorkspace({
+    sourceFigures: [{
+      figure_id: "study-1:source-1:figure-1",
+      candidate_only: true,
+      study_id: "study-1",
+      source_id: "source-1",
+      page: 2,
+      figure_label: "Figure 1",
+      caption: "Reaction overview.",
+      selection_status: "available",
+      asset_sha256: "a".repeat(64),
+      version_token: "candidate-figure-token",
+      rights_context: {status: "unknown"},
+      target_binding: {
+        figure_id: "study-1:source-1:figure-1",
+        asset_sha256: "a".repeat(64),
+        manuscript_sha256: "b".repeat(64),
+        section_id: "section-1",
+        marker: "[source:source-1]",
+        occurrence: 1,
+      },
+    }],
+  });
+  const select = one(
+    workspace.root,
+    node => node.name === "figure-rights-status",
+    "candidate figure rights status",
+  );
+  select.value = "cleared";
+  one(workspace.root, node => node.name === "figure-license-or-rights-basis", "rights basis").value = "CC BY 4.0";
+  one(workspace.root, node => node.name === "figure-attribution", "figure attribution").value = "Source Figure Attribution: study-1:source-1:figure-1";
+  one(workspace.root, node => node.name === "figure-rights-evidence-reference", "rights evidence reference").value = "rights-record-1";
+  const choose = one(
+    workspace.root,
+    node => node.tagName === "BUTTON" && node.textContent === "选择原图",
+    "candidate figure selection button",
+  );
+  choose.click();
+  await flush();
+  assert.deepEqual(workspace.requests, [{
+    url: "/api/project/automated-qa-project/review-figures",
+    body: {
+      figure_id: "study-1:source-1:figure-1",
+      selection_status: "selected",
+      version_token: "candidate-figure-token",
+      rights_status: "cleared",
+      license_or_rights_basis: "CC BY 4.0",
+      attribution: "Source Figure Attribution: study-1:source-1:figure-1",
+      rights_evidence_reference: "rights-record-1",
+      target_binding: {
+        figure_id: "study-1:source-1:figure-1",
+        asset_sha256: "a".repeat(64),
+        manuscript_sha256: "b".repeat(64),
+        section_id: "section-1",
+        marker: "[source:source-1]",
+        occurrence: 1,
+      },
+    },
+  }]);
+});
+
+test("Candidate-only cleared rights require all rights fields before selection", async () => {
+  const workspace = await loadSynthesisWorkspace({
+    sourceFigures: [{
+      figure_id: "study-1:source-1:figure-1",
+      candidate_only: true,
+      study_id: "study-1",
+      source_id: "source-1",
+      page: 2,
+      figure_label: "Figure 1",
+      caption: "Reaction overview.",
+      selection_status: "available",
+      asset_sha256: "a".repeat(64),
+      version_token: "candidate-figure-token",
+      rights_context: {status: "unknown"},
+    }],
+  });
+  one(workspace.root, node => node.name === "figure-rights-status", "candidate figure rights status").value = "cleared";
+  const choose = one(
+    workspace.root,
+    node => node.tagName === "BUTTON" && node.textContent === "选择原图",
+    "candidate figure selection button",
+  );
+  choose.click();
+  await flush();
+  assert.equal(workspace.requests.length, 0);
+  const status = one(
+    workspace.root,
+    node => node.role === "status" && /rights_status=cleared/.test(node.textContent),
+    "missing cleared rights error",
+  );
+  assert.match(status.textContent, /license_or_rights_basis/);
 });
