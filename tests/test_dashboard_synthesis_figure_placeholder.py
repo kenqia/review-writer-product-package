@@ -2,23 +2,74 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from review_writer.agent import local_pdf_parse  # noqa: F401 - initialize Dashboard imports
 from review_writer.product_foundation import ProductFoundationError, VersionContext
+from review_writer.project.review_figures import source_figure_registry_digest
 from view.serve_review_dashboard import ReviewFigureError, WorkspaceStaleError
 from view import serve_review_dashboard as dashboard
 
 
-def _project(tmp_path: Path) -> Path:
+def _project(tmp_path: Path, snapshot: dict[str, object] | None = None) -> Path:
     project = tmp_path / "review-project"
     project.mkdir()
     VersionContext.create(
-        {"currentness": "current"},
+        snapshot or {"currentness": "current"},
         project_id=project.name,
         project_root=project,
     )
     return project
+
+
+def _empty_agent_figure_candidates(project: Path) -> dict[str, object]:
+    return {
+        "schema_version": "review-writer.agent-figure-candidates.v1",
+        "project_id": project.name,
+        "status": "gap",
+        "parser_mode": "FALLBACK",
+        "figures": [],
+        "gaps": [{"code": "FIGURE_ASSET_UNAVAILABLE", "reason": "no images"}],
+    }
+
+
+def _patch_empty_registry_builder(monkeypatch, calls: list[Path]) -> dict[str, object]:
+    registry = {
+        "schema_version": "review-writer-source-figure-registry.v1",
+        "project_id": "review-project",
+        "figure_policy": "source_figures_or_synthesis_placeholders_only",
+        "figures": [],
+        "selected_count": 0,
+        "available_count": 0,
+        "required_count": 5,
+        "target_figure_slots": {"minimum": 5, "maximum": 8},
+        "source_truth_digest": "a" * 64,
+        "content_list_v2_digest": "b" * 64,
+        "chemical_paper_project_binding_digest": None,
+        "locator_gaps": [],
+        "figure_budget": {
+            "status": "needs_human_selection",
+            "selected_count": 0,
+            "required_count": 5,
+            "minimum": 5,
+            "maximum": 8,
+            "gaps": [
+                "Select 5 additional non-duplicative source figure(s) or register a synthesis placeholder."
+            ],
+        },
+    }
+    registry["registry_digest"] = source_figure_registry_digest(registry)
+
+    def build(project: Path) -> dict[str, object]:
+        calls.append(project)
+        path = project / "03_figures/source_figure_registry.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(registry, sort_keys=True) + "\n", encoding="utf-8")
+        return dict(registry)
+
+    monkeypatch.setattr(dashboard, "build_source_figure_registry", build, raising=False)
+    return registry
 
 
 def _patch_project(monkeypatch, project: Path) -> None:
@@ -38,8 +89,18 @@ def _patch_project(monkeypatch, project: Path) -> None:
 def test_valid_registration_publishes_placeholder_metadata_in_current_version(
     tmp_path: Path, monkeypatch
 ) -> None:
-    project = _project(tmp_path)
+    project = _project(
+        tmp_path,
+        {
+            "currentness": "current",
+            "agent_parse": {
+                "figure_candidates": _empty_agent_figure_candidates(Path("review-project"))
+            },
+        },
+    )
     _patch_project(monkeypatch, project)
+    builder_calls: list[Path] = []
+    registry = _patch_empty_registry_builder(monkeypatch, builder_calls)
     visible = dashboard.project_review_figures_workspace_payload(tmp_path, project.name)
     registration = visible["placeholder_registration"]
 
@@ -58,8 +119,11 @@ def test_valid_registration_publishes_placeholder_metadata_in_current_version(
 
     assert result["summary"]["placeholder_count"] == 1
     assert result["placeholder_registration"] is None
+    assert builder_calls == [project]
     placeholder_path = project / "03_figures/synthesis_figure_placeholders.json"
     assert placeholder_path.is_file()
+    registry_path = project / "03_figures/source_figure_registry.json"
+    assert registry_path.is_file()
     context = VersionContext.load(project)
     state = context.state()
     assert state.current_version_id != "v1"
@@ -68,6 +132,7 @@ def test_valid_registration_publishes_placeholder_metadata_in_current_version(
     review_figures = current.snapshot["review_figures"]
     assert review_figures["placeholder_id"] == "synthesis-figure-1"
     assert review_figures["placeholder_registry_digest"]
+    assert review_figures["registry_digest"] == registry["registry_digest"]
     assert review_figures["decision"]["actor_type"] == "human_researcher"
 
 
@@ -166,8 +231,18 @@ def test_stale_registration_token_is_zero_write(
 def test_publish_failure_restores_placeholder_file_and_current_version(
     tmp_path: Path, monkeypatch
 ) -> None:
-    project = _project(tmp_path)
+    project = _project(
+        tmp_path,
+        {
+            "currentness": "current",
+            "agent_parse": {
+                "figure_candidates": _empty_agent_figure_candidates(Path("review-project"))
+            },
+        },
+    )
     _patch_project(monkeypatch, project)
+    builder_calls: list[Path] = []
+    _patch_empty_registry_builder(monkeypatch, builder_calls)
     visible = dashboard.project_review_figures_workspace_payload(tmp_path, project.name)
     registration = visible["placeholder_registration"]
 
@@ -194,6 +269,8 @@ def test_publish_failure_restores_placeholder_file_and_current_version(
         raise AssertionError("publish failure must stop registration")
 
     assert not (project / "03_figures/synthesis_figure_placeholders.json").exists()
+    assert not (project / "03_figures/source_figure_registry.json").exists()
+    assert builder_calls == [project]
     assert VersionContext.load(project).state().revision == 0
 
 

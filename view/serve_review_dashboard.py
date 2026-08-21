@@ -124,6 +124,7 @@ from review_writer.project.section_contract import (  # noqa: E402
 )
 from review_writer.project.review_figures import (  # noqa: E402
     ReviewFigureError,
+    build_source_figure_registry,
     current_manuscript_target_projection,
     current_source_figure_asset_sha256,
     load_source_figure_registry,
@@ -7299,9 +7300,36 @@ def _write_placeholder_registration(
         raise WorkspaceStaleError("WORKSPACE_STALE")
 
     placeholder_path = project / "03_figures/synthesis_figure_placeholders.json"
-    previous = _snapshot_figure_transaction_file(placeholder_path)
+    registry_path = project / "03_figures/source_figure_registry.json"
+    agent_parse = current.snapshot.get("agent_parse") if isinstance(current.snapshot, dict) else None
+    candidate_set = agent_parse.get("figure_candidates") if isinstance(agent_parse, dict) else None
+    build_empty_registry = (
+        not os.path.lexists(registry_path)
+        and isinstance(candidate_set, dict)
+        and candidate_set.get("schema_version") == "review-writer.agent-figure-candidates.v1"
+        and candidate_set.get("project_id") == project.name
+        and isinstance(candidate_set.get("figures"), list)
+        and isinstance(candidate_set.get("gaps"), list)
+        and candidate_set["figures"] == []
+    )
+    transaction_paths = [placeholder_path]
+    if build_empty_registry:
+        transaction_paths.append(registry_path)
+    previous = {
+        path: _snapshot_figure_transaction_file(path) for path in transaction_paths
+    }
     published = False
     try:
+        registry_digest: str | None = None
+        if build_empty_registry:
+            registry = build_source_figure_registry(project)
+            if not isinstance(registry, dict) or registry.get("figures") != []:
+                raise ReviewFigureError("FIGURE_REGISTRY_INVALID")
+            registry_digest = registry.get("registry_digest")
+            if not isinstance(registry_digest, str) or not registry_digest:
+                raise ReviewFigureError("FIGURE_REGISTRY_INVALID")
+            if registry_path.is_symlink() or not registry_path.is_file():
+                raise ReviewFigureError("FIGURE_STATE_INVALID")
         registered = register_synthesis_figure_placeholder(project, placeholder)
         placeholders = synthesis_figure_placeholders(project)
         next_snapshot = copy.deepcopy(dict(current.snapshot))
@@ -7324,6 +7352,8 @@ def _write_placeholder_registration(
                 },
             }
         )
+        if registry_digest is not None:
+            review_figures["registry_digest"] = registry_digest
         next_snapshot["review_figures"] = review_figures
         context.publish_active_head(
             next_snapshot,
@@ -7336,7 +7366,8 @@ def _write_placeholder_registration(
     except Exception as exc:
         if not published:
             try:
-                _restore_figure_transaction_file(placeholder_path, previous)
+                for path, snapshot in previous.items():
+                    _restore_figure_transaction_file(path, snapshot)
             except ReviewFigureError as rollback_error:
                 raise rollback_error from exc
         if isinstance(exc, (ReviewFigureError, WorkspaceStaleError)):
