@@ -134,10 +134,23 @@ Product Use；Product Use 不能替代 `PUBLIC_E2E` 或 `HUMAN_ACCEPTANCE`；任
 
 ### CR-008 — canonical reusable-components inventory
 
-公开 canonical reusable-components inventory 当前为 `MISSING`。不得臆造 13 个
-条目、版本、许可证或 adapter seam，也不得把内部模块名称当作已批准的可复用组件。
-未来补充必须由 PM 提供明确清单（名称、版本、来源、许可证、适用边界和 adapter
-责任），再经过独立合同变更；在此之前保持 `MISSING`/`HOLD`。
+CR-008 已由 PM 提供 inventory，完整记录见
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。当前 inventory 绑定
+ChemVellum upstream `https://github.com/TengJiao33/ChemVellum` 的 `main`
+commit `c94ff72694cc838c19fc22359e3e0b648e2352d6`，并使用书面授权引用
+`USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`。upstream `main` 无 LICENSE、
+公开 SPDX/OSI license；书面授权不是开源许可证。
+
+```text
+inventory_status: PM_PROVIDED_INVENTORY
+implementation_status: PENDING/PARTIAL
+```
+
+这只是来源、复用方式、责任落点和限制的合同登记，不是代码复制、运行时依赖或
+权利批准。source-figure adapter 尚未验证；本次不声称 Product Use、`PUBLIC_E2E`、
+`HUMAN_ACCEPTANCE`、scientific validity 或 `PROMOTE/B2`。CR-008 不缩减最终产品
+scope；每项实现仍须在现有 source/Evidence、人工决策、release 和 promotion 边界
+内单独验证，未知权利保持阻断。
 
 ## 交付与 N 边界
 

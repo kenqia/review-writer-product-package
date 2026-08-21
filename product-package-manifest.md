@@ -13,14 +13,14 @@
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`README.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`.agents/skills/review-orchestrator/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`README.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`.agents/skills/review-orchestrator/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
 - `scripts/evidence/` 的全部 runtime-imported helper。
 - project-local `.agents/skills/review-orchestrator/SKILL.md` 与 `agents/openai.yaml`。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
-- 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
+- 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
 
 示例（均为脱敏格式，不指向真实数据）：
