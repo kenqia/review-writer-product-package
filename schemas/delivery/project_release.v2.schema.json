@@ -55,13 +55,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "schema_version", "release_level", "source_figures", "human_synthesis_figures", "required_attributions",
+        "schema_version", "release_level", "source_figure_registry_digest", "source_figures", "human_synthesis_figures", "required_attributions",
         "expected_media_sha256", "placeholder_count", "pending_placeholder_count"
       ],
       "properties": {
         "schema_version": {"const": "review-writer-figure-validation.v2"},
         "release_level": {"enum": ["SELF_REVIEWED_DRAFT", "EXPERT_REVIEWED_RELEASE"]},
-        "source_figures": {"type": "array", "items": {"type": "object"}},
+        "source_figure_registry_digest": {"$ref": "#/$defs/sha256"},
+        "source_figures": {"type": "array", "items": {"$ref": "#/$defs/source_figure"}},
         "human_synthesis_figures": {"type": "array", "items": {"type": "object"}},
         "required_attributions": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "expected_media_sha256": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
@@ -160,6 +161,34 @@
           }
         },
         "reaction_data_status": {"enum": ["available", "unavailable_not_provided"]}
+      }
+    },
+    "source_figure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "figure_id", "figure_type", "study_id", "source_id", "page", "figure_label", "caption",
+        "source_pdf_sha256", "asset_path", "markdown_path", "asset_sha256", "content_sha256",
+        "attribution", "rights_status", "rights_license", "rights_evidence_reference"
+      ],
+      "properties": {
+        "figure_id": {"type": "string", "minLength": 1},
+        "figure_type": {"const": "SOURCE_FIGURE_INTERNAL"},
+        "study_id": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "page": {"type": "integer", "minimum": 1},
+        "figure_label": {"type": "string", "minLength": 1},
+        "caption": {"type": "string", "minLength": 1},
+        "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+        "asset_path": {"type": "string", "minLength": 1},
+        "markdown_path": {"type": "string", "minLength": 1},
+        "asset_sha256": {"$ref": "#/$defs/sha256"},
+        "content_sha256": {"$ref": "#/$defs/sha256"},
+        "attribution": {"type": "string", "minLength": 1},
+        "rights_status": {"enum": ["unknown", "cleared"]},
+        "rights_license": {"type": ["string", "null"], "minLength": 1},
+        "rights_evidence_reference": {"type": ["string", "null"], "minLength": 1},
+        "target_binding": {"type": "object"}
       }
     }
   }

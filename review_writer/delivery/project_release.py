@@ -1118,7 +1118,12 @@ def _new_route_figure_state(
         if os.path.lexists(project / placeholder_relative)
         else None
     )
-    registry = _read_json(registry_path, "FIGURE_POLICY_INVALID")
+    try:
+        from review_writer.project.review_figures import ReviewFigureError, load_source_figure_registry
+
+        registry = load_source_figure_registry(project)
+    except ReviewFigureError as exc:
+        raise ProjectReleaseError(exc.code, "source figure registry is stale or invalid") from exc
     placeholder_state = (
         _read_json(placeholder_path, "FIGURE_POLICY_INVALID")
         if placeholder_path is not None
@@ -1469,6 +1474,7 @@ def _new_route_release(
             "docx_sha256": docx_sha256,
             "placeholder_count": figure_validation["placeholder_count"],
             "pending_placeholder_count": figure_validation["pending_placeholder_count"],
+            "figure_validation": figure_validation,
             "hard_fail_signals": [],
             "system_generated_synthesis_figure": False,
             "integrity": integrity,
@@ -1726,7 +1732,10 @@ def new_route_release_docx_is_current(docx_path: Path) -> bool:
             release_level=release_level,
             lineage_digest=lineage_digest,
         )
-        if quality.get("figure_validation") != figure_validation:
+        if (
+            snapshot.get("figure_validation") != figure_validation
+            or quality.get("figure_validation") != figure_validation
+        ):
             return False
         legacy_docx = project / "05_final_audit/final_draft.docx"
         integrity = validate_docx_integrity(

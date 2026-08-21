@@ -62,6 +62,7 @@ _EXTENSION_FORMATS = {
 _HASH_CHUNK_BYTES = 1024 * 1024
 _MAX_IMAGE_BYTES = 32 * 1024 * 1024
 _MAX_IMAGE_PIXELS = 40_000_000
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class FigurePolicyError(ValueError):
@@ -135,6 +136,22 @@ def _required_text(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
     if not isinstance(value, str) or not value.strip():
         raise FigurePolicyError("FIGURE_POLICY_INVALID", f"figure {key} must be nonempty text")
+    return value.strip()
+
+
+def _required_sha256(row: dict[str, Any], key: str) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise FigurePolicyError("FIGURE_POLICY_INVALID", f"figure {key} must be a SHA-256 digest")
+    return value
+
+
+def _optional_rights_text(row: dict[str, Any], key: str) -> str | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise FigurePolicyError("FIGURE_RIGHTS_INVALID", f"figure {key} must be nonempty text when present")
     return value.strip()
 
 
@@ -460,10 +477,27 @@ def validate_new_route_figure_policy(
     normalized: list[dict[str, Any]] = []
     human_synthesis_figures: list[dict[str, Any]] = []
     attributions: list[str] = []
+    registry_digest = source_registry.get("registry_digest")
+    if not isinstance(registry_digest, str) or _SHA256.fullmatch(registry_digest) is None:
+        raise FigurePolicyError(
+            "FIGURE_REGISTRY_INVALID",
+            "source figure registry digest is required",
+        )
+    seen_figure_ids: set[str] = set()
     project_root = project.resolve(strict=True)
     for row in selected:
         if isinstance(row.get("page"), bool) or not isinstance(row.get("page"), int) or row["page"] < 1:
             raise FigurePolicyError("FIGURE_POLICY_INVALID", "source figure page is invalid")
+        figure_id = _required_text(row, "figure_id")
+        if figure_id in seen_figure_ids:
+            raise FigurePolicyError("FIGURE_POLICY_INVALID", "source figure ids must be unique")
+        seen_figure_ids.add(figure_id)
+        study_id = _required_text(row, "study_id")
+        source_id = _required_text(row, "source_id")
+        page = row["page"]
+        figure_label = _required_text(row, "figure_label")
+        caption = _required_text(row, "caption")
+        source_pdf_sha256 = _required_sha256(row, "source_pdf_sha256")
         asset_path = _required_text(row, "asset_path")
         relative = Path(asset_path)
         if relative.is_absolute() or ".." in relative.parts or "\\" in asset_path:
@@ -479,16 +513,31 @@ def validate_new_route_figure_policy(
         binding = _image_binding(resolved, asset_path)
         markdown_path = Path(os.path.relpath(resolved, project / "04_manuscript")).as_posix()
         expected_paths.add(markdown_path)
-        _required_text(row, "caption")
+        asset_sha256 = _required_sha256(row, "asset_sha256")
+        if binding["content_sha256"] != asset_sha256:
+            raise FigurePolicyError("FIGURE_IMAGE_INVALID", "source figure hash is stale")
+        rights_status = row.get("rights_status", "unknown")
+        if rights_status not in {"unknown", "cleared"}:
+            raise FigurePolicyError("FIGURE_RIGHTS_INVALID", "source figure rights status is unsupported")
+        rights_license = _optional_rights_text(row, "rights_license")
+        rights_evidence_reference = _optional_rights_text(row, "rights_evidence_reference")
+        if rights_status == "cleared" and (
+            rights_license is None or rights_evidence_reference is None
+        ):
+            raise FigurePolicyError(
+                "FIGURE_RIGHTS_NOT_CLEARED",
+                "cleared source figures require a license and rights evidence reference",
+            )
         attribution = source_figure_attribution(row)
         target_binding = row.get("target_binding")
+        validated_target_binding: dict[str, Any] | None = None
         if target_binding is not None:
             try:
-                current_binding = validate_source_figure_target_binding(
+                validated_target_binding = validate_source_figure_target_binding(
                     row,
                     target_binding,
                     manuscript_markdown,
-                    current_asset_sha256=binding["content_sha256"],
+                    current_asset_sha256=asset_sha256,
                 )
             except ReviewFigureError as exc:
                 raise FigurePolicyError(
@@ -499,27 +548,34 @@ def validate_new_route_figure_policy(
                 # The explicit source/evidence marker is the visible attribution
                 # anchor for repaired legacy text; no free-text attribution is
                 # synthesized or auto-placed by the release guard.
-                attribution = current_binding["marker"]
+                attribution = validated_target_binding["marker"]
         elif attribution not in manuscript_markdown:
             raise FigurePolicyError("FIGURE_ATTRIBUTION_MISSING", "source attribution is absent")
-        if binding["content_sha256"] != row.get("asset_sha256"):
-            raise FigurePolicyError("FIGURE_IMAGE_INVALID", "source figure hash is stale")
         if release_level == "EXPERT_REVIEWED_RELEASE":
-            rights_status = row.get("rights_status")
-            rights_license = row.get("rights_license")
-            if rights_status != "cleared" or not isinstance(rights_license, str) or not rights_license.strip():
+            if rights_status != "cleared":
                 raise FigurePolicyError("FIGURE_RIGHTS_NOT_CLEARED", "expert source figures require rights clearance")
         attributions.append(attribution)
-        normalized.append(
-            {
-                "figure_id": _required_text(row, "figure_id"),
-                "figure_type": SOURCE_FIGURE_INTERNAL,
-                "asset_path": asset_path,
-                "markdown_path": markdown_path,
-                "content_sha256": binding["content_sha256"],
-                "attribution": attribution,
-            }
-        )
+        normalized_row = {
+            "figure_id": figure_id,
+            "figure_type": SOURCE_FIGURE_INTERNAL,
+            "study_id": study_id,
+            "source_id": source_id,
+            "page": page,
+            "figure_label": figure_label,
+            "caption": caption,
+            "source_pdf_sha256": source_pdf_sha256,
+            "asset_path": asset_path,
+            "markdown_path": markdown_path,
+            "asset_sha256": asset_sha256,
+            "content_sha256": binding["content_sha256"],
+            "attribution": attribution,
+            "rights_status": rights_status,
+            "rights_license": rights_license,
+            "rights_evidence_reference": rights_evidence_reference,
+        }
+        if validated_target_binding is not None:
+            normalized_row["target_binding"] = validated_target_binding
+        normalized.append(normalized_row)
 
     if release_level == "EXPERT_REVIEWED_RELEASE":
         from review_writer.evaluation.review_benchmark import (
@@ -591,6 +647,7 @@ def validate_new_route_figure_policy(
     return {
         "schema_version": "review-writer-figure-validation.v2",
         "release_level": release_level,
+        "source_figure_registry_digest": registry_digest,
         "source_figures": normalized,
         "human_synthesis_figures": human_synthesis_figures,
         "required_attributions": attributions,

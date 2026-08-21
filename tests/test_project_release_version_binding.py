@@ -45,6 +45,7 @@ def _patch_readiness_gates(
     figure_validation = {
         "schema_version": "review-writer-figure-validation.v2",
         "release_level": "SELF_REVIEWED_DRAFT",
+        "source_figure_registry_digest": "a" * 64,
         "source_figures": [],
         "human_synthesis_figures": [],
         "required_attributions": [],
@@ -156,6 +157,7 @@ def _release_fixture(
         "markdown_path": "05_release/self_reviewed_draft.md",
         "docx_path": "05_release/self_reviewed_draft.docx",
         "docx_sha256": docx_sha256,
+        "figure_validation": gate_state["figure_validation"],
         "placeholder_count": 0,
         "pending_placeholder_count": 0,
         "hard_fail_signals": [],
@@ -254,3 +256,17 @@ def test_new_route_currentness_accepts_current_version_context_binding(
     _project, docx, _binding = _release_fixture(tmp_path, monkeypatch)
 
     assert project_release.new_route_release_docx_is_current(docx) is True
+
+
+def test_new_route_currentness_rejects_missing_release_figure_provenance_zero_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, docx, _binding = _release_fixture(tmp_path, monkeypatch)
+    quality_path = project / "05_release/quality_report.json"
+    quality = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality["figure_validation"]["source_figures"] = [{"figure_id": "missing-fields"}]
+    _write_json(quality_path, quality)
+    before = _tree_fingerprint(project)
+
+    assert project_release.new_route_release_docx_is_current(docx) is False
+    assert _tree_fingerprint(project) == before
