@@ -389,6 +389,61 @@ def test_public_fresh_bootstrap_records_all_n10_authorized_members_and_hashes(
             )
 
 
+def test_public_fresh_bootstrap_records_all_n20_members_hashes_and_study_boundaries(
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    for index in range(20):
+        _write_pdf(folder, f"paper-{index:02d}.pdf", f"synthetic-{index}".encode())
+    project_root = tmp_path / "projects" / "n20-public-review"
+    project_root.parent.mkdir()
+    result: dict[str, object] | None = None
+
+    try:
+        result = public_entry.start_or_resume_review(
+            "A bounded N=20 source-set review",
+            project_root,
+            folder,
+        )
+
+        assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        context = VersionContext.load(project_root)
+        current = context.view_version(context.state().current_version_id)
+        source_set = current.snapshot["agent_bootstrap"]["authorized_source_set"]
+        expected_hashes = [
+            hashlib.sha256(
+                (folder / f"paper-{index:02d}.pdf").read_bytes()
+            ).hexdigest()
+            for index in range(20)
+        ]
+        expected_studies = [f"UPLOAD-{digest[:20]}" for digest in expected_hashes]
+
+        assert len(source_set) == 20
+        assert [row["name"] for row in source_set] == [
+            f"paper-{index:02d}.pdf" for index in range(20)
+        ]
+        assert [row["sha256"] for row in source_set] == expected_hashes
+        assert [row["source_id"] for row in source_set] == expected_studies
+        assert [row["study_id"] for row in source_set] == expected_studies
+        assert len({row["study_id"] for row in source_set}) == 20
+
+        archive_path = project_root / fresh_bootstrap.SOURCE_ARCHIVE_RELATIVE
+        preflight = fresh_bootstrap._source_archive_preflight(archive_path)
+        assert len(preflight["members"]) == 20
+        assert [member["sha256"] for member in preflight["members"]] == expected_hashes
+        assert [member["source_id"] for member in preflight["members"]] == expected_studies
+        assert [member["study_id"] for member in preflight["members"]] == expected_studies
+        assert preflight["archive_sha256"] == hashlib.sha256(
+            archive_path.read_bytes()
+        ).hexdigest()
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
+                result["dashboard_pid"]
+            )
+
+
 def test_n3_native_bootstrap_maps_all_members_through_real_dashboard(
     tmp_path: Path,
 ) -> None:
