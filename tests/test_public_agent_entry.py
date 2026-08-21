@@ -358,6 +358,13 @@ def test_resume_after_source_mapping_enters_local_parse_seam(
     state = VersionContext.load(project).state()
     observed: dict[str, object] = {}
 
+    def fail_start(review_root: Path) -> tuple[str, int]:
+        raise fresh_bootstrap.FreshAgentBootstrapError(
+            "DASHBOARD_START_FAILED", runtime_diagnostic="CHILD_EARLY_EXIT"
+        )
+
+    monkeypatch.setattr(fresh_bootstrap, "_start_dashboard", fail_start)
+
     def fake_parse(
         explicit_project_root: Path,
         *,
@@ -408,6 +415,13 @@ def test_resume_parse_failure_is_not_swallowed_or_published(
     _complete_source_mapping(project, authorized)
     before = {path: _fingerprint(path) for path in tracked}
 
+    def fail_start(review_root: Path) -> tuple[str, int]:
+        raise fresh_bootstrap.FreshAgentBootstrapError(
+            "DASHBOARD_START_FAILED", runtime_diagnostic="CHILD_EARLY_EXIT"
+        )
+
+    monkeypatch.setattr(fresh_bootstrap, "_start_dashboard", fail_start)
+
     def fail_parse(*args: object, **kwargs: object) -> object:
         raise local_pdf_parse.LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
 
@@ -430,6 +444,7 @@ def test_resume_with_existing_parse_artifact_does_not_repeat_parse(
     artifact.write_text("{}\n", encoding="utf-8")
     before = {path: _fingerprint(path) for path in tracked}
     calls: list[object] = []
+    monkeypatch.setattr(public_entry, "_dashboard_is_healthy", lambda value: True)
 
     def fail_if_called(*args: object, **kwargs: object) -> object:
         calls.append((args, kwargs))

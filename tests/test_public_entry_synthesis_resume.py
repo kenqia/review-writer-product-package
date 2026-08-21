@@ -152,6 +152,56 @@ def test_resume_continues_existing_parse_session_after_approved_evidence(
     assert result["revision"] == 8
 
 
+def test_resume_continuation_survives_dashboard_restart_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    continuation = {
+        "status": "HUMAN_ACTION_REQUIRED",
+        "write_mode": "VERSION_CONTEXT",
+        "session_id": "parse-session-1",
+        "current": {
+            "project_id": "resume-project",
+            "version_id": "synthesis-version",
+            "revision": 8,
+            "snapshot_digest": "b" * 64,
+        },
+        "next_action": {
+            "project_id": "resume-project",
+            "route": "/review",
+            "type": "HUMAN_ACTION_REQUIRED",
+        },
+    }
+    project, state, _snapshot, calls = _patch_resume_project(
+        monkeypatch,
+        tmp_path,
+        evidence={"workflow_can_continue": True},
+        continuation=continuation,
+    )
+
+    def fail_start(_review_root: Path) -> tuple[str, int]:
+        raise public_entry.fresh_bootstrap.FreshAgentBootstrapError(
+            "DASHBOARD_START_FAILED", runtime_diagnostic="CHILD_EARLY_EXIT"
+        )
+
+    monkeypatch.setattr(public_entry.fresh_bootstrap, "_start_dashboard", fail_start)
+
+    result = public_entry._resume(project, ())
+
+    assert calls == [
+        {"project": project},
+        {
+            "session_id": "parse-session-1",
+            "expected_revision": state.revision,
+            "expected_head_id": state.active_head_id,
+        },
+    ]
+    assert result["result"] == "RESUMED"
+    assert result["status"] == "HUMAN_ACTION_REQUIRED"
+    assert result["dashboard_url"] is None
+    assert result["current"]["version_id"] == "synthesis-version"
+    assert result["revision"] == 8
+
+
 @pytest.mark.parametrize(
     "evidence",
     [{}, {"workflow_can_continue": False}],

@@ -521,8 +521,6 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     _validate_resume_source(project, authorized_pdfs, snapshot)
     current_payload = _current_payload(project, snapshot)
     dashboard_url, dashboard_pid, dashboard_failure = _resume_dashboard(project, snapshot)
-    if dashboard_failure is not None:
-        return _dashboard_hold(project, current_payload, dashboard_failure)
     dashboard_fields: dict[str, Any] = {"dashboard_url": dashboard_url}
     if dashboard_pid is not None:
         dashboard_fields["dashboard_pid"] = dashboard_pid
@@ -589,6 +587,8 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
             if release is not None:
                 result.update(release)
             return result
+    if dashboard_failure is not None:
+        return _dashboard_hold(project, current_payload, dashboard_failure)
     status, reason_code, next_action, trace = _nested_status(snapshot)
     if next_action is None:
         next_action = {"project_id": project.name, "route": "/review", "type": status}
