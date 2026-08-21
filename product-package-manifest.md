@@ -13,14 +13,14 @@
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`README.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`.agents/skills/review-orchestrator/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`README.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`.agents/skills/review-orchestrator/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
 - `scripts/evidence/` 的全部 runtime-imported helper。
 - project-local `.agents/skills/review-orchestrator/SKILL.md` 与 `agents/openai.yaml`。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
-- 本说明、`README.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
+- 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
 
 示例（均为脱敏格式，不指向真实数据）：
@@ -48,6 +48,11 @@ current_pointer: .review-writer/version_context/current.json
 实际 import 审计确认：`jsonschema` 用于 schema 校验，`Pillow` 用于图件策略与比较图，`python-docx` 用于 DOCX helper。`latex2word` 仅在存在时启用数学 OMML 排版，因此没有列为硬依赖。`pdftotext` 是本地 PDF fallback 所需的系统命令；Agent 会在需要时 fail-closed，不会联网下载或猜测来源。
 
 ## 质量边界
+
+合同文档和 FR 追踪表是公开规范边界；它们不复制 dirty/unpinned 的源 SRS/Design
+正文。当前 hash 文件在本次合同变更前已存在若干与实际文件不一致的旧条目；本次
+只重算实际改动或新增文档，不宣称全包 hash 完整性，未改动的旧 mismatch 仍需独立
+修复窗口处理。
 
 - `Engineering`：import、静态资产和针对性运行时检查；不代表用户验收。
 - `Independent Quality`：需要独立浏览器与新鲜环境的验证，不随本包 hash 推断。

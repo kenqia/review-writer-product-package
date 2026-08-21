@@ -2,25 +2,63 @@
 
 Verification date: `2026-08-21`
 
-Product-package commit inspected: `b94255cbdb2fee4faf94c0fb7a27ac5f6b9a7d89`
+Main evidence base / inspected commit: `14ed2f9e1e2770f0fe6d2bdab870c4e3b4c1abbe`
 
-This is a narrow, auditable reference record. It does not copy either source document body.
+This is a read-only traceability snapshot. It does not copy either source document body,
+and it does not turn static paths or unrun tests into implementation or acceptance claims.
 
 ## Immutable source references
 
-The source checkout was inspected read-only. Both files were untracked (`??`) at verification time, so their references are intentionally not commit-pinned. The source repository `HEAD` was `1aba27aae133bef6e634d50bad9f4f7fd1ad4be3`; that SHA is context only and is not a file version.
+The source checkout was inspected read-only. The SRS and Design files were untracked at
+verification time, so their references are intentionally dirty and unpinned; the source
+repository commit is not a file version.
 
 | document | source checkout | source status | source commit SHA | file SHA-256 | verification date | body copied? |
 | --- | --- | --- | --- | --- | --- | --- |
-| `docs/product/REVIEW_WRITER_SRS.md` | `/home/kenqia/my_folder/review-writer` | dirty (`??`) | `UNPINNED (dirty source)` | `4b24c66c77af15c19a9b83774d5886a43d85d11ddaa01ea98556a8a3979891e2` | `2026-08-21` | No |
-| `docs/product/REVIEW_WRITER_DESIGN.md` | `/home/kenqia/my_folder/review-writer` | dirty (`??`) | `UNPINNED (dirty source)` | `2eef3720831460f58b7ab0c591205fbff62ee50a60c1e80448ad79b2b4f77cf9` | `2026-08-21` | No |
+| `docs/product/REVIEW_WRITER_SRS.md` | `/home/kenqia/my_folder/review-writer` | `DIRTY_UNPINNED` | `UNPINNED` | `4b24c66c77af15c19a9b83774d5886a43d85d11ddaa01ea98556a8a3979891e2` | `2026-08-21` | No |
+| `docs/product/REVIEW_WRITER_DESIGN.md` | `/home/kenqia/my_folder/review-writer` | `DIRTY_UNPINNED` | `UNPINNED` | `2eef3720831460f58b7ab0c591205fbff62ee50a60c1e80448ad79b2b4f77cf9` | `2026-08-21` | No |
 
 ## FR traceability
 
-The public product-package contains no confirmed binding from an `FR-xxx` identifier to a code seam. The source contract prose is intentionally not reproduced here. The single row below records an observable seam and test node without assigning either to an invented requirement.
+The short descriptions below are taken from the inspected SRS FR headings. Code and test
+seams are observable package paths only. Every test seam is `NOT_RUN` in this evidence
+snapshot. `PARTIAL` means a bounded seam or focused test node exists but the complete public
+contract or acceptance layer is not proven; `NOT_VERIFIED` means no fresh evidence is
+available for the stated behavior. No row claims `IMPLEMENTED`.
 
-| FR reference | code seam | test | status | evidence |
+| FR | code seam | test seam | status | evidence / gap |
 | --- | --- | --- | --- | --- |
-| `PENDING_SOURCE_CONFIRMATION` | `review_writer/agent/fresh_bootstrap.py::FreshAgentBootstrap.start` | `tests/test_fresh_bootstrap_source_set.py::test_authorized_pdf_set_keeps_every_legal_pdf_in_deterministic_identity_order` | `PENDING_SOURCE_CONFIRMATION` — no public FR-to-seam binding; no contract claim | Package commit `b94255cbdb2fee4faf94c0fb7a27ac5f6b9a7d89`; static path/function presence checked; test `NOT_RUN` |
+| `FR-001` — 唯一入口 | `review_writer/agent/fresh_bootstrap.py::FreshAgentBootstrap.start` | `tests/test_fresh_bootstrap_source_set.py::test_n1_bootstrap_reaches_existing_dashboard_role_gate` | `PARTIAL` | Static fresh-bootstrap seam and focused test path exist; no discoverable `start_or_resume_review` public caller or `PUBLIC_E2E`; test `NOT_RUN`. |
+| `FR-002` — fresh/resume | `review_writer/product_foundation/service.py::VersionContext`; `review_writer/product_foundation/project_root.py` | `tests/test_dashboard_runtime_root.py` | `PARTIAL` | VersionContext/project-root seams and dashboard runtime test path exist; cold resume/current/write-set proof and public caller evidence are missing; test `NOT_RUN`. |
+| `FR-003` — 授权边界 | `review_writer/project/path_safety.py`; `review_writer/agent/fresh_bootstrap.py` | `tests/test_fresh_bootstrap_source_set.py::test_invalid_authorized_source_set_fails_before_any_project_write` | `PARTIAL` | Invalid authorized-source preflight and zero-write test seam are present; complete symlink/reparse, cross-study and public-flow evidence is missing; test `NOT_RUN`. |
+| `FR-004` — 进度 | `review_writer/agent/fresh_bootstrap.py::FreshAgentBootstrap.start` | `tests/test_fresh_bootstrap_source_set.py::test_n1_bootstrap_reaches_existing_dashboard_role_gate` | `PARTIAL` | Static result fields include status/dashboard handoff in the bounded bootstrap path; no public caller and fresh user-visible evidence; test `NOT_RUN`. |
+| `FR-005` — N-agnostic | `review_writer/agent/fresh_bootstrap.py` source-set preflight | `tests/test_fresh_bootstrap_source_set.py::test_n1_bootstrap_reaches_existing_dashboard_role_gate`; `::test_n3_bootstrap_reaches_existing_dashboard_batch_role_gate` | `HOLD` | Existing focused nodes cover N=1/N=3 only; no N=10/N=20 evidence and the old 1–3 boundary remains a temporary implementation hold; tests `NOT_RUN`. |
+| `FR-006` — source-set expansion | `review_writer/project/input_provenance.py`; `review_writer/project/dual_source.py` | — (no dedicated expansion test inspected) | `NOT_VERIFIED` | Static source identity modules are present, but same-project add/retain/stale propagation has no fresh focused evidence; no test run. |
+| `FR-007` — incremental reparse | `review_writer/project/parse_reconciliation.py`; `review_writer/project/parse_quality.py` | — (no dedicated incremental-reparse test inspected) | `NOT_VERIFIED` | Reconciliation/quality seams are present, but unchanged-binding reuse, digest/provenance retention and changed-input selective reparse are not freshly verified. |
+| `FR-008` — identity | `review_writer/acquisition/manifest_identity.py`; `review_writer/acquisition/supplement_identity.py` | `tests/test_fresh_bootstrap_source_set.py::test_source_role_or_stale_preflight_failure_is_zero_write` | `PARTIAL` | Identity/role preflight and a zero-write failure node are present; complete MAIN/SI, duplicate and cross-study coverage in the public flow is missing; test `NOT_RUN`. |
+| `FR-009` — 默认解析器 | `review_writer/agent/local_pdf_parse.py` | — (no dedicated default-backend test inspected) | `NOT_VERIFIED` | Local parse seam is present, but fresh proof of default MinerU invocation, provenance and user-hidden internal invocation is missing. |
+| `FR-010` — 真实 fallback | `review_writer/agent/local_pdf_parse.py` | — (no dedicated fallback provenance test inspected) | `NOT_VERIFIED` | Fallback-related parser seam is present, but no fresh runtime evidence proves registered fallback reason, backend/version, hashes, capability gap and retry boundary. |
+| `FR-011` — Source Truth | `review_writer/project/source_truth.py`; `schemas/evidence/source_truth_bundle.v1.schema.json` | — (no dedicated Source Truth public-flow test inspected) | `PARTIAL` | Source Truth helper/schema paths exist; end-to-end source-bound locator and downstream-only reference proof is missing. |
+| `FR-012` — Parse Quality | `review_writer/project/parse_quality.py`; `schemas/evidence/parse_quality_gate.v1.schema.json` | — (no dedicated Parse Quality acceptance test inspected) | `PARTIAL` | Quality-gate seam/schema exists; fresh evidence for all listed structural and MAIN/SI checks plus human decision routing is missing. |
+| `FR-013` — Evidence | `review_writer/project/paper_evidence.py`; `scripts/evidence/validate_evidence_candidate.py` | `tests/test_review_evidence_ui.mjs` | `PARTIAL` | Evidence helper, validator and UI test path exist; public source-bound candidate-to-confirmed projection and scientific review evidence are missing; test `NOT_RUN`. |
+| `FR-014` — Matrix/RQ binding | `review_writer/project/synthesis.py`; `review_writer/project/vertical_review.py` | `tests/test_synthesis_workspace_producer.py` | `PARTIAL` | Synthesis/workspace seams and focused test path exist; complete stable RQ/study/Evidence/locator binding and cross-study protocol proof are missing; test `NOT_RUN`. |
+| `FR-015` — Gap registry | `review_writer/project/vertical_review.py` | — (no dedicated Gap-registry test inspected) | `NOT_VERIFIED` | Gap-related projection seam is present, but durable visible registry, blocking semantics and next-action evidence are not freshly verified. |
+| `FR-016` — 一次性 Decision Bundle | `review_writer/agent/local_pdf_parse.py` human-action handoffs; `review_writer/project/verification_decision.py` | `tests/test_synthesis_workspace_producer.py` | `HOLD` | Internal human-action/protocol seams and sequential handoff tests exist, but one canonical Bundle, one writer transaction, idempotency and stale-revision zero-write are not evidenced; test `NOT_RUN`. |
+| `FR-017` — multi-study synthesis | `review_writer/project/synthesis.py`; `review_writer/synthesis/` | `tests/test_synthesis_workspace_producer.py` | `PARTIAL` | Synthesis producer and focused tests are present; independent multi-study Product Use, preserved study boundaries and N growth/reduction evidence are missing; test `NOT_RUN`. |
+| `FR-018` — PDF figure candidates | `review_writer/project/review_figures.py`; `schemas/figures/source_figure.v1.schema.json` | — (no dedicated figure-candidate acceptance test inspected) | `PARTIAL` | Figure registry/schema seams are present; authorized-source selection and fresh attribution/evidence-chain proof are missing. |
+| `FR-019` — attribution/license/binding | `review_writer/project/review_figures.py`; `review_writer/delivery/project_release.py` | — (no dedicated rights/binding test inspected) | `NOT_VERIFIED` | Rights/binding-related code paths exist, but unknown-rights blocking, stale binding and release proof are not freshly verified. |
+| `FR-020` — 草稿 | `review_writer/draft/service.py`; `review_writer/project/manuscript_v2.py` | `tests/test_review_manuscript_save_ui.mjs` | `PARTIAL` | Draft/manuscript seams and UI save test path exist; source-bound generation, protected human paragraphs and public caller evidence are missing; test `NOT_RUN`. |
+| `FR-021` — Markdown/DOCX | `review_writer/delivery/project_release.py`; `review_writer/delivery/docx_integrity.py` | — (no fresh same-version export test inspected) | `PARTIAL` | Export/integrity helpers are present; same-manuscript Markdown/DOCX hash and release-lineage Product Use evidence is missing. |
+| `FR-022` — stale/regenerate | `review_writer/delivery/project_release.py` | `tests/test_dashboard_runtime_root.py` | `PARTIAL` | Release/runtime seams and test path exist; complete stale-download protection and regenerate evidence in an isolated project are missing; test `NOT_RUN`. |
+| `FR-023` — History | `review_writer/product_foundation/workspace_model.py`; `review_writer/draft/service.py` | `tests/test_dashboard_runtime_root.py` | `PARTIAL` | Version/history/branch seams and dashboard runtime test path exist; public compare/branch/undo/current separation evidence is missing; test `NOT_RUN`. |
+| `FR-024` — cold resume | `review_writer/product_foundation/service.py`; `review_writer/agent/generator_runtime.py` | — (no dedicated cold-resume test inspected) | `NOT_VERIFIED` | Resume-related authority/runtime seams are present, but fresh process resume from the same explicit root and preservation of unfinished/user edits are not verified. |
+| `FR-025` — zero-write | `review_writer/project/path_safety.py`; `review_writer/agent/fresh_bootstrap.py` | `tests/test_fresh_bootstrap_source_set.py::test_invalid_authorized_source_set_fails_before_any_project_write`; `::test_malformed_pdf_is_rejected_before_project_write` | `PARTIAL` | Focused invalid-source zero-write nodes exist; the complete error/dependency/concurrency matrix and public HTTP write-set evidence are missing; tests `NOT_RUN`. |
+| `FR-026` — 安全边界 | `review_writer/project/path_safety.py`; `view/serve_review_dashboard.py` | `tests/test_dashboard_runtime_root.py` | `PARTIAL` | Path-safety/dashboard seams and runtime test path exist; complete symlink/reparse, secret-redaction and loopback PUBLIC_E2E evidence is missing; test `NOT_RUN`. |
 
-This table is not contract approval, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity, `PROMOTE`, or release evidence. A future FR mapping requires fresh source confirmation and must preserve the source checkout's dirty/unpinned boundary.
+## Evidence-layer boundary
+
+The table is Engineering/static traceability only. `PARTIAL`, `HOLD` and `NOT_VERIFIED`
+do not imply Product Use, Independent Quality, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific
+validity or `PROMOTE/B2`. In particular, static seams and tests marked `NOT_RUN` cannot
+cross those layers. A future update must preserve the dirty/unpinned source boundary and
+replace a row only with fresh, independently attributable evidence.

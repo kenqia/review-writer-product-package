@@ -4,7 +4,11 @@
 
 Review Writer 是一个本地优先的化学综述工作台。你在 Codex 中说明主题、一个明确的项目目录和获授权的本地 PDF 文件夹；Agent 使用本包的本地工具，遇到需要研究者判断的地方暂停并返回 Dashboard。PDF、项目正文和版本历史都保留在你的电脑上。
 
-文档追踪快照：[`docs/PRODUCT_TRACEABILITY.md`](docs/PRODUCT_TRACEABILITY.md)（仅记录引用与边界，不等于合同批准）。
+公开 canonical 合同：[`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md)；
+FR 追踪表：[`docs/PRODUCT_TRACEABILITY.md`](docs/PRODUCT_TRACEABILITY.md)。
+当前验证边界仅到 Engineering/静态证据；source SRS/Design 为 dirty、未 pinned 的
+参考，尚未证明 Independent Quality、Product Use、`PUBLIC_E2E`、
+`HUMAN_ACCEPTANCE`、scientific validity 或 `PROMOTE/B2`。
 
 ## 完整流程
 
@@ -84,7 +88,7 @@ python -c "import jsonschema, PIL, docx, review_writer; from view.serve_review_d
 不要在 package 根目录内放综述数据。准备：
 
 1. 一个**空** project root，例如 `/home/researcher/review-projects/nickel-coupling-review`。
-2. 一个 authorized PDF folder，例如 `/home/researcher/authorized-pdfs/nickel-coupling`，其中只放本次明确授权读取的 1 至 3 个 PDF。
+2. 一个 authorized PDF folder，例如 `/home/researcher/authorized-pdfs/nickel-coupling`，其中只放本次明确授权读取的 PDF 文件集。数量不固定；当前实现或旧说明中的 `1–3` 仅是待 FR-005 验证的临时 `HOLD`，不是最终产品上限。
 
 Windows 用户可使用同样含义的路径，例如 `C:\Users\researcher\Documents\review-projects\nickel-coupling-review` 和 `C:\Users\researcher\Documents\authorized-pdfs\nickel-coupling`。新建 project root 必须为空；恢复既有综述时必须使用原来的同一个 root。
 
