@@ -155,6 +155,7 @@ from review_writer.project.source_truth import (  # noqa: E402
     load_source_truth_bundle,
     project_source_binding,
     source_tier_authority,
+    source_truth_asset,
     source_truth_asset_snapshot,
     write_source_truth_bundle,
 )
@@ -6545,10 +6546,12 @@ def project_source_pdf_descriptors_payload(
     try:
         for study_id in declared_study_ids(project):
             persisted = load_source_truth_bundle(project, study_id)
-            fresh = build_source_truth_bundle(project, study_id)
-            if persisted.get("bundle_digest") != fresh.get("bundle_digest"):
-                return {"status": "stale", "items": []}
-            sources = fresh.get("sources")
+            if (
+                persisted.get("project_id") != project.name
+                or persisted.get("study_id") != study_id
+            ):
+                raise SourceTruthError("SOURCE_TRUTH_IDENTITY_MISMATCH")
+            sources = persisted.get("sources")
             if not isinstance(sources, list):
                 raise SourceTruthError("SOURCE_TRUTH_SCHEMA_INVALID")
             for source in sources:
@@ -6571,6 +6574,11 @@ def project_source_pdf_descriptors_payload(
                     or not re.fullmatch(r"[0-9a-f]{64}", digest)
                 ):
                     raise SourceTruthError("SOURCE_TRUTH_SCHEMA_INVALID")
+                # The persisted bundle is the source-truth snapshot for this
+                # request.  Revalidate only the declared PDF bytes against its
+                # bound hash; rebuilding the complete bundle would reread all
+                # MinerU sidecars and make this read endpoint unbounded on WSL.
+                source_truth_asset(project, study_id, source_id, "pdf")
                 items.append(
                     {
                         "source": source_id,
@@ -6593,7 +6601,16 @@ def project_source_pdf_descriptors_payload(
 
 def project_paper_evidence_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id)
-    workflow = workflow_state(project)
+    # The source-truth root is the authoritative route discriminator.  Calling
+    # workflow_state here would rebuild paper_evidence_state once before this
+    # payload computes the same state below, which makes a read-only Dashboard
+    # request scale with every source-truth sidecar on WSL.  Legacy projects
+    # still use the full legacy projection.
+    workflow = (
+        {"route": "evidence-to-release.v1"}
+        if os.path.lexists(project / SOURCE_TRUTH_ROOT)
+        else workflow_state(project)
+    )
     if workflow.get("route") != "evidence-to-release.v1":
         return {"route": workflow.get("route", "legacy"), "status": "legacy", "items": [], "workflow_can_continue": False}
     state = paper_evidence_state(project)

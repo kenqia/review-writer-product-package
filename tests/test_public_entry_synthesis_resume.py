@@ -219,6 +219,13 @@ def test_resume_keeps_old_state_without_continuing_unapproved_evidence(
         continuation={"status": "unexpected"},
     )
 
+    def fail_start(_review_root: Path) -> tuple[str, int]:
+        raise public_entry.fresh_bootstrap.FreshAgentBootstrapError(
+            "DASHBOARD_START_FAILED", runtime_diagnostic="CHILD_EARLY_EXIT"
+        )
+
+    monkeypatch.setattr(public_entry.fresh_bootstrap, "_start_dashboard", fail_start)
+
     result = public_entry._resume(project, ())
 
     assert calls == []

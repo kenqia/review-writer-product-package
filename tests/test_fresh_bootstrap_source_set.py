@@ -12,8 +12,10 @@ from unittest.mock import patch
 
 import pytest
 
+from view import serve_review_dashboard as dashboard
 from review_writer.agent import fresh_bootstrap, local_pdf_parse, public_entry
 from review_writer.product_foundation import VersionContext
+from review_writer.project import source_truth
 
 
 def _write_pdf(folder: Path, name: str, payload: bytes) -> Path:
@@ -187,6 +189,58 @@ def test_n3_preflight_matches_every_authorized_member_row(tmp_path: Path) -> Non
         "MEMBER-0002",
         "MEMBER-0003",
     ]
+
+
+def test_dashboard_source_pdf_descriptors_reuse_persisted_bundle_and_fail_closed_on_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    pdf = _write_pdf(project, "paper.pdf", b"stable")
+    study_id = "study-1"
+    source_id = "source-1"
+    bundle = {
+        "schema_version": "source-truth-bundle.v1",
+        "project_id": project.name,
+        "study_id": study_id,
+        "sources": [
+            {
+                "source_id": source_id,
+                "document_role": "MAIN",
+                "page_count": 1,
+                "pdf": {
+                    "path": pdf.name,
+                    "sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+                    "size_bytes": pdf.stat().st_size,
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(dashboard, "project_dir", lambda _root, _id: project)
+    monkeypatch.setattr(dashboard, "declared_study_ids", lambda _project: [study_id])
+    monkeypatch.setattr(
+        dashboard, "load_source_truth_bundle", lambda _project, _id: bundle
+    )
+    monkeypatch.setattr(
+        source_truth, "load_source_truth_bundle", lambda _project, _id: bundle
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "build_source_truth_bundle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("descriptor read must not rebuild the source-truth bundle")
+        ),
+    )
+
+    current = dashboard.project_source_pdf_descriptors_payload(tmp_path, project.name)
+    assert current["status"] == "current"
+    assert current["items"][0]["digest"] == bundle["sources"][0]["pdf"]["sha256"]
+
+    pdf.write_bytes(b"drifted")
+    stale = dashboard.project_source_pdf_descriptors_payload(tmp_path, project.name)
+    assert stale == {"status": "stale", "items": []}
 
 
 def test_malformed_pdf_is_rejected_before_project_write(tmp_path: Path) -> None:
@@ -551,6 +605,10 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
     # a cold pytest interpreter; keep this real Dashboard integration test
     # deterministic without changing the product timeout.
     monkeypatch.setattr(fresh_bootstrap, "_DASHBOARD_START_TIMEOUT_SECONDS", 10.0)
+    # The chain below exercises the real HTTP seam; keep the public adapter on
+    # this owned Dashboard URL so a 0.2s health probe cannot spawn an
+    # unowned replacement while the integration test is doing source work.
+    monkeypatch.setattr(public_entry, "_dashboard_is_healthy", lambda _value: True)
     folder = tmp_path / "authorized"
     folder.mkdir()
     for name, payload in (("a.pdf", b"A"), ("b.pdf", b"B"), ("c.pdf", b"C")):
@@ -593,6 +651,12 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         project_id = result["project_id"]
         dashboard_url = result["dashboard_url"]
 
+        def adopt_dashboard_url(response: dict[str, object]) -> None:
+            nonlocal dashboard_url
+            candidate = response.get("dashboard_url")
+            if isinstance(candidate, str) and candidate:
+                dashboard_url = candidate
+
         status, sources = request(dashboard_url, "GET", f"/api/project/{project_id}/sources")
         assert status == 200
         preflight = sources["preflight"]
@@ -630,6 +694,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             project_root,
             folder,
         )
+        adopt_dashboard_url(resumed)
         assert resumed["result"] == "RESUMED"
         assert resumed["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
         assert resumed["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
@@ -653,6 +718,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             project_root,
             folder,
         )
+        adopt_dashboard_url(unapproved)
         after_unapproved = VersionContext.load(project_root).state()
         assert unapproved["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
         assert unapproved["write_mode"] == "NONE"
@@ -711,6 +777,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             project_root,
             folder,
         )
+        adopt_dashboard_url(resumed)
         assert resumed["result"] == "RESUMED"
         assert resumed["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
         assert resumed["reason_code"] == "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
@@ -733,6 +800,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             project_root,
             folder,
         )
+        adopt_dashboard_url(repeated)
         after_idempotent = VersionContext.load(project_root).state()
         assert repeated["reason_code"] == "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
         assert repeated["write_mode"] == "NONE"
@@ -768,6 +836,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             project_root,
             folder,
         )
+        adopt_dashboard_url(continued)
         assert continued["result"] == "RESUMED"
         assert continued["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
         assert continued["reason_code"] == "SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED"
@@ -792,6 +861,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         continued = public_entry.start_or_resume_review(
             "A bounded N=3 source-set review", project_root, folder
         )
+        adopt_dashboard_url(continued)
         assert continued["reason_code"] == "SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED"
         status, synthesis = request(
             dashboard_url, "GET", f"/api/project/{project_id}/synthesis"
@@ -816,6 +886,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         continued = public_entry.start_or_resume_review(
             "A bounded N=3 source-set review", project_root, folder
         )
+        adopt_dashboard_url(continued)
         assert continued["reason_code"] == "SECTION_CONTRACT_HUMAN_ACTION_REQUIRED"
         status, contracts = request(
             dashboard_url, "GET", f"/api/project/{project_id}/section-contracts"
@@ -840,7 +911,51 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         continued = public_entry.start_or_resume_review(
             "A bounded N=3 source-set review", project_root, folder
         )
+        adopt_dashboard_url(continued)
         assert continued["reason_code"] == "SECTION_DRAFT_HUMAN_ACTION_REQUIRED"
+
+        # Approve the v1 candidate through the public Dashboard draft seam.
+        # This is the same payload a human researcher submits from GET /draft;
+        # no direct manuscript or VersionContext helper is allowed here.
+        status, draft = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/draft"
+        )
+        assert status == 200
+        assert draft["route"] == "evidence-to-release.v1"
+        assert len(draft["sections"]) == 1
+        v1_section = draft["sections"][0]
+        assert v1_section["status"] == "needs_human_edit"
+        edited_body = v1_section["body"].replace(
+            "approved source-bound", "source-bound", 1
+        )
+        assert edited_body != v1_section["body"]
+        status, draft = request(
+            dashboard_url,
+            "PUT",
+            f"/api/project/{project_id}/draft",
+            {
+                "section_id": v1_section["section_id"],
+                "version_token": v1_section["version_token"],
+                "edited_body": edited_body,
+                "reason": "Human researcher checked the source-bound wording.",
+                "actor_type": "human_researcher",
+                "actor_label": "研究者",
+            },
+        )
+        assert status == 200
+        assert draft["sections"][0]["status"] == "approved"
+        assert draft["sections"][0]["decision"]["actor_type"] == "human_researcher"
+
+        # Public resume must consume that persisted decision and advance the
+        # same generator session to a v2 candidate.
+        continued = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        adopt_dashboard_url(continued)
+        assert continued["result"] == "RESUMED"
+        assert continued["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert continued["candidate"]["version"] == "v2"
+        assert continued["current"]["version_id"].startswith("generator-v2-")
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(

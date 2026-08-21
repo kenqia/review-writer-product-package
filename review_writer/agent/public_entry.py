@@ -627,7 +627,17 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
                 )
                 return result
     if dashboard_failure is not None:
-        return _dashboard_hold(project, current_payload, dashboard_failure)
+        # A dashboard restart is only an access-plane failure.  Preserve an
+        # already-published parse/evidence human gate so resume remains
+        # state-driven and does not hide the actionable product reason behind
+        # a transient dashboard condition.  Bootstrap/source-role states do
+        # not have an agent_parse owner and continue to use the explicit HOLD.
+        parse_owner = snapshot.get("agent_parse")
+        if not (
+            isinstance(parse_owner, dict)
+            and parse_owner.get("status") == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        ):
+            return _dashboard_hold(project, current_payload, dashboard_failure)
     status, reason_code, next_action, trace = _nested_status(snapshot)
     if next_action is None:
         next_action = {"project_id": project.name, "route": "/review", "type": status}
