@@ -1902,9 +1902,11 @@ def parse_project_sources(
                 "sources": parser_sources,
             }
             parser_tool = "build_pdf_text_layers"
-        bundles = [write_source_truth_bundle(staged_project, row["study_id"]) for row in rows if row["document_role"] == "MAIN"]
-        gates = [write_parse_quality_gate(staged_project, row["study_id"]) for row in rows if row["document_role"] == "MAIN"]
-        if len(bundles) != len({row["study_id"] for row in rows}) or len(gates) != len(bundles):
+        main_rows = [row for row in rows if row["document_role"] == "MAIN"]
+        main_study_ids = {row["study_id"] for row in main_rows}
+        bundles = [write_source_truth_bundle(staged_project, row["study_id"]) for row in main_rows]
+        gates = [write_parse_quality_gate(staged_project, row["study_id"]) for row in main_rows]
+        if len(bundles) != len(main_study_ids) or len(gates) != len(bundles):
             raise LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
         figure_sources: list[dict[str, Any]] = []
         for bundle in bundles:

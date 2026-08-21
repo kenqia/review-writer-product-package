@@ -12,24 +12,47 @@ from unittest.mock import patch
 
 import pytest
 
-from review_writer.agent import fresh_bootstrap, public_entry
+from review_writer.agent import fresh_bootstrap, local_pdf_parse, public_entry
 from review_writer.product_foundation import VersionContext
 
 
 def _write_pdf(folder: Path, name: str, payload: bytes) -> Path:
     path = folder / name
-    body = b"%PDF-1.7\n% " + payload + b"\n1 0 obj\n<< /Length 0 >>\nstream\nendstream\nendobj\n"
-    xref_offset = len(body)
-    object_offset = len(b"%PDF-1.7\n% ") + len(payload) + 1
-    path.write_bytes(
-        body
-        + b"xref\n0 2\n0000000000 65535 f \n"
-        + f"{object_offset:010d}".encode()
-        + b" 00000 n \n"
-        + b"trailer\n<< /Size 2 >>\nstartxref\n"
-        + str(xref_offset).encode()
+    text = (
+        payload.decode("ascii", errors="replace")
+        .replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+    content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET\n".encode("ascii")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\n"
+        b"stream\n" + content + b"endstream",
+    ]
+    document = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(document))
+        document += f"{index} 0 obj\n".encode("ascii") + obj + b"\nendobj\n"
+    xref_offset = len(document)
+    document += f"xref\n0 {len(objects) + 1}\n".encode("ascii")
+    document += b"0000000000 65535 f \n"
+    document += b"".join(
+        f"{offset:010d} 00000 n \n".encode("ascii") for offset in offsets[1:]
+    )
+    document += (
+        b"trailer\n<< /Size "
+        + str(len(objects) + 1).encode("ascii")
+        + b" /Root 1 0 R >>\nstartxref\n"
+        + str(xref_offset).encode("ascii")
         + b"\n%%EOF\n"
     )
+    path.write_bytes(document)
     return path
 
 
@@ -517,3 +540,232 @@ def test_n3_native_bootstrap_maps_all_members_through_real_dashboard(
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
                 result["dashboard_pid"]
             )
+
+
+def test_public_n3_mapping_resume_reaches_parse_quality_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public N=3 source mapping must continue into local parse quality."""
+    # WSL process startup can exceed the production health-check budget under
+    # a cold pytest interpreter; keep this real Dashboard integration test
+    # deterministic without changing the product timeout.
+    monkeypatch.setattr(fresh_bootstrap, "_DASHBOARD_START_TIMEOUT_SECONDS", 10.0)
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    for name, payload in (("a.pdf", b"A"), ("b.pdf", b"B"), ("c.pdf", b"C")):
+        _write_pdf(folder, name, payload)
+    project_root = tmp_path / "projects" / "n3-public-parse"
+    project_root.parent.mkdir()
+    result: dict[str, object] | None = None
+
+    def request(
+        base_url: str,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> tuple[int, dict[str, object]]:
+        url = urlsplit(base_url)
+        body = b"" if payload is None else json.dumps(payload).encode()
+        connection = http.client.HTTPConnection(url.hostname, url.port, timeout=10)
+        try:
+            connection.request(
+                method,
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode())
+        finally:
+            connection.close()
+
+    try:
+        result = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        project_id = result["project_id"]
+        dashboard_url = result["dashboard_url"]
+
+        status, sources = request(dashboard_url, "GET", f"/api/project/{project_id}/sources")
+        assert status == 200
+        preflight = sources["preflight"]
+        status, history = request(dashboard_url, "GET", f"/api/project/{project_id}/history")
+        assert status == 200
+        rows = [
+            {
+                "member_id": member["member_id"],
+                "name": member["name"],
+                "sha256": member["sha256"],
+                "download_id": member["download_id"],
+                "source_id": member["source_id"],
+                "study_id": member["study_id"],
+                # Treat each synthetic PDF as one independent study's MAIN
+                # article so the public parse-quality set is complete.
+                "document_role": "MAIN",
+            }
+            for member in preflight["members"]
+        ]
+        status, mapped = request(
+            dashboard_url,
+            "POST",
+            f"/api/project/{project_id}/source-mapping",
+            {
+                "members": rows,
+                "archive_sha256": preflight["archive_sha256"],
+                "expected_revision": history["revision"],
+            },
+        )
+        assert status == 200
+        assert mapped["status"] == "mapped"
+
+        resumed = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        assert resumed["result"] == "RESUMED"
+        assert resumed["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert resumed["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+        assert resumed["revision"] > result["revision"]
+        current = VersionContext.load(project_root).view_version(
+            VersionContext.load(project_root).state().current_version_id
+        )
+        parse = current.snapshot["agent_parse"]
+        assert parse["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert parse["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+        assert parse["source_count"] == 3
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
+                result["dashboard_pid"]
+            )
+
+
+def test_local_parse_counts_main_studies_when_receipt_has_si_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MAIN bundles/gates are not compared against SI-only study rows."""
+    project = tmp_path / "parse-project"
+    (project / "00_brief").mkdir(parents=True)
+    (project / "00_brief/review_state.json").write_text(
+        json.dumps({"project_id": project.name}), encoding="utf-8"
+    )
+    (project / ".paper_evidence.lock").write_bytes(b"lock")
+    source_root = project / "00_sources"
+    source_root.mkdir()
+    main = _write_pdf(source_root, "main.pdf", b"main")
+    si = _write_pdf(source_root, "si.pdf", b"supplement")
+    si_only = _write_pdf(source_root, "si-only.pdf", b"supplement-only")
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    receipt = {
+        "schema_version": "acquisition-final-receipt.v1",
+        "studies": [
+            {
+                "study_id": "study-main",
+                "source_id": "source-main",
+                "main_pdf": {"path": "main.pdf", "sha256": digest(main)},
+                "si_pdf": {"path": "si.pdf", "sha256": digest(si)},
+            },
+            {
+                "study_id": "study-si-only",
+                "source_id": "source-si-only",
+                "si_pdf": {"path": "si-only.pdf", "sha256": digest(si_only)},
+            },
+        ],
+    }
+    (source_root / "acquisition_final_receipt.json").write_text(
+        json.dumps(receipt), encoding="utf-8"
+    )
+    VersionContext.create(
+        {"currentness": "current"},
+        project_id=project.name,
+        project_root=project,
+    )
+    parse_rows = [
+        {
+            "slug": "main",
+            "state": "done",
+            "study_id": "study-main",
+            "source_id": "source-main",
+            "document_role": "MAIN",
+            "relative_pdf_path": "main.pdf",
+            "source_pdf_sha256": digest(main),
+        },
+        {
+            "slug": "si",
+            "state": "done",
+            "study_id": "study-main",
+            "source_id": "source-main__SI",
+            "document_role": "SI",
+            "relative_pdf_path": "si.pdf",
+            "source_pdf_sha256": digest(si),
+        },
+        {
+            "slug": "si-only",
+            "state": "done",
+            "study_id": "study-si-only",
+            "source_id": "source-si-only__SI",
+            "document_role": "SI",
+            "relative_pdf_path": "si-only.pdf",
+            "source_pdf_sha256": digest(si_only),
+        },
+    ]
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "_write_mineru_parse_output",
+        lambda _evidence, _rows: (parse_rows, [
+            {"source_id": row["source_id"], "source_pdf_sha256": row["source_pdf_sha256"]}
+            for row in parse_rows
+        ]),
+    )
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "write_source_truth_bundle",
+        lambda _project, _study_id: {
+            "study_id": "study-main",
+            "bundle_digest": "b" * 64,
+            "sources": [
+                {
+                    "source_id": "source-main",
+                    "document_role": "MAIN",
+                    "pdf": {"path": "00_sources/main.pdf", "sha256": digest(main)},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "write_parse_quality_gate",
+        lambda _project, _study_id: {
+            "study_id": "study-main",
+            "gate_digest": "g" * 64,
+            "status": "needs_review",
+        },
+    )
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "_build_staged_figure_candidates",
+        lambda *_args, **_kwargs: {
+            "schema_version": "review-writer.agent-figure-candidates.v1",
+            "project_id": project.name,
+            "status": "gap",
+            "parser_mode": "MINERU",
+            "figures": [],
+            "gaps": [],
+        },
+    )
+    monkeypatch.setattr(local_pdf_parse, "_publish_components", lambda *_args: None)
+
+    result = local_pdf_parse.parse_project_sources(project)
+
+    assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    assert result["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+    assert [row["study_id"] for row in result["source_truth"]] == ["study-main"]
