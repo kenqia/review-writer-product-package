@@ -19,7 +19,7 @@ from review_writer.product_foundation import ProductFoundationError, VersionCont
 from review_writer.product_foundation.project_root import resolve_project_root
 from view.serve_review_dashboard import PublicProjectResumeError, _resume_artifact_refs
 
-from . import fresh_bootstrap
+from . import fresh_bootstrap, local_pdf_parse
 
 # Keep the public adapter's seam explicit while reusing the existing fresh
 # bootstrap implementation.  Tests and callers can patch/inspect this seam
@@ -224,7 +224,7 @@ def _dashboard_url(snapshot: dict[str, Any]) -> str | None:
 def _nested_status(
     snapshot: dict[str, Any],
 ) -> tuple[str, str | None, dict[str, Any] | None, Any]:
-    for owner_key in ("agent_bootstrap", "generator_runtime", "agent_parse"):
+    for owner_key in ("generator_runtime", "agent_parse", "agent_bootstrap"):
         owner = snapshot.get(owner_key)
         if not isinstance(owner, dict):
             continue
@@ -239,6 +239,25 @@ def _nested_status(
                 owner.get("tool_trace", owner.get("audit")),
             )
     return "RESUMED", None, None, None
+
+
+def _parse_artifacts_exist(project: Path) -> bool:
+    evidence = project / "01_evidence"
+    return any(
+        os.path.lexists(evidence / component)
+        for component in local_pdf_parse._EVIDENCE_COMPONENTS
+    )
+
+
+def _source_mapping_complete(project: Path, snapshot: dict[str, Any]) -> bool:
+    bootstrap = snapshot.get("agent_bootstrap")
+    if (
+        not isinstance(bootstrap, dict)
+        or bootstrap.get("status") != fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    ):
+        return False
+    receipt = project / local_pdf_parse._RECEIPT
+    return receipt.is_file() and not receipt.is_symlink()
 
 
 def _current_payload(project: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -281,6 +300,28 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     snapshot = copy.deepcopy(dict(current.snapshot))
     _validate_resume_source(project, authorized_pdfs, snapshot)
     current_payload = _current_payload(project, snapshot)
+    if _source_mapping_complete(project, snapshot) and not _parse_artifacts_exist(project):
+        parsed = local_pdf_parse.parse_project_sources(
+            project,
+            expected_revision=state.revision,
+            expected_head_id=state.active_head_id,
+        )
+        parsed_current = parsed.get("current") if isinstance(parsed, dict) else None
+        if (
+            not isinstance(parsed_current, dict)
+            or not {"version_id", "revision", "snapshot_digest"}.issubset(parsed_current)
+        ):
+            raise _error("PARSE_RESULT_INVALID", category="PRECONDITION_FAILED")
+        parsed_current = copy.deepcopy(parsed_current)
+        parsed_current.setdefault("project_id", project.name)
+        return {
+            **copy.deepcopy(parsed),
+            "result": "RESUMED",
+            "current": parsed_current,
+            "revision": parsed_current["revision"],
+            "dashboard_url": _dashboard_url(snapshot),
+            "write_mode": "VERSION_CONTEXT",
+        }
     status, reason_code, next_action, trace = _nested_status(snapshot)
     if next_action is None:
         next_action = {"project_id": project.name, "route": "/review", "type": status}

@@ -13,6 +13,7 @@ import pytest
 from review_writer.agent import start_or_resume_review
 from review_writer.agent import public_entry
 from review_writer.agent import fresh_bootstrap
+from review_writer.agent import local_pdf_parse
 from review_writer.product_foundation import VersionContext
 
 
@@ -99,6 +100,72 @@ def _resume_project(tmp_path: Path) -> tuple[Path, Path, list[Path]]:
     return project, authorized, tracked
 
 
+def _complete_source_mapping(project: Path, authorized: Path) -> None:
+    source = authorized / "main.pdf"
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_relative = "manual_upload/main.pdf"
+    destination = project / "00_sources" / source_relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    study_id = f"UPLOAD-{source_digest[:20]}"
+    manifest = {
+        "schema_version": "public-corpus-acquisition.v1",
+        "downloads": [
+            {
+                "download_id": study_id,
+                "study_id": study_id,
+                "source_id": study_id,
+                "document_role": "MAIN",
+                "target_path": f"00_sources/{source_relative}",
+                "sha256": source_digest,
+            }
+        ],
+    }
+    receipt = {
+        "schema_version": "acquisition-final-receipt.v1",
+        "source_origin": "RESEARCHER_MANUAL_UPLOAD",
+        "total_studies": 1,
+        "studies": [
+            {
+                "study_id": study_id,
+                "source_id": study_id,
+                "download_id": study_id,
+                "document_role": "MAIN",
+                "archive_sha256": "a" * 64,
+                "main_pdf": {
+                    "path": source_relative,
+                    "sha256": source_digest,
+                    "size_bytes": destination.stat().st_size,
+                },
+            }
+        ],
+    }
+    identity_audit = {
+        "schema_version": "source-identity-audit.v1",
+        "results": [
+            {
+                "candidate_id": study_id,
+                "study_id": study_id,
+                "source_id": study_id,
+                "document_role": "MAIN",
+                "source_sha256": source_digest,
+                "verdict": "PASS",
+            }
+        ],
+    }
+    discovery = project / "00_discovery"
+    discovery.mkdir(parents=True, exist_ok=True)
+    (discovery / "acquisition_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    (project / "00_sources/acquisition_final_receipt.json").write_text(
+        json.dumps(receipt), encoding="utf-8"
+    )
+    (project / "00_sources/source_identity_audit.json").write_text(
+        json.dumps(identity_audit), encoding="utf-8"
+    )
+
+
 def test_public_entry_is_discoverable_and_maps_human_action_required(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -158,6 +225,103 @@ def test_resume_reads_current_and_is_zero_write(tmp_path: Path) -> None:
     assert result["current"]["revision"] == 0
     assert result["revision"] == 0
     assert result["dashboard_url"] == "http://127.0.0.1:43123"
+    assert {path: _fingerprint(path) for path in tracked} == before
+
+
+def test_resume_after_source_mapping_enters_local_parse_seam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, _ = _resume_project(tmp_path)
+    _complete_source_mapping(project, authorized)
+    state = VersionContext.load(project).state()
+    observed: dict[str, object] = {}
+
+    def fake_parse(
+        explicit_project_root: Path,
+        *,
+        session_id: str | None = None,
+        expected_revision: int | None = None,
+        expected_head_id: str | None = None,
+    ) -> dict[str, object]:
+        observed.update(
+            project=explicit_project_root,
+            session_id=session_id,
+            expected_revision=expected_revision,
+            expected_head_id=expected_head_id,
+        )
+        return {
+            "status": "HUMAN_ACTION_REQUIRED",
+            "reason_code": "PARSE_QUALITY_HUMAN_ACTION_REQUIRED",
+            "project_id": project.name,
+            "current": {
+                "version_id": "agent-local-parse-test",
+                "revision": state.revision + 1,
+                "snapshot_digest": "b" * 64,
+            },
+            "trace": {"event_count": 3},
+        }
+
+    monkeypatch.setattr(local_pdf_parse, "parse_project_sources", fake_parse)
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert observed == {
+        "project": project,
+        "session_id": None,
+        "expected_revision": state.revision,
+        "expected_head_id": state.active_head_id,
+    }
+    assert result["result"] == "RESUMED"
+    assert result["status"] == "HUMAN_ACTION_REQUIRED"
+    assert result["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+    assert result["current"]["project_id"] == project.name
+    assert result["revision"] == state.revision + 1
+    assert result["write_mode"] == "VERSION_CONTEXT"
+
+
+def test_resume_parse_failure_is_not_swallowed_or_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, tracked = _resume_project(tmp_path)
+    _complete_source_mapping(project, authorized)
+    before = {path: _fingerprint(path) for path in tracked}
+
+    def fail_parse(*args: object, **kwargs: object) -> object:
+        raise local_pdf_parse.LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
+
+    monkeypatch.setattr(local_pdf_parse, "parse_project_sources", fail_parse)
+
+    with pytest.raises(local_pdf_parse.LocalPdfParseError) as error:
+        start_or_resume_review("Resume topic", project, authorized)
+
+    assert error.value.code == "LOCAL_PDF_PARSE_FAILED"
+    assert {path: _fingerprint(path) for path in tracked} == before
+
+
+def test_resume_with_existing_parse_artifact_does_not_repeat_parse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, tracked = _resume_project(tmp_path)
+    _complete_source_mapping(project, authorized)
+    artifact = project / "01_evidence/mineru/manifest.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("{}\n", encoding="utf-8")
+    before = {path: _fingerprint(path) for path in tracked}
+    calls: list[object] = []
+
+    def fail_if_called(*args: object, **kwargs: object) -> object:
+        calls.append((args, kwargs))
+        raise AssertionError("parse seam must not run when parse artifacts exist")
+
+    monkeypatch.setattr(local_pdf_parse, "parse_project_sources", fail_if_called)
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert calls == []
+    assert result["result"] == "RESUMED"
+    assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    assert result["reason_code"] == fresh_bootstrap.SOURCE_ROLE_HUMAN_ACTION_REQUIRED
+    assert result["write_mode"] == "NONE"
     assert {path: _fingerprint(path) for path in tracked} == before
 
 
