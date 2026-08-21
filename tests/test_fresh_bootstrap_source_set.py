@@ -587,7 +587,15 @@ def test_n3_native_bootstrap_maps_all_members_through_real_dashboard(
                 },
             )
             response = connection.getresponse()
-            return response.status, json.loads(response.read().decode())
+            raw = response.read()
+            try:
+                decoded = json.loads(raw.decode())
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise AssertionError(
+                    f"non-JSON Dashboard response status={response.status} "
+                    f"body={raw[:500]!r} request_bytes={len(body)}"
+                ) from exc
+            return response.status, decoded
         finally:
             connection.close()
 
@@ -677,7 +685,15 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
                 },
             )
             response = connection.getresponse()
-            return response.status, json.loads(response.read().decode())
+            raw = response.read()
+            try:
+                decoded = json.loads(raw.decode())
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise AssertionError(
+                    f"non-JSON Dashboard response status={response.status} "
+                    f"body={raw[:500]!r} request_bytes={len(body)}"
+                ) from exc
+            return response.status, decoded
         finally:
             connection.close()
 
@@ -996,6 +1012,84 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert continued["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
         assert continued["candidate"]["version"] == "v2"
         assert continued["current"]["version_id"].startswith("generator-v2-")
+
+        # Register the researcher-owned synthesis placeholder through the
+        # public review-figures seam.  The registration response is the sole
+        # source of the placeholder brief and optimistic-concurrency token.
+        status, figures = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/review-figures"
+        )
+        assert status == 200
+        registration = figures["placeholder_registration"]
+        assert registration["next_action"] == "HUMAN_ACTION_REQUIRED"
+        placeholder = registration["placeholder"]
+        status, figures = request(
+            dashboard_url,
+            "PUT",
+            f"/api/project/{project_id}/review-figures",
+            {
+                "action": "register_placeholder",
+                "placeholder": placeholder,
+                "version_token": registration["version_token"],
+                "actor_type": "human_researcher",
+                "actor_label": "研究者",
+            },
+        )
+        assert status == 200
+        assert figures["placeholder_registration"] is None
+        assert figures["summary"]["placeholder_count"] == 1
+
+        # Bind the complete placeholder brief into the v2 manuscript through
+        # the public Dashboard draft seam.  Release validation requires the
+        # marker, scientific question, and every panel task to be visible in
+        # the authoritative manuscript body.
+        status, draft = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/draft"
+        )
+        assert status == 200
+        assert draft["route"] == "evidence-to-release.v1"
+        assert len(draft["sections"]) == 1
+        v2_section = draft["sections"][0]
+        assert v2_section["status"] == "needs_human_edit"
+        panel_tasks = [
+            panel["task"]
+            for panel in placeholder["panels"]
+            if isinstance(panel, dict) and isinstance(panel.get("task"), str)
+        ]
+        brief_lines = [
+            "<!-- SYNTHESIS_FIGURE_PLACEHOLDER: "
+            f"{placeholder['placeholder_id']} | {placeholder['scientific_question']} | "
+            f"{' | '.join(panel_tasks)} -->"
+        ]
+        edited_body = f"{v2_section['body'].rstrip()}\n\n" + "\n".join(brief_lines)
+        status, draft = request(
+            dashboard_url,
+            "PUT",
+            f"/api/project/{project_id}/draft",
+            {
+                "section_id": v2_section["section_id"],
+                "version_token": v2_section["version_token"],
+                "edited_body": edited_body,
+                "reason": "研究者核对并绑定综合图占位符简述。",
+                "actor_type": "human_researcher",
+                "actor_label": "研究者",
+            },
+        )
+        assert status == 200
+        assert draft["sections"][0]["status"] == "approved"
+
+        # The complete public flow must now publish a bounded self-reviewed
+        # Markdown/DOCX pair.  Keep this assertion intentionally strict so a
+        # missing release input remains an observed first blocker.
+        released = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        adopt_dashboard_url(released)
+        assert released["release_status"] == "SELF_REVIEWED_DRAFT"
+        assert released["release"]["markdown_path"] == "05_release/self_reviewed_draft.md"
+        assert released["release"]["docx_path"] == "05_release/self_reviewed_draft.docx"
+        assert (project_root / released["release"]["markdown_path"]).is_file()
+        assert (project_root / released["release"]["docx_path"]).is_file()
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
