@@ -33,15 +33,102 @@ PDF，也没有新增对 ChemVellum 的运行时依赖。
 | Review metadata prep | `skills/review-metadata-prep/` | `524e5f2b8094aee1b236153501302025af5e9f4d` | 只读借鉴 metadata registry、path validation 与 repair 的职责；不复制 metadata 或论文。 | `review_writer/acquisition/reusable_library.py`、`review_writer/project/input_provenance.py` 与 project-local Evidence/VersionContext。 |
 | MinerU precise parse | `skills/mineru-precise-parse-chemvellum/` | `53b577be3a617499043f4f11b1204a3721f22558` | 只读借鉴本地 PDF → Markdown 的 batch/provenance 边界；不上传或复制本地 PDF，不复制 token/config。 | `review_writer/agent/local_pdf_parse.py` 与 `.agents/skills/review-orchestrator/SKILL.md`；解析输出仍须经过 parse quality、human decision 与 source binding。 |
 
+## CR-008 component implementation record — Paper figure inventory builder
+
+本记录只覆盖一个组件；没有 vendoring 上游脚本、模板、PDF、图片或引入运行时依赖。
+
+- upstream URL：<https://github.com/TengJiao33/ChemVellum>
+- pinned upstream repository commit：`c94ff72694cc838c19fc22359e3e0b648e2352d6`
+- exact upstream file：`skills/review-source-figure-tools/scripts/build_paper_figure_inventory.py`
+- exact file-content commit：`53b577be3a617499043f4f11b1204a3721f22558`
+- authorization reference：`USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`
+- upstream license：GitHub `license=null`；书面授权不被推断为开源许可证。
+
+### State and authority mapping
+
+```text
+PLANNED
+→ ADAPTED
+→ PUBLIC_CALLER_CONNECTED
+→ REAL_RELEASE_CONSUMED
+→ VERIFIED (bounded Engineering/public-caller evidence)
+→ PROMOTED: HOLD
+```
+
+Fresh evidence in this component commit reaches `ADAPTED`, `PUBLIC_CALLER_CONNECTED`,
+`REAL_RELEASE_CONSUMED` and bounded `VERIFIED`. `PROMOTED` remains `HOLD` pending the
+complete Agent-first N=3 public flow, Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE` and
+scientific validity. The status is not a claim that the upstream component or the overall
+figure FRs are complete.
+
+### Clean-room adapter and canonical authorities
+
+- adapter：`review_writer/project/figure_inventory_adapter.py`；只移植确定性语义：
+  whitespace/caption/label 清洗、source-order key、已分组 fragment 保留、source-bound
+  Markdown license/rights hint、PDF/asset SHA-256 与 page/bbox 输入校验。
+- canonical candidate seam：
+  `review_writer/project/review_figures.py::project_source_figure_candidates`。
+- Agent caller：
+  `review_writer/agent/local_pdf_parse.py::_build_staged_figure_candidates` →
+  `project_source_figure_candidates`；registry producer 仍是
+  `build_source_figure_registry`，adapter 只读投影其 fragments。
+- Dashboard caller：现有 `/review-figures` candidate projection and
+  `write_project_workspace_decision`；human rights overlay remains the only rights
+  clearing path。
+- release caller：现有 `materialize_source_figure_registry` →
+  `review_writer/delivery/project_release.py::build_project_release` →
+  `figure_validation` and Markdown/DOCX release snapshot。
+- canonical authority mapping：candidate remains Agent/VersionContext snapshot data;
+  selected/cleared rows remain `source_figure_registry`; manuscript current/history,
+  VersionContext and release snapshot remain existing authorities. No second
+  SourceRecord/Evidence, figure registry, manuscript state or release state is created。
+
+### Write set, failure and rollback boundary
+
+This component commit writes only:
+
+```text
+review_writer/project/figure_inventory_adapter.py
+review_writer/project/review_figures.py
+review_writer/agent/local_pdf_parse.py
+tests/test_review_figure_inventory_adapter.py
+docs/THIRD_PARTY_NOTICES.md
+docs/PRODUCT_TRACEABILITY.md
+```
+
+Candidate enrichment is read-only: malformed source/role/hash/locator/asset/fragment or
+drifted canonical Markdown fails before candidate publication and leaves candidate files,
+registry, current/history and VersionContext unchanged. Human materialization and release
+continue to use their existing atomic writes and rollback; a failed release restores the
+existing Markdown/DOCX/snapshot/quality targets. The rollback boundary for this component
+is reverting this one commit; no upstream files are modified。
+
+### Focused evidence and limits
+
+Fresh Engineering evidence is `13 passed` in
+`tests/test_review_figure_inventory_adapter.py`, including clean text, deterministic
+source order, grouped fragments/page/bbox/hash provenance, rights-hint-only behavior,
+bad Markdown hash zero-write, and a real `build_project_release` consumer that writes a
+same-version Markdown/DOCX pair and checks release `figure_validation`. The adjacent
+Agent/Dashboard figure bridge and materialization tests are `8 passed`。
+
+The release consumer uses the real producer and converter while isolating unrelated
+workflow/docx/schema readiness gates; it is bounded Engineering evidence, not a claim of
+full Agent-first N=3 Product Use. A rights hint never clears rights, and this commit does
+not claim Product Use, complete `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or
+`PROMOTE/B2`。
+
 ## Verification status and limits
 
-本次核验仅为 upstream URL、`main` commit、路径和 commit history 的只读静态检查。
-没有复制或执行 upstream 代码，没有复制模板、PDF、素材、metadata、查询结果或
-授权书原文；source-figure adapter 尚未验证。当前记录不声称以下任何一项已经通过：
+初始 inventory 记录是 upstream URL、`main` commit、路径和 commit history 的只读静态检查。
+本组件提交没有复制或执行 upstream 代码，没有复制模板、PDF、素材、metadata、查询
+结果或授权书原文；新增 clean-room adapter 仅按上面的 bounded focused evidence 验证。
+当前记录不声称以下任何一项已经通过：
 
 - review-writer Product Use、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`；
 - Independent Quality、scientific validity、release 或 `PROMOTE/B2`；
-- 任一组件的最终 license/rights clearance 或可直接发布资格。
+- 任一组件的最终 license/rights clearance 或可直接发布资格；本组件的 Markdown
+  license hint 仍不能替代 researcher rights decision。
 
 本 inventory 不缩减 review-writer 的最终产品 scope（包括 FR-001..FR-026 及其他
 已批准合同）；组件复用只能在现有 source/Evidence、人工决策、release 和 promotion

@@ -900,6 +900,10 @@ def _figure_candidate_input(row: dict[str, Any]) -> dict[str, Any]:
         "asset_sha256": anchor.get("asset_sha256"),
         "block_index": anchor.get("block_index"),
         "bbox": anchor.get("bbox"),
+        # Preserve the registry's source-order/grouping fragments for the
+        # candidate adapter.  The registry remains the producer; this is only
+        # a candidate-stage projection into the Agent snapshot.
+        "fragments": copy.deepcopy(fragments),
         "locator": {
             "source_mode": "parsed_candidate",
             "page": page,

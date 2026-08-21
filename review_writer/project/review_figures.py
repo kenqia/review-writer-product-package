@@ -30,6 +30,15 @@ from review_writer.project.source_truth import (
     declared_study_ids,
     load_source_truth_bundle,
 )
+from review_writer.project.figure_inventory_adapter import (
+    FigureInventoryAdapterError,
+    clean_inventory_text,
+    license_hints,
+    normalized_fragment,
+    normalized_locator,
+    normalize_inventory_label,
+    source_order_key,
+)
 from review_writer.project.chemical_paper import (
     STATE_NAME as CHEMICAL_PAPER_STATE_NAME,
     STATE_ROOT as CHEMICAL_PAPER_STATE_ROOT,
@@ -921,9 +930,10 @@ def _evidence_ids(project: Path, study_id: str, source_id: str, page: int, label
 
 
 def _candidate_text(value: object, code: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    cleaned = clean_inventory_text(value)
+    if not cleaned:
         _fail(code)
-    return value.strip()
+    return cleaned
 
 
 def _candidate_sha256(value: object, code: str) -> str:
@@ -962,12 +972,13 @@ def _candidate_source_index(
             "source_id": source_id,
             "pdf_path": relative,
             "pdf_sha256": actual_sha256,
+            "canonical_markdown": copy.deepcopy(raw.get("canonical_markdown")),
         }
     return indexed
 
 
 def _candidate_locator(raw: Mapping[str, Any], page: int, label: str) -> dict[str, Any]:
-    locator = raw.get("locator")
+    locator = normalized_locator(raw.get("locator"))
     if not isinstance(locator, Mapping):
         _fail("FIGURE_LOCATOR_INVALID")
     source_mode = locator.get("source_mode")
@@ -993,6 +1004,79 @@ def _candidate_locator(raw: Mapping[str, Any], page: int, label: str) -> dict[st
         "figure_or_table": figure_or_table.strip(),
         "exact_quote": exact_quote.strip(),
     }
+
+
+def _candidate_fragments(
+    root: Path,
+    raw: Mapping[str, Any],
+    *,
+    page: int,
+    block_index: int,
+    asset_path: str,
+    asset_sha256: str,
+    bbox: list[int | float],
+) -> list[dict[str, Any]]:
+    supplied = raw.get("fragments")
+    if supplied is None:
+        supplied = [
+            {
+                "page": page,
+                "block_index": block_index,
+                "bbox": bbox,
+                "asset_path": asset_path,
+                "asset_sha256": asset_sha256,
+                "caption_association": "explicit_caption_anchor",
+            }
+        ]
+    if not isinstance(supplied, list) or not supplied:
+        _fail("FIGURE_CANDIDATE_INVALID")
+    fragments: list[dict[str, Any]] = []
+    for raw_fragment in supplied:
+        fragment = normalized_fragment(raw_fragment)
+        if fragment is None:
+            _fail("FIGURE_CANDIDATE_INVALID")
+        fragment_page = fragment.get("page")
+        fragment_block = fragment.get("block_index")
+        fragment_bbox = _valid_bbox(fragment.get("bbox"))
+        fragment_path = _candidate_text(fragment.get("asset_path"), "FIGURE_ASSET_INVALID")
+        fragment_hash = _candidate_sha256(
+            fragment.get("asset_sha256"), "FIGURE_ASSET_INVALID"
+        )
+        if (
+            not isinstance(fragment_page, int)
+            or isinstance(fragment_page, bool)
+            or fragment_page < 1
+            or not isinstance(fragment_block, int)
+            or isinstance(fragment_block, bool)
+            or fragment_block < 0
+            or fragment_bbox is None
+            or fragment.get("caption_association")
+            not in {"explicit_caption_anchor", "same_page_spatial_group"}
+        ):
+            _fail("FIGURE_LOCATOR_INVALID")
+        fragment_asset = _safe_asset(root, fragment_path)
+        actual_fragment_hash = _sha256(fragment_asset)
+        if actual_fragment_hash != fragment_hash:
+            _fail("FIGURE_ASSET_HASH_MISMATCH")
+        fragments.append(
+            {
+                "page": fragment_page,
+                "block_index": fragment_block,
+                "bbox": fragment_bbox,
+                "asset_path": fragment_path,
+                "asset_sha256": actual_fragment_hash,
+                "caption_association": fragment["caption_association"],
+            }
+        )
+    first = fragments[0]
+    if (
+        first["page"] != page
+        or first["block_index"] != block_index
+        or first["asset_path"] != asset_path
+        or first["asset_sha256"] != asset_sha256
+    ):
+        _fail("FIGURE_CANDIDATE_INVALID")
+    return fragments
 
 
 def project_source_figure_candidates(
@@ -1041,8 +1125,10 @@ def project_source_figure_candidates(
         page = raw.get("page")
         if not isinstance(page, int) or isinstance(page, bool) or page < 1:
             _fail("FIGURE_LOCATOR_INVALID")
-        figure_label = _candidate_text(raw.get("figure_label"), "FIGURE_CANDIDATE_INVALID")
-        caption = _candidate_text(raw.get("caption"), "FIGURE_CANDIDATE_INVALID")
+        figure_label = normalize_inventory_label(raw.get("figure_label"))
+        caption = clean_inventory_text(raw.get("caption"))
+        if not figure_label or not caption:
+            _fail("FIGURE_CANDIDATE_INVALID")
         block_index = raw.get("block_index")
         if not isinstance(block_index, int) or isinstance(block_index, bool) or block_index < 0:
             _fail("FIGURE_CANDIDATE_INVALID")
@@ -1057,14 +1143,23 @@ def project_source_figure_candidates(
         actual_asset_sha256 = _sha256(asset)
         if actual_asset_sha256 != asset_sha256:
             _fail("FIGURE_ASSET_HASH_MISMATCH")
-        if actual_asset_sha256 in seen_assets:
-            _fail("FIGURE_ASSET_DUPLICATE")
-        seen_assets.add(actual_asset_sha256)
-
         figure_id = f"{study_id}:{source_id}:{figure_label.casefold().replace(' ', '-')}"
         if figure_id in seen_ids:
             _fail("FIGURE_ID_DUPLICATE")
         seen_ids.add(figure_id)
+        fragments = _candidate_fragments(
+            root,
+            raw,
+            page=page,
+            block_index=block_index,
+            asset_path=asset_path,
+            asset_sha256=actual_asset_sha256,
+            bbox=bbox,
+        )
+        fragment_hashes = [fragment["asset_sha256"] for fragment in fragments]
+        if any(fragment_hash in seen_assets for fragment_hash in fragment_hashes):
+            _fail("FIGURE_ASSET_DUPLICATE")
+        seen_assets.update(fragment_hashes)
         base = {
             "figure_id": figure_id,
             "study_id": study_id,
@@ -1077,16 +1172,7 @@ def project_source_figure_candidates(
             "source_pdf_sha256": source["pdf_sha256"],
             "evidence_ids": _evidence_ids(root, study_id, source_id, page, figure_label),
             "selection_status": "available",
-            "fragments": [
-                {
-                    "page": page,
-                    "block_index": block_index,
-                    "bbox": bbox,
-                    "asset_path": asset_path,
-                    "asset_sha256": actual_asset_sha256,
-                    "caption_association": "explicit_caption_anchor",
-                }
-            ],
+            "fragments": fragments,
         }
         _validate(base, SOURCE_FIGURE_SCHEMA, "FIGURE_CANDIDATE_INVALID")
         candidate = {
@@ -1101,7 +1187,16 @@ def project_source_figure_candidates(
             "rights_evidence_reference",
         ):
             if field in raw:
-                candidate[field] = raw[field]
+                candidate[field] = (
+                    clean_inventory_text(raw[field])
+                    if field != "rights_status"
+                    else clean_inventory_text(raw[field]).casefold()
+                )
+        try:
+            rights_hints = license_hints(root, source.get("canonical_markdown"))
+        except FigureInventoryAdapterError as exc:
+            raise ReviewFigureError(exc.code) from exc
+        candidate["reuse_rights_hints"] = rights_hints
         try:
             rights = candidate_figure_release_gate(candidate)
         except FigurePolicyError as exc:
@@ -1117,7 +1212,13 @@ def project_source_figure_candidates(
             )
         figures.append(candidate)
 
-    figures.sort(key=lambda row: (row["study_id"], row["source_id"], row["page"], row["figure_id"]))
+    figures.sort(
+        key=lambda row: (
+            row["study_id"],
+            row["source_id"],
+            *source_order_key(row),
+        )
+    )
     return {
         "schema_version": "review-writer-source-figure-candidates.v1",
         "project_id": root.name,
