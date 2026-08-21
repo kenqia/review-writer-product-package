@@ -17,9 +17,11 @@ from urllib.parse import urlparse
 
 from review_writer.product_foundation import ProductFoundationError, VersionContext
 from review_writer.product_foundation.project_root import resolve_project_root
+from review_writer.project.paper_evidence import paper_evidence_state
 from view.serve_review_dashboard import PublicProjectResumeError, _resume_artifact_refs
 
 from . import fresh_bootstrap, local_pdf_parse
+from .generator_runtime import GeneratorSession
 
 # Keep the public adapter's seam explicit while reusing the existing fresh
 # bootstrap implementation.  Tests and callers can patch/inspect this seam
@@ -322,6 +324,44 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
             "dashboard_url": _dashboard_url(snapshot),
             "write_mode": "VERSION_CONTEXT",
         }
+    parse_owner = snapshot.get("agent_parse")
+    session_id = parse_owner.get("session_id") if isinstance(parse_owner, dict) else None
+    if _parse_artifacts_exist(project) and isinstance(session_id, str) and session_id:
+        evidence = paper_evidence_state(project)
+        if isinstance(evidence, dict) and evidence.get("workflow_can_continue") is True:
+            continued = GeneratorSession(project).continue_session(
+                session_id,
+                expected_revision=state.revision,
+                expected_head_id=state.active_head_id,
+            )
+            if not isinstance(continued, dict):
+                raise _error("SYNTHESIS_RESULT_INVALID", category="PRECONDITION_FAILED")
+            continued_current = continued.get("current")
+            if (
+                not isinstance(continued_current, dict)
+                or not {"version_id", "revision", "snapshot_digest"}.issubset(
+                    continued_current
+                )
+            ):
+                raise _error("SYNTHESIS_RESULT_INVALID", category="PRECONDITION_FAILED")
+            continued_current = copy.deepcopy(continued_current)
+            continued_current.setdefault("project_id", project.name)
+            result = copy.deepcopy(continued)
+            result.update(
+                {
+                    "result": "RESUMED",
+                    "current": continued_current,
+                    "revision": continued_current["revision"],
+                    "dashboard_url": _dashboard_url(snapshot),
+                }
+            )
+            result.setdefault(
+                "write_mode",
+                "VERSION_CONTEXT"
+                if continued_current["revision"] != state.revision
+                else "NONE",
+            )
+            return result
     status, reason_code, next_action, trace = _nested_status(snapshot)
     if next_action is None:
         next_action = {"project_id": project.name, "route": "/review", "type": status}
