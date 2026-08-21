@@ -15,13 +15,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from review_writer.delivery.project_release import (
+    build_project_release,
+    new_route_release_docx_is_current,
+)
 from review_writer.product_foundation import ProductFoundationError, VersionContext
+from review_writer.project.manuscript_v2 import manuscript_state
 from review_writer.product_foundation.project_root import resolve_project_root
 from review_writer.project.paper_evidence import paper_evidence_state
 from view.serve_review_dashboard import PublicProjectResumeError, _resume_artifact_refs
 
 from . import fresh_bootstrap, local_pdf_parse
-from .generator_runtime import GeneratorSession
+from .generator_runtime import RUNTIME_KEY, RUNTIME_SCHEMA, GeneratorSession
 
 # Keep the public adapter's seam explicit while reusing the existing fresh
 # bootstrap implementation.  Tests and callers can patch/inspect this seam
@@ -32,6 +37,21 @@ FreshAgentBootstrapError = fresh_bootstrap.FreshAgentBootstrapError
 
 _SAFE_TEXT_MAX = 20_000
 _SAFE_URL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_RELEASE_DOCX_PATHS = (
+    ("EXPERT_REVIEWED_RELEASE", Path("05_release/expert_reviewed_release.docx")),
+    ("SELF_REVIEWED_DRAFT", Path("05_release/self_reviewed_draft.docx")),
+)
+_RELEASE_ARTIFACT_PATHS = tuple(
+    path
+    for _level, docx_path in _RELEASE_DOCX_PATHS
+    for path in (
+        docx_path,
+        docx_path.with_suffix(".md"),
+    )
+) + (
+    Path("05_release/release_snapshot.json"),
+    Path("05_release/quality_report.json"),
+)
 
 
 class PublicReviewEntryError(ValueError):
@@ -292,6 +312,139 @@ def _current_payload(project: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v2_human_approval(snapshot: object) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    runtime = snapshot.get(RUNTIME_KEY)
+    candidate = runtime.get("candidate") if isinstance(runtime, dict) else None
+    decision = runtime.get("human_decision") if isinstance(runtime, dict) else None
+    return bool(
+        isinstance(runtime, dict)
+        and runtime.get("schema_version") == RUNTIME_SCHEMA
+        and runtime.get("phase") == "v2"
+        and isinstance(candidate, dict)
+        and candidate.get("version") == "v2"
+        and isinstance(decision, dict)
+        and decision.get("actor_type") == "human_researcher"
+    )
+
+
+def _release_binding(project: Path) -> tuple[Any, Any, dict[str, Any]]:
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+    except (OSError, ProductFoundationError, TypeError, ValueError) as exc:
+        raise _error("VERSION_CONTEXT_INVALID", category="PRECONDITION_FAILED") from exc
+    if (
+        state.project_id != project.name
+        or not current.is_current
+        or not current.is_active_head
+        or not current.can_write
+        or current.snapshot.get("currentness") != "current"
+    ):
+        raise _error("VERSION_CONTEXT_INVALID", category="PRECONDITION_FAILED")
+    return state, current, {
+        "version_id": current.version_id,
+        "revision": state.revision,
+        "snapshot_digest": current.snapshot_digest,
+    }
+
+
+def _release_artifact_state(project: Path) -> tuple[str, str | None, Path | None]:
+    for release_level, relative in _RELEASE_DOCX_PATHS:
+        candidate = project / relative
+        if (
+            candidate.is_file()
+            and not candidate.is_symlink()
+            and new_route_release_docx_is_current(candidate)
+        ):
+            return "current", release_level, candidate
+    if any(os.path.lexists(project / relative) for relative in _RELEASE_ARTIFACT_PATHS):
+        return "stale", None, None
+    return "missing", None, None
+
+
+def _release_relative_path(project: Path, value: object) -> str:
+    try:
+        candidate = Path(value)
+        root = project.resolve(strict=True)
+        resolved = (
+            candidate if candidate.is_absolute() else root / candidate
+        ).resolve(strict=False)
+        relative = resolved.relative_to(root)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise _error("RELEASE_RESULT_INVALID", category="PRECONDITION_FAILED") from exc
+    if not relative.parts or relative.parts[0] != "05_release":
+        raise _error("RELEASE_RESULT_INVALID", category="PRECONDITION_FAILED")
+    return relative.as_posix()
+
+
+def _public_release(
+    project: Path,
+    release: dict[str, Any],
+    binding: dict[str, Any],
+    *,
+    default_level: str | None = None,
+) -> dict[str, Any]:
+    status = release.get("status")
+    release_level = release.get("release_level", default_level)
+    if not isinstance(status, str) or not status or not isinstance(release_level, str):
+        raise _error("RELEASE_RESULT_INVALID", category="PRECONDITION_FAILED")
+    snapshot = release.get("snapshot")
+    docx = release.get("docx")
+    if snapshot is None or docx is None:
+        raise _error("RELEASE_RESULT_INVALID", category="PRECONDITION_FAILED")
+    return {
+        "status": status,
+        "release_level": release_level,
+        "markdown_path": _release_relative_path(project, snapshot),
+        "docx_path": _release_relative_path(project, docx),
+        "version_context": copy.deepcopy(binding),
+    }
+
+
+def _continue_v2_release(project: Path) -> dict[str, Any] | None:
+    _state, current, binding = _release_binding(project)
+    snapshot = copy.deepcopy(dict(current.snapshot))
+    if not _v2_human_approval(snapshot):
+        return None
+    authoritative = manuscript_state(project)
+    if (
+        not isinstance(authoritative, dict)
+        or authoritative.get("workflow_can_continue") is not True
+    ):
+        return None
+    artifact_state, release_level, docx = _release_artifact_state(project)
+    if artifact_state == "current" and release_level is not None and docx is not None:
+        return {
+            "release_status": release_level,
+            "release": {
+                "status": release_level,
+                "release_level": release_level,
+                "markdown_path": docx.with_suffix(".md").relative_to(project).as_posix(),
+                "docx_path": docx.relative_to(project).as_posix(),
+                "version_context": copy.deepcopy(binding),
+            },
+        }
+    if artifact_state == "stale":
+        return {
+            "release_status": "RELEASE_OUTDATED",
+            "next_action": {
+                "project_id": project.name,
+                "route": "/final",
+                "type": "REGENERATE_RELEASE",
+                "reason_code": "RELEASE_OUTDATED",
+            },
+        }
+    release = build_project_release(project)
+    public_release = _public_release(project, release, binding, default_level="SELF_REVIEWED_DRAFT")
+    return {
+        "release_status": public_release["status"],
+        "release": public_release,
+    }
+
+
 def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     try:
         context = VersionContext.load(project)
@@ -361,6 +514,9 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
                 if continued_current["revision"] != state.revision
                 else "NONE",
             )
+            release = _continue_v2_release(project)
+            if release is not None:
+                result.update(release)
             return result
     status, reason_code, next_action, trace = _nested_status(snapshot)
     if next_action is None:

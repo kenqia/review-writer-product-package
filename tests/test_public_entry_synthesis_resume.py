@@ -50,7 +50,14 @@ def _patch_resume_project(
             },
         },
     }
-    current = SimpleNamespace(snapshot=snapshot)
+    current = SimpleNamespace(
+        snapshot=snapshot,
+        is_current=True,
+        is_active_head=True,
+        can_write=True,
+        version_id=state.current_version_id,
+        snapshot_digest="a" * 64,
+    )
     monkeypatch.setattr(
         public_entry.VersionContext,
         "load",
@@ -185,3 +192,191 @@ def test_resume_does_not_swallow_generator_continuation_error(
 
     with pytest.raises(RuntimeError, match="continuation failed"):
         public_entry._resume(project, ())
+
+
+def test_resume_publishes_same_version_v2_release_after_human_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    continuation = {
+        "status": "HUMAN_ACTION_REQUIRED",
+        "write_mode": "NONE",
+        "session_id": "parse-session-1",
+        "candidate": {"version": "v2"},
+        "current": {
+            "project_id": "resume-project",
+            "version_id": "dashboard-v2-approval",
+            "revision": 9,
+            "snapshot_digest": "c" * 64,
+        },
+    }
+    project, state, snapshot, calls = _patch_resume_project(
+        monkeypatch,
+        tmp_path,
+        evidence={"workflow_can_continue": True},
+        continuation=continuation,
+    )
+    snapshot["generator_runtime"] = {
+        "schema_version": "review-writer.generator-runtime.v1",
+        "phase": "v2",
+        "candidate": {"version": "v2"},
+        "human_decision": {"actor_type": "human_researcher"},
+    }
+    monkeypatch.setattr(
+        public_entry,
+        "manuscript_state",
+        lambda _project: {
+            "status": "approved",
+            "workflow_can_continue": True,
+            "reason_code": "MANUSCRIPT_APPROVED",
+        },
+        raising=False,
+    )
+    release_calls: list[Path] = []
+    markdown = project / "05_release/self_reviewed_draft.md"
+    docx = project / "05_release/self_reviewed_draft.docx"
+
+    def fake_build(explicit_project: Path) -> dict[str, object]:
+        release_calls.append(explicit_project)
+        return {
+            "status": "SELF_REVIEWED_DRAFT",
+            "release_level": "SELF_REVIEWED_DRAFT",
+            "snapshot": markdown,
+            "docx": docx,
+        }
+
+    monkeypatch.setattr(public_entry, "build_project_release", fake_build, raising=False)
+
+    result = public_entry._resume(project, ())
+
+    assert calls[-1] == {
+        "session_id": "parse-session-1",
+        "expected_revision": state.revision,
+        "expected_head_id": state.active_head_id,
+    }
+    assert release_calls == [project]
+    assert result["release"]["status"] == "SELF_REVIEWED_DRAFT"
+    assert result["release"]["markdown_path"] == "05_release/self_reviewed_draft.md"
+    assert result["release"]["docx_path"] == "05_release/self_reviewed_draft.docx"
+    assert result["release"]["version_context"] == {
+        "version_id": "old-version",
+        "revision": state.revision,
+        "snapshot_digest": "a" * 64,
+    }
+
+
+def _prepare_v2_release_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    human_actor: str = "human_researcher",
+) -> tuple[Path, SimpleNamespace]:
+    project, state, snapshot, _calls = _patch_resume_project(
+        monkeypatch,
+        tmp_path,
+        evidence={"workflow_can_continue": True},
+        continuation={"status": "HUMAN_ACTION_REQUIRED"},
+    )
+    snapshot["generator_runtime"] = {
+        "schema_version": "review-writer.generator-runtime.v1",
+        "phase": "v2",
+        "candidate": {"version": "v2"},
+        "human_decision": {"actor_type": human_actor},
+    }
+    monkeypatch.setattr(
+        public_entry,
+        "manuscript_state",
+        lambda _project: {"workflow_can_continue": True},
+        raising=False,
+    )
+    return project, state
+
+
+def test_unapproved_v2_release_is_zero_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _state = _prepare_v2_release_gate(
+        monkeypatch, tmp_path, human_actor="simulated_researcher_agent"
+    )
+    before = {
+        path.relative_to(project).as_posix(): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    monkeypatch.setattr(
+        public_entry,
+        "build_project_release",
+        lambda _project: pytest.fail("release must not build without human approval"),
+        raising=False,
+    )
+
+    assert public_entry._continue_v2_release(project) is None
+    after = {
+        path.relative_to(project).as_posix(): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    assert after == before
+
+
+def test_current_release_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _state = _prepare_v2_release_gate(monkeypatch, tmp_path)
+    docx = project / "05_release/self_reviewed_draft.docx"
+    docx.parent.mkdir(parents=True)
+    docx.write_bytes(b"current-release")
+    monkeypatch.setattr(
+        public_entry,
+        "_release_artifact_state",
+        lambda _project: ("current", "SELF_REVIEWED_DRAFT", docx),
+    )
+    monkeypatch.setattr(
+        public_entry,
+        "build_project_release",
+        lambda _project: pytest.fail("current release must not rebuild"),
+        raising=False,
+    )
+
+    result = public_entry._continue_v2_release(project)
+
+    assert result == {
+        "release_status": "SELF_REVIEWED_DRAFT",
+        "release": {
+            "status": "SELF_REVIEWED_DRAFT",
+            "release_level": "SELF_REVIEWED_DRAFT",
+            "markdown_path": "05_release/self_reviewed_draft.md",
+            "docx_path": "05_release/self_reviewed_draft.docx",
+            "version_context": {
+                "version_id": "old-version",
+                "revision": 7,
+                "snapshot_digest": "a" * 64,
+            },
+        },
+    }
+
+
+def test_stale_release_exposes_final_regenerate_next_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _state = _prepare_v2_release_gate(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        public_entry,
+        "_release_artifact_state",
+        lambda _project: ("stale", None, None),
+    )
+    monkeypatch.setattr(
+        public_entry,
+        "build_project_release",
+        lambda _project: pytest.fail("stale release must not rebuild"),
+        raising=False,
+    )
+
+    assert public_entry._continue_v2_release(project) == {
+        "release_status": "RELEASE_OUTDATED",
+        "next_action": {
+            "project_id": project.name,
+            "route": "/final",
+            "type": "REGENERATE_RELEASE",
+            "reason_code": "RELEASE_OUTDATED",
+        },
+    }
