@@ -1090,6 +1090,102 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert released["release"]["docx_path"] == "05_release/self_reviewed_draft.docx"
         assert (project_root / released["release"]["markdown_path"]).is_file()
         assert (project_root / released["release"]["docx_path"]).is_file()
+
+        def project_fingerprint() -> dict[str, tuple[bytes, int, int]]:
+            return {
+                path.relative_to(project_root).as_posix(): (
+                    path.read_bytes(),
+                    path.stat().st_mtime_ns,
+                    path.stat().st_ino,
+                )
+                for path in sorted(project_root.rglob("*"))
+                if path.is_file() and not path.is_symlink()
+            }
+
+        authoritative_markdown = project_root / "04_manuscript/manuscript.md"
+        authoritative_bytes = authoritative_markdown.read_bytes()
+        release_markdown = project_root / released["release"]["markdown_path"]
+        release_docx = project_root / released["release"]["docx_path"]
+        before_stale_fingerprint = project_fingerprint()
+        before_stale_context = VersionContext.load(project_root).state()
+        release_markdown.write_bytes(
+            release_markdown.read_bytes()
+            + b"\n\nSTALE RELEASE MUTATION FOR INTEGRATION TEST\n"
+        )
+        assert project_fingerprint() != before_stale_fingerprint
+
+        direct_stale = public_entry._continue_v2_release(project_root)
+        assert direct_stale == {
+            "release_status": "RELEASE_OUTDATED",
+            "next_action": {
+                "project_id": project_id,
+                "route": "/final",
+                "type": "REGENERATE_RELEASE",
+                "reason_code": "RELEASE_OUTDATED",
+            },
+        }
+        stale_fingerprint = project_fingerprint()
+        stale_context = VersionContext.load(project_root).state()
+        assert stale_context == before_stale_context
+
+        stale_resume = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        adopt_dashboard_url(stale_resume)
+        assert stale_resume["release_status"] == "RELEASE_OUTDATED"
+        assert stale_resume["write_mode"] == "NONE"
+        assert stale_resume["next_action"] == {
+            "project_id": project_id,
+            "route": "/final",
+            "type": "REGENERATE_RELEASE",
+            "reason_code": "RELEASE_OUTDATED",
+        }
+        assert project_fingerprint() == stale_fingerprint
+        assert VersionContext.load(project_root).state() == stale_context
+
+        status, final = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/final"
+        )
+        assert status == 200
+        assert final["release_status"] == "RELEASE_OUTDATED"
+        assert final["release_snapshot"] == {
+            "exists": True,
+            "matches_authoritative": False,
+            "integrity_valid": False,
+            "docx_exists": False,
+        }
+        assert final["final_draft_docx_exists"] is False
+        assert final["final_draft_docx_path"] == ""
+
+        status, exported = request(
+            dashboard_url,
+            "POST",
+            f"/api/project/{project_id}/export-docx",
+            {"release_level": "SELF_REVIEWED_DRAFT"},
+        )
+        assert status == 200
+        assert exported["ok"] is True
+        assert exported["release_status"] == "SELF_REVIEWED_DRAFT"
+        assert exported["release_level"] == "SELF_REVIEWED_DRAFT"
+        assert release_markdown.read_bytes() == authoritative_bytes
+        assert release_docx.is_file()
+
+        status, final = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/final"
+        )
+        assert status == 200
+        assert final["release_status"] == "SELF_REVIEWED_DRAFT"
+        assert final["manuscript_source"] == "release_snapshot"
+        assert final["release_snapshot"] == {
+            "exists": True,
+            "matches_authoritative": True,
+            "integrity_valid": True,
+            "docx_exists": True,
+        }
+        assert final["final_draft_docx_path"] == (
+            f"{project_id}/05_release/self_reviewed_draft.docx"
+        )
+        assert final["final_draft_docx_exists"] is True
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
