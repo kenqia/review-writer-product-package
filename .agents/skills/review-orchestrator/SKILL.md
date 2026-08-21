@@ -10,6 +10,24 @@ durable authority for sources, Evidence, manuscript, figures, evaluations,
 versions, and exports. Do not use the superseded global
 `review-writing-orchestrator` skill or create a parallel store.
 
+## Public Production Entry
+
+The sole production invocation for this skill is:
+
+```python
+review_writer.agent.start_or_resume_review(...)
+```
+
+Every fresh or resume request MUST be dispatched through this public entry.
+The Agent may invoke existing repository tools behind it, but callers must not
+bypass the public entry by invoking `review_writer.agent.public_entry` internals,
+`FreshAgentBootstrap`, `GeneratorSession`, parse/generator helpers,
+`generator-start`/`generator-continue`, Dashboard or HTTP/cURL routes, CLI,
+pytest, or helper scripts directly. If
+`review_writer.agent.start_or_resume_review(...)` is unavailable or its contract
+cannot be satisfied, stop at the first blocker and report `HOLD`; do not
+substitute another production caller.
+
 ## Required Input
 
 Obtain a topic, an explicit project root, and an authorized local PDF folder
