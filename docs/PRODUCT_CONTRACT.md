@@ -152,6 +152,51 @@ implementation_status: PENDING/PARTIAL
 scope；每项实现仍须在现有 source/Evidence、人工决策、release 和 promotion 边界
 内单独验证，未知权利保持阻断。
 
+### CR-009 — Agent-first Product E2E 验收
+
+CR-009 新增 Agent-first 产品验收要求，不缩减或替换 FR-001..FR-026、CR-008
+或最终产品范围。它要求在干净的 `review-writer-product-package` checkout 中，
+以普通用户可提供的最小输入运行真实 Agent：`topic`、显式 `project_root` 和获
+授权的 `pdf_folder`。测试 Agent 不得运行 CLI、`curl`、`pytest`、内部 generator，
+也不得直接读写 `VersionContext` 或项目内部 JSON；它只能通过公开 Agent/Skill
+入口和 Dashboard 完成以下产品链：
+
+```text
+source mapping
+  -> parse-quality review
+  -> Paper Evidence
+  -> Comparison Protocol
+  -> Synthesis
+  -> Section Contract
+  -> v1/v2 manuscript
+  -> figure decision
+  -> Markdown/DOCX release
+```
+
+每一个需要研究者判断的人工闸门都必须向 Agent 返回
+`HUMAN_ACTION_REQUIRED`，Agent 不得替研究者批准。研究者完成决定后，Agent 必须
+使用同一个显式 `project_root` 冷恢复并消费当前 `VersionContext`。测试必须证明
+Agent 没有绕过 public entry、硬编码 endpoint、手写内部状态、制造无来源 claim
+或无来源图件；任何一项无法证明时保持 `HOLD`。
+
+每次 Agent E2E 必须保留可审计 receipt，至少包含：model/provider/version 与初始
+prompt、tool/skill 调用序列、每次 `HUMAN_ACTION_REQUIRED` 与研究者操作、显式
+project root、每个输入 PDF 的 SHA-256，以及最终 `VersionContext`、Markdown、DOCX
+与 release snapshot 的身份/摘要。结果只能使用 `AGENT_E2E_PASS`、`AGENT_E2E_HOLD`
+或 `AGENT_E2E_FAIL`；Engineering PASS、focused API test 或静态路径不得冒充 Agent
+验收。
+
+验证层级按以下顺序单独报告：每个微小提交的 focused unit/API test、每个垂直切片的
+一次真实 Agent smoke、收尾阶段的真实 N=3 Agent-first 全流程，以及最终发布前
+N=1/3/10/20 分层 Agent E2E；另测 cold-process resume、stale release、错误人工
+决策和重复操作。通过条件至少是：Agent 能发现入口、调用公开能力、在人工闸门停止、
+研究者决策后恢复、持续使用 canonical authority、生成同版本 Markdown/DOCX，并在
+项目重新启动后恢复。
+
+本合同切片只登记要求，当前状态为 `PLANNED/HOLD`：尚无完整 Agent E2E harness、
+真实 N=3 receipt、cold-resume receipt 或 `HUMAN_ACCEPTANCE` 证据，因此不宣称
+`AGENT_E2E_PASS`，也不把现有 Engineering/focused 测试升级为产品验收。
+
 ## 交付与 N 边界
 
 最终合同不固定 `N` 为 `1–3` 或 `20–40`；N 是授权 source set 的实际计数。当前

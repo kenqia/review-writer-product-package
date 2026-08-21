@@ -55,11 +55,32 @@ available for the stated behavior. No row claims `IMPLEMENTED`.
 | `FR-025` — zero-write | `review_writer/project/path_safety.py`; `review_writer/agent/fresh_bootstrap.py`; `review_writer/agent/local_pdf_parse.py::_build_staged_figure_candidates`; `view/serve_review_dashboard.py::_write_candidate_only_figure_decision`; `view/serve_review_dashboard.py::write_project_workspace_decision` | `tests/test_agent_figure_candidate_bridge.py::test_staging_figure_bridge_reuses_registry_projection_without_selection`; `::test_fallback_figure_bridge_reports_truthful_gap_when_no_images_exist`; `tests/test_fresh_bootstrap_source_set.py::test_invalid_authorized_source_set_fails_before_any_project_write`; `::test_malformed_pdf_is_rejected_before_project_write`; `tests/test_dashboard_review_figure_candidate_materialization.py::test_candidate_only_stale_token_is_zero_write_and_existing_registry_uses_old_path` | `PARTIAL` | Commit `14a6a5e` validates the candidate/current token before materialization, rejects invalid rights or stale bindings without a registry write, and restores the registry on downstream publish failure; the existing registry path remains unchanged. Candidate/bridge/adapter verification is `17 passed`, Engineering only. The complete public HTTP zero-write/concurrency matrix and Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. |
 | `FR-026` — 安全边界 | `review_writer/project/path_safety.py`; `view/serve_review_dashboard.py::_agent_figure_candidate_binding`; `view/serve_review_dashboard.py::_candidate_only_rights_overlay`; `view/serve_review_dashboard.py::project_review_figures_workspace_payload`; `view/serve_review_dashboard.py::_write_candidate_only_figure_decision` | `tests/test_agent_figure_candidate_bridge.py::test_dashboard_projects_agent_candidates_when_registry_is_missing`; `tests/test_dashboard_review_figure_candidate_materialization.py`; `tests/test_dashboard_runtime_root.py` | `PARTIAL` | Commit `14a6a5e` binds candidate-only writes to the current VersionContext and restricts human rights updates to the target candidate; focused figure verification is `17 passed`, Engineering only. Dashboard runtime full-suite evidence remains HOLD: exact node `tests/test_dashboard_runtime_root.py::DashboardRuntimeRootTest::test_sidecar_data_root_is_writable_but_foreign_checkout_is_read_only` fails at line 411 because expected `WRITABLE` but observed `HISTORICAL_READ_ONLY` for hard-coded `/home/kenqia/my_folder/test/review-projects`; current code checkout is `/mnt/c/Users/26960/Documents/Codex/2026-08-21/review-writer-main-rescue/work/release-first-failure-20260821`, nearest checkout is `/home/kenqia/my_folder`, and `_is_sidecar_review_data_root` is false. Running the node in isolation additionally hits an existing import-order collection error (`serve_review_dashboard` ↔ `review_writer.agent.public_entry` circular import); importing `review_writer.agent.local_pdf_parse` first reaches the assertion. The 14a6a5e diff does not touch `configure_runtime`/runtime identity code, so this is an environment/import-order issue, not a demonstrated regression. Real PDF/public E2E, complete symlink/reparse and secret-redaction, Product Use, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. |
 
+| `FR-027` — Agent-first Product E2E | Public Agent entry `review_writer/agent/public_entry.py::start_or_resume_review`; Dashboard caller `view/serve_review_dashboard.py`; skill/tool registry and dedicated Agent E2E harness: `HOLD` (not yet present/verified) | Dedicated Agent E2E receipt/harness and real N=3 run: `HOLD` (no focused API test may substitute) | `HOLD` | New CR-009 requirement. A clean `review-writer-product-package` checkout must expose only `topic + explicit project root + authorized PDF folder` to the Agent; the Agent must use the public Agent/Skill entry and Dashboard through source mapping → parse quality → Paper Evidence → Comparison Protocol → Synthesis → Section Contract → v1/v2 manuscript → figure decision → Markdown/DOCX release. Every researcher gate must return `HUMAN_ACTION_REQUIRED`; after researcher action, the same root must cold-resume and consume the current VersionContext. The receipt must capture model/provider/version, initial prompt, tool/skill sequence, every human gate and researcher action, root, input PDF hashes, and final VersionContext/Markdown/DOCX/release snapshot. No fresh Agent E2E harness, N=3 real receipt, cold-resume receipt, or HUMAN_ACCEPTANCE evidence exists; status is `PLANNED/HOLD`, not `AGENT_E2E_PASS`. |
+
 ## CR-008 traceability — ChemVellum reusable inventory
 
 | CR | source/evidence | status | boundary |
 | --- | --- | --- | --- |
 | `CR-008` | `docs/THIRD_PARTY_NOTICES.md`; upstream URL `https://github.com/TengJiao33/ChemVellum`, repository `main@c94ff72694cc838c19fc22359e3e0b648e2352d6`, exact file `skills/review-source-figure-tools/scripts/build_paper_figure_inventory.py`, file-content commit `53b577be3a617499043f4f11b1204a3721f22558`; authorization reference `USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`; GitHub `license=null` | `Paper figure inventory builder: ADAPTED → PUBLIC_CALLER_CONNECTED → REAL_RELEASE_CONSUMED → VERIFIED (bounded); PROMOTED=HOLD` | Clean-room adapter `review_writer/project/figure_inventory_adapter.py` only; canonical candidate/registry/VersionContext/release authorities are preserved. Exact component write set, zero-write and atomic rollback boundary are recorded in `THIRD_PARTY_NOTICES.md`. Fresh focused evidence: adapter `13 passed`; adjacent Agent/Dashboard bridge/materialization `8 passed`; real `build_project_release` consumer asserts Markdown/DOCX and source-figure provenance. No upstream code/template/PDF copied; no open-source license inferred; complete FR-027 N=3, Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity, other ChemVellum components and `PROMOTE/B2` remain `HOLD/PENDING`. |
+
+## FR-027 / CR-009 acceptance binding
+
+The required acceptance chain is explicit and must be evidenced in order:
+
+```text
+FR-027
+  -> public Agent entry
+  -> skill/tool registry
+  -> Dashboard caller
+  -> Agent E2E harness
+  -> N=3 real run
+  -> cold-resume run
+  -> HUMAN_ACCEPTANCE
+```
+
+This is a planned acceptance path, not evidence that any node has passed. Until the
+receipt, public-caller proof and human acceptance exist, the FR-027 row remains `HOLD`;
+existing Engineering, focused API, or ChemVellum adapter evidence cannot promote it.
 
 ## Evidence-layer boundary
 
