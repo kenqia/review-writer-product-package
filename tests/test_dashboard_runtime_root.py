@@ -1328,12 +1328,13 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             patch.object(
                 dashboard,
                 "build_manuscript_workspace",
-                side_effect=[{"sections": [draft]}, {"sections": [approved], "status": "approved"}],
-            ),
+                return_value={"sections": [draft], "status": "in_progress"},
+            ) as build_workspace,
             patch.object(manuscript_v2, "_approve_section_locked", side_effect=approve),
             patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
         ):
             dashboard._write_new_route_draft_section(review_root, self.project_id, self._payload(draft))
+        build_workspace.assert_called_once_with(project)
 
         context = VersionContext.load(project)
         state = context.state()

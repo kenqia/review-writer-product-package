@@ -8857,18 +8857,63 @@ def _new_route_draft_payload(review_root: Path, project_id: str) -> dict[str, An
         workspace = build_manuscript_workspace(project)
     except ManuscriptV2Error as exc:
         raise ValueError(exc.code) from exc
-    sections = [
-        _new_route_section_payload(
-            row,
-            legacy_simulated_reconfirm_required=_legacy_simulated_reconfirm_required(project, row),
+    return _new_route_draft_payload_from_workspace(
+        project_id,
+        workspace,
+        project=project,
+    )
+
+
+def _new_route_draft_payload_from_workspace(
+    project_id: str,
+    workspace: dict[str, Any],
+    *,
+    project: Path | None = None,
+    replacement: dict[str, Any] | None = None,
+    status: object = None,
+    reason: object = None,
+) -> dict[str, Any]:
+    """Project a draft response from state already read in this request.
+
+    Dashboard approval has already validated and persisted the replacement row
+    before this projection is returned.  Rebuilding the full manuscript
+    workspace here would repeat the expensive evidence/synthesis projections
+    while holding the same transaction lock, and cannot add authority beyond
+    the approved row and merge result already produced by the transaction.
+    """
+    raw_sections = workspace.get("sections", [])
+    if not isinstance(raw_sections, list):
+        raise ValueError("manuscript sections are invalid")
+    replacement_section_id = replacement.get("section_id") if isinstance(replacement, dict) else None
+    sections: list[dict[str, Any]] = []
+    replaced = False
+    for row in raw_sections:
+        if not isinstance(row, dict):
+            raise ValueError("manuscript section is invalid")
+        if replacement is not None and row.get("section_id") == replacement_section_id:
+            row = replacement
+            replaced = True
+        sections.append(
+            _new_route_section_payload(
+                row,
+                legacy_simulated_reconfirm_required=(
+                    _legacy_simulated_reconfirm_required(project, row)
+                    if project is not None
+                    else False
+                ),
+            )
         )
-        for row in workspace.get("sections", [])
-    ]
+    if replacement is not None and not replaced:
+        raise ValueError("manuscript section is unavailable")
+    projected_status = visible_text(status) or visible_text(workspace.get("status"))
+    projected_reason = visible_text(reason) or visible_text(workspace.get("reason_code"))
+    if projected_status == "approved" and not projected_reason:
+        projected_reason = "MANUSCRIPT_APPROVED"
     return {
         "project_id": project_id,
         "route": "evidence-to-release.v1",
-        "status": visible_text(workspace.get("status")),
-        "reason": visible_text(workspace.get("reason_code")),
+        "status": projected_status,
+        "reason": projected_reason,
         "available": bool(sections),
         "sections": sections,
         "claim_lineage": [],
@@ -9082,7 +9127,7 @@ def _write_new_route_draft_section(
                         expected_draft_digest=str(draft_digest),
                         reconfirm_simulated_approval=reconfirm_simulated_approval,
                     )
-                    manuscript_v2_module._merge_approved_sections_locked(project)
+                    merged = manuscript_v2_module._merge_approved_sections_locked(project)
                     _publish_new_route_draft_approval(
                         context, state, current, runtime, approved
                     )
@@ -9098,7 +9143,14 @@ def _write_new_route_draft_section(
             raise ValueError(exc.code) from exc
         except ProductFoundationError as exc:
             raise WorkspaceStaleError("WORKSPACE_STALE") from exc
-    return _new_route_draft_payload(review_root, project_id)
+    return _new_route_draft_payload_from_workspace(
+        project_id,
+        workspace,
+        project=project,
+        replacement=approved,
+        status=merged.get("status") if isinstance(merged, dict) else None,
+        reason=merged.get("reason_code") if isinstance(merged, dict) else None,
+    )
 
 
 def _write_project_draft_sections_unlocked(
