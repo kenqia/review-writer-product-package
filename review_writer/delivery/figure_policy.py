@@ -72,6 +72,58 @@ class FigurePolicyError(ValueError):
         self.code = code
 
 
+def candidate_figure_release_gate(row: Any) -> dict[str, Any]:
+    """Classify a source-figure candidate without making it releaseable.
+
+    Candidate projection is deliberately upstream of the release manifest.  A
+    rights hint may be useful for human review, but it never becomes a release
+    decision merely because an extractor supplied it.
+    """
+    if not isinstance(row, dict) or row.get("status") != "candidate":
+        raise FigurePolicyError(
+            "FIGURE_CANDIDATE_INVALID",
+            "source figure release gating requires status=candidate",
+        )
+    rights_status = row.get("rights_status", "unknown")
+    if rights_status not in {"unknown", "cleared"}:
+        raise FigurePolicyError(
+            "FIGURE_RIGHTS_INVALID",
+            "source figure rights_status is unsupported",
+        )
+    if rights_status == "unknown":
+        return {
+            "release_status": "HOLD",
+            "can_release": False,
+            "gap_code": "FIGURE_RIGHTS_UNKNOWN",
+            "gap_reason": "source figure rights require human confirmation",
+        }
+
+    basis = row.get("license_or_rights_basis")
+    if not isinstance(basis, str) or not basis.strip():
+        raise FigurePolicyError(
+            "FIGURE_RIGHTS_INVALID",
+            "source figure license_or_rights_basis is required",
+        )
+    canonical_license = _canonical_permitted_license(basis)
+    if canonical_license is None:
+        raise FigurePolicyError(
+            "FIGURE_RIGHTS_INVALID",
+            "source figure rights basis is not a permitted license or written authorization",
+        )
+    for field in ("attribution", "rights_evidence_reference"):
+        value = row.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise FigurePolicyError(
+                "FIGURE_RIGHTS_INVALID",
+                f"source figure {field} is required",
+            )
+    return {
+        "release_status": "CANDIDATE_ONLY",
+        "can_release": False,
+        "rights_license": canonical_license,
+    }
+
+
 def _canonical_sha256(value: Any) -> str:
     try:
         return canonical_digest(value)

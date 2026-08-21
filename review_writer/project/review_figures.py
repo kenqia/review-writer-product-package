@@ -920,6 +920,213 @@ def _evidence_ids(project: Path, study_id: str, source_id: str, page: int, label
     return sorted(set(ids))
 
 
+def _candidate_text(value: object, code: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        _fail(code)
+    return value.strip()
+
+
+def _candidate_sha256(value: object, code: str) -> str:
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        _fail(code)
+    return value
+
+
+def _candidate_source_index(
+    root: Path, authorized_sources: object
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not isinstance(authorized_sources, list) or not authorized_sources:
+        _fail("FIGURE_SOURCE_RECORDS_INVALID")
+    indexed: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw in authorized_sources:
+        if not isinstance(raw, Mapping):
+            _fail("FIGURE_SOURCE_RECORDS_INVALID")
+        study_id = _candidate_text(raw.get("study_id"), "FIGURE_SOURCE_INVALID")
+        source_id = _candidate_text(raw.get("source_id"), "FIGURE_SOURCE_INVALID")
+        if raw.get("document_role") != "MAIN":
+            _fail("FIGURE_SOURCE_ROLE_INVALID")
+        pdf = raw.get("pdf")
+        if not isinstance(pdf, Mapping):
+            _fail("FIGURE_SOURCE_INVALID")
+        relative = _candidate_text(pdf.get("path"), "FIGURE_SOURCE_INVALID")
+        expected_sha256 = _candidate_sha256(pdf.get("sha256"), "FIGURE_SOURCE_INVALID")
+        pdf_path = _safe_asset(root, relative)
+        actual_sha256 = _sha256(pdf_path)
+        if actual_sha256 != expected_sha256:
+            _fail("SOURCE_PDF_HASH_MISMATCH")
+        key = (study_id, source_id)
+        if key in indexed:
+            _fail("FIGURE_SOURCE_DUPLICATE")
+        indexed[key] = {
+            "study_id": study_id,
+            "source_id": source_id,
+            "pdf_path": relative,
+            "pdf_sha256": actual_sha256,
+        }
+    return indexed
+
+
+def _candidate_locator(raw: Mapping[str, Any], page: int, label: str) -> dict[str, Any]:
+    locator = raw.get("locator")
+    if not isinstance(locator, Mapping):
+        _fail("FIGURE_LOCATOR_INVALID")
+    source_mode = locator.get("source_mode")
+    section_or_item = locator.get("section_or_item")
+    figure_or_table = locator.get("figure_or_table")
+    exact_quote = locator.get("exact_quote")
+    if (
+        source_mode != "parsed_candidate"
+        or locator.get("page") != page
+        or not isinstance(section_or_item, str)
+        or not section_or_item.strip()
+        or not isinstance(figure_or_table, str)
+        or not figure_or_table.strip()
+        or figure_or_table.strip() != label
+        or not isinstance(exact_quote, str)
+        or not exact_quote.strip()
+    ):
+        _fail("FIGURE_LOCATOR_INVALID")
+    return {
+        "source_mode": source_mode,
+        "page": page,
+        "section_or_item": section_or_item.strip(),
+        "figure_or_table": figure_or_table.strip(),
+        "exact_quote": exact_quote.strip(),
+    }
+
+
+def project_source_figure_candidates(
+    project: Path,
+    authorized_sources: object,
+    parsed_figures: object,
+) -> dict[str, Any]:
+    """Project parsed source-figure candidates without persisting product state.
+
+    The input source records are the authorization boundary.  Every candidate
+    is bound to one MAIN source PDF, one current asset digest, and one explicit
+    parsed locator.  The returned rows remain candidate-only and therefore do
+    not update the source-figure registry, current pointer, or any project
+    file.
+    """
+    root = _safe_project(project)
+    source_index = _candidate_source_index(root, authorized_sources)
+    if not isinstance(parsed_figures, list):
+        _fail("FIGURE_CANDIDATES_INVALID")
+
+    # Import locally because figure_policy reuses this module's release-time
+    # binding helpers; the local import avoids creating a module-level cycle.
+    from review_writer.delivery.figure_policy import (
+        FigurePolicyError,
+        candidate_figure_release_gate,
+    )
+
+    figures: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+    seen_assets: set[str] = set()
+    seen_ids: set[str] = set()
+    for raw in parsed_figures:
+        if not isinstance(raw, Mapping):
+            _fail("FIGURE_CANDIDATE_INVALID")
+        study_id = _candidate_text(raw.get("study_id"), "FIGURE_CANDIDATE_INVALID")
+        source_id = _candidate_text(raw.get("source_id"), "FIGURE_CANDIDATE_INVALID")
+        source = source_index.get((study_id, source_id))
+        if source is None:
+            _fail("FIGURE_SOURCE_NOT_AUTHORIZED")
+        if "document_role" in raw and raw.get("document_role") != "MAIN":
+            _fail("FIGURE_SOURCE_ROLE_INVALID")
+        supplied_source_sha256 = raw.get("source_pdf_sha256")
+        if supplied_source_sha256 is not None:
+            if _candidate_sha256(supplied_source_sha256, "FIGURE_SOURCE_INVALID") != source["pdf_sha256"]:
+                _fail("SOURCE_PDF_HASH_MISMATCH")
+        page = raw.get("page")
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+            _fail("FIGURE_LOCATOR_INVALID")
+        figure_label = _candidate_text(raw.get("figure_label"), "FIGURE_CANDIDATE_INVALID")
+        caption = _candidate_text(raw.get("caption"), "FIGURE_CANDIDATE_INVALID")
+        block_index = raw.get("block_index")
+        if not isinstance(block_index, int) or isinstance(block_index, bool) or block_index < 0:
+            _fail("FIGURE_CANDIDATE_INVALID")
+        bbox = _valid_bbox(raw.get("bbox"))
+        if bbox is None:
+            _fail("FIGURE_LOCATOR_INVALID")
+        locator = _candidate_locator(raw, page, figure_label)
+
+        asset_path = _candidate_text(raw.get("asset_path"), "FIGURE_ASSET_INVALID")
+        asset = _safe_asset(root, asset_path)
+        asset_sha256 = _candidate_sha256(raw.get("asset_sha256"), "FIGURE_ASSET_INVALID")
+        actual_asset_sha256 = _sha256(asset)
+        if actual_asset_sha256 != asset_sha256:
+            _fail("FIGURE_ASSET_HASH_MISMATCH")
+        if actual_asset_sha256 in seen_assets:
+            _fail("FIGURE_ASSET_DUPLICATE")
+        seen_assets.add(actual_asset_sha256)
+
+        figure_id = f"{study_id}:{source_id}:{figure_label.casefold().replace(' ', '-')}"
+        if figure_id in seen_ids:
+            _fail("FIGURE_ID_DUPLICATE")
+        seen_ids.add(figure_id)
+        base = {
+            "figure_id": figure_id,
+            "study_id": study_id,
+            "source_id": source_id,
+            "page": page,
+            "figure_label": figure_label,
+            "caption": caption,
+            "asset_path": asset_path,
+            "asset_sha256": actual_asset_sha256,
+            "source_pdf_sha256": source["pdf_sha256"],
+            "evidence_ids": _evidence_ids(root, study_id, source_id, page, figure_label),
+            "selection_status": "available",
+            "fragments": [
+                {
+                    "page": page,
+                    "block_index": block_index,
+                    "bbox": bbox,
+                    "asset_path": asset_path,
+                    "asset_sha256": actual_asset_sha256,
+                    "caption_association": "explicit_caption_anchor",
+                }
+            ],
+        }
+        _validate(base, SOURCE_FIGURE_SCHEMA, "FIGURE_CANDIDATE_INVALID")
+        candidate = {
+            **base,
+            "status": "candidate",
+            "locator": locator,
+        }
+        for field in (
+            "attribution",
+            "license_or_rights_basis",
+            "rights_status",
+            "rights_evidence_reference",
+        ):
+            if field in raw:
+                candidate[field] = raw[field]
+        try:
+            rights = candidate_figure_release_gate(candidate)
+        except FigurePolicyError as exc:
+            raise ReviewFigureError(exc.code) from exc
+        candidate.update(rights)
+        if rights.get("release_status") == "HOLD":
+            gaps.append(
+                {
+                    "figure_id": figure_id,
+                    "code": rights["gap_code"],
+                    "reason": rights["gap_reason"],
+                }
+            )
+        figures.append(candidate)
+
+    figures.sort(key=lambda row: (row["study_id"], row["source_id"], row["page"], row["figure_id"]))
+    return {
+        "schema_version": "review-writer-source-figure-candidates.v1",
+        "project_id": root.name,
+        "status": "candidate",
+        "figures": figures,
+        "gaps": gaps,
+    }
+
+
 def build_source_figure_registry(project: Path) -> dict[str, Any]:
     """Rebuild source-figure entries from current Source Truth bytes."""
     root = _safe_project(project)
