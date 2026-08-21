@@ -10,7 +10,8 @@
     "chemical_paper_binding_digest", "chemical_paper_safe_summary",
     "chemical_paper_dependency_can_release", "markdown_path",
     "docx_path", "docx_sha256", "placeholder_count", "pending_placeholder_count",
-    "hard_fail_signals", "system_generated_synthesis_figure", "integrity"
+    "hard_fail_signals", "system_generated_synthesis_figure", "integrity",
+    "version_context_version_id", "version_context_revision", "version_context_digest"
   ],
   "properties": {
     "schema_version": {"const": "release-snapshot.v1"},
@@ -52,7 +53,10 @@
     "pending_placeholder_count": {"type": "integer", "minimum": 0},
     "hard_fail_signals": {"type": "array", "items": {"type": "string"}},
     "system_generated_synthesis_figure": {"const": false},
-    "integrity": {"$ref": "#/$defs/integrity"}
+    "integrity": {"$ref": "#/$defs/integrity"},
+    "version_context_version_id": {"type": "string", "minLength": 1},
+    "version_context_revision": {"type": "integer", "minimum": 0},
+    "version_context_digest": {"$ref": "#/$defs/sha256"}
   },
   "allOf": [
     {

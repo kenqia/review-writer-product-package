@@ -36,6 +36,7 @@ from review_writer.delivery.chemical_paper_release import (
     safe_chemical_paper_projection,
 )
 from review_writer.delivery.dual_parse_release import dual_parse_release_state
+from review_writer.product_foundation import ProductFoundationError, VersionContext
 from review_writer.project.paper_evidence import (
     HONEST_PROGRESSIVE_ROUTE,
     PaperEvidenceError,
@@ -1157,6 +1158,31 @@ def _new_route_release_paths(project: Path, release_level: str) -> tuple[Path, P
     )
 
 
+def _version_context_binding(project: Path) -> dict[str, Any]:
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+    except (OSError, ProductFoundationError, TypeError, ValueError) as exc:
+        raise ProjectReleaseError(
+            "VERSION_CONTEXT_INVALID", "project version context is invalid"
+        ) from exc
+    if (
+        state.project_id != project.name
+        or not current.is_current
+        or not current.is_active_head
+        or not current.can_write
+    ):
+        raise ProjectReleaseError(
+            "VERSION_CONTEXT_INVALID", "project version context is not current"
+        )
+    return {
+        "version_context_version_id": current.version_id,
+        "version_context_revision": state.revision,
+        "version_context_digest": current.snapshot_digest,
+    }
+
+
 def _chemical_paper_release_state(
     project: Path, lineage: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1194,6 +1220,7 @@ def _new_route_release(
 ) -> dict[str, Any]:
     if release_level not in RELEASE_LEVELS:
         raise ProjectReleaseError("RELEASE_LEVEL_INVALID", "release level is unsupported")
+    version_context_binding = _version_context_binding(project)
     if not workflow.get("parse_ready"):
         raise ProjectReleaseError(
             "PARSE_QUALITY_NOT_READY", "source-truth parse review must close before release"
@@ -1445,6 +1472,7 @@ def _new_route_release(
             "hard_fail_signals": [],
             "system_generated_synthesis_figure": False,
             "integrity": integrity,
+            **version_context_binding,
         }
         snapshot_payload.update(honest_fields)
         quality_payload = {
@@ -1465,6 +1493,7 @@ def _new_route_release(
             "figure_validation": figure_validation,
             "integrity": integrity,
             **dual_quality,
+            **version_context_binding,
         }
         _validate_release_schema(
             snapshot_payload, "release_snapshot.v1.schema.json"
@@ -1594,6 +1623,12 @@ def new_route_release_docx_is_current(docx_path: Path) -> bool:
             or quality.get("schema_version") != "project-release.v2"
             or quality.get("release_level") != release_level
             or quality.get("status") != release_level
+        ):
+            return False
+        version_context_binding = _version_context_binding(project)
+        if any(
+            snapshot.get(key) != value or quality.get(key) != value
+            for key, value in version_context_binding.items()
         ):
             return False
         manuscript_bytes = source.read_bytes()

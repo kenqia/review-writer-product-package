@@ -9,7 +9,8 @@
     "lineage_digest", "manuscript_sha256", "release_markdown_sha256",
     "chemical_paper_binding_digest", "chemical_paper_safe_summary",
     "chemical_paper_dependency_can_release", "docx_sha256",
-    "figure_validation", "integrity"
+    "figure_validation", "integrity", "version_context_version_id",
+    "version_context_revision", "version_context_digest"
   ],
   "properties": {
     "schema_version": {"const": "project-release.v2"},
@@ -68,7 +69,10 @@
         "pending_placeholder_count": {"type": "integer", "minimum": 0}
       }
     },
-    "integrity": {"type": "object"}
+    "integrity": {"type": "object"},
+    "version_context_version_id": {"type": "string", "minLength": 1},
+    "version_context_revision": {"type": "integer", "minimum": 0},
+    "version_context_digest": {"$ref": "#/$defs/sha256"}
   },
   "dependentRequired": {
     "dual_parse_status": [
