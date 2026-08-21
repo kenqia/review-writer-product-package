@@ -4,6 +4,8 @@
 
 Review Writer 是一个本地优先的化学综述工作台。你在 Codex 中说明主题、一个明确的项目目录和获授权的本地 PDF 文件夹；Agent 使用本包的本地工具，遇到需要研究者判断的地方暂停并返回 Dashboard。PDF、项目正文和版本历史都保留在你的电脑上。
 
+文档追踪快照：[`docs/PRODUCT_TRACEABILITY.md`](docs/PRODUCT_TRACEABILITY.md)（仅记录引用与边界，不等于合同批准）。
+
 ## 完整流程
 
 ### 1. 获取产品包
