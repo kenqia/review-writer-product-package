@@ -52,6 +52,14 @@ _RELEASE_ARTIFACT_PATHS = tuple(
     Path("05_release/release_snapshot.json"),
     Path("05_release/quality_report.json"),
 )
+_PDF_EVIDENCE_BRIDGE_HOLD_CODES = frozenset(
+    {
+        "PARSE_QUALITY_MISSING",
+        "PARSE_QUALITY_REVIEW_REQUIRED",
+        "PARSE_QUALITY_STALE",
+        "PARSE_PDF_LOCATOR_ONLY",
+    }
+)
 
 
 class PublicReviewEntryError(ValueError):
@@ -587,6 +595,37 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
             if release is not None:
                 result.update(release)
             return result
+        if _source_mapping_complete(project, snapshot):
+            try:
+                bridged = local_pdf_parse.register_pdf_only_evidence_for_approved_parse(
+                    project,
+                    session_id=session_id,
+                    expected_revision=state.revision,
+                    expected_head_id=state.active_head_id,
+                )
+            except local_pdf_parse.LocalPdfParseError as exc:
+                if exc.code not in _PDF_EVIDENCE_BRIDGE_HOLD_CODES:
+                    raise
+            else:
+                if not isinstance(bridged, dict) or not isinstance(
+                    bridged.get("current"), dict
+                ):
+                    raise _error("PAPER_EVIDENCE_RESULT_INVALID", category="PRECONDITION_FAILED")
+                bridge_current = bridged["current"]
+                if not {"version_id", "revision", "snapshot_digest"}.issubset(
+                    bridge_current
+                ):
+                    raise _error("PAPER_EVIDENCE_RESULT_INVALID", category="PRECONDITION_FAILED")
+                result = copy.deepcopy(bridged)
+                result.update(
+                    {
+                        "result": "RESUMED",
+                        "current": copy.deepcopy(bridge_current),
+                        "revision": bridge_current["revision"],
+                        **dashboard_fields,
+                    }
+                )
+                return result
     if dashboard_failure is not None:
         return _dashboard_hold(project, current_payload, dashboard_failure)
     status, reason_code, next_action, trace = _nested_status(snapshot)

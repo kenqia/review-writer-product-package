@@ -62,6 +62,8 @@ from review_writer.project.review_figures import (
 from review_writer.project.source_truth import (
     SourceTruthError,
     canonical_digest,
+    load_source_truth_bundle,
+    source_truth_asset_snapshot,
     write_source_truth_bundle,
 )
 from review_writer.project.synthesis import (
@@ -1117,6 +1119,241 @@ def record_agent_tool_outcome(
             "revision": context.state().revision,
             "snapshot_digest": node.snapshot_digest,
         },
+    }
+
+
+def _verified_text_descriptor(project: Path, descriptor: object) -> str:
+    if not isinstance(descriptor, dict):
+        raise LocalPdfParseError("SOURCE_TRUTH_SCHEMA_INVALID")
+    relative = descriptor.get("path")
+    expected_sha256 = descriptor.get("sha256")
+    expected_size = descriptor.get("size_bytes")
+    if (
+        not isinstance(relative, str)
+        or not relative
+        or not isinstance(expected_sha256, str)
+        or len(expected_sha256) != 64
+        or set(expected_sha256) - _SHA256
+        or not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size < 0
+    ):
+        raise LocalPdfParseError("SOURCE_TRUTH_SCHEMA_INVALID")
+    path = _safe_project_file(project, relative)
+    try:
+        if path.stat().st_size != expected_size or _sha256_file(path) != expected_sha256:
+            raise LocalPdfParseError("SOURCE_ASSET_DRIFT")
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise LocalPdfParseError("SOURCE_ASSET_INVALID") from exc
+
+
+def _first_source_quote(*texts: str) -> str:
+    for text in texts:
+        for line in text.splitlines():
+            candidate = " ".join(line.strip().split())
+            if candidate and not candidate.startswith("<!--"):
+                return candidate[:2000]
+    raise LocalPdfParseError("SOURCE_TEXT_EMPTY")
+
+
+def _build_pdf_only_evidence_candidate(
+    project: Path,
+    study_id: str,
+    quality: dict[str, object],
+) -> dict[str, Any]:
+    try:
+        bundle = load_source_truth_bundle(project, study_id)
+    except SourceTruthError as exc:
+        raise LocalPdfParseError(exc.code) from exc
+    if bundle.get("project_id") != project.name or bundle.get("study_id") != study_id:
+        raise LocalPdfParseError("SOURCE_TRUTH_IDENTITY_MISMATCH")
+    sources = [
+        row
+        for row in bundle.get("sources", [])
+        if isinstance(row, dict) and row.get("document_role") == "MAIN"
+    ]
+    if len(sources) != 1:
+        raise LocalPdfParseError("MAIN_SOURCE_MISSING")
+    source = sources[0]
+    source_id = source.get("source_id")
+    if not isinstance(source_id, str) or not source_id.strip():
+        raise LocalPdfParseError("SOURCE_ID_NOT_FOUND")
+    try:
+        with source_truth_asset_snapshot(project, study_id, source_id, "pdf") as pdf_snapshot:
+            with source_truth_asset_snapshot(
+                project, study_id, source_id, "parsed-markdown"
+            ) as markdown_snapshot:
+                source_pdf_sha256 = pdf_snapshot.sha256
+                canonical_text = markdown_snapshot.path.read_text(encoding="utf-8")
+    except SourceTruthError as exc:
+        raise LocalPdfParseError(exc.code) from exc
+    except (OSError, UnicodeError) as exc:
+        raise LocalPdfParseError("SOURCE_ASSET_INVALID") from exc
+    reading_text = _verified_text_descriptor(project, source.get("reading_layer"))
+    if (
+        not isinstance(source_pdf_sha256, str)
+        or len(source_pdf_sha256) != 64
+        or set(source_pdf_sha256) - _SHA256
+    ):
+        raise LocalPdfParseError("SOURCE_PDF_HASH_INVALID")
+    quote = _first_source_quote(reading_text, canonical_text)
+    objects = quality.get("objects")
+    if not isinstance(objects, list) or not objects:
+        raise LocalPdfParseError("PARSE_QUALITY_INVALID")
+    bound_digests = sorted(
+        row.get("object_digest")
+        for row in objects
+        if isinstance(row, dict) and isinstance(row.get("object_digest"), str)
+    )
+    if len(bound_digests) != len(objects) or any(
+        len(value) != 64 or set(value) - _SHA256 for value in bound_digests
+    ):
+        raise LocalPdfParseError("PARSE_OBJECT_DIGESTS_INVALID")
+    evidence_id = f"pdf-only-{canonical_digest({'study_id': study_id, 'source_id': source_id})[:24]}"
+    return {
+        "evidence_id": evidence_id,
+        "study_id": study_id,
+        "source_id": source_id,
+        "epistemic_type": "experimental_observation",
+        "statement": (
+            "The verified source-bound reading layer records a page-1 observation; "
+            "no chemical field is inferred."
+        ),
+        "locator": {
+            "source_mode": "parsed_candidate",
+            "page": 1,
+            "section_or_item": "page 1 source-bound reading layer",
+            "figure_or_table": None,
+            "exact_quote": quote,
+        },
+        "reported_conditions": [],
+        "quantitative_results": [],
+        "limitations": [_CHEMICAL_GAP_LIMITATION],
+        "mechanism_grade": "not_applicable",
+        "risk_classes": ["GAP"],
+        "field_dependencies": [],
+        "bound_parse_object_digests": bound_digests,
+        "source_pdf_sha256": source_pdf_sha256,
+    }
+
+
+def register_pdf_only_evidence_for_approved_parse(
+    explicit_project_root: str | Path,
+    *,
+    session_id: str,
+    expected_revision: int | None = None,
+    expected_head_id: str | None = None,
+) -> dict[str, Any]:
+    """Materialize one conservative candidate per approved MAIN parse.
+
+    This is a bridge only: the existing Evidence producer owns candidate files,
+    and the existing Dashboard decision route remains the sole approval path.
+    """
+
+    project = _registered_project(explicit_project_root)
+    session = _identifier(session_id, "SESSION_ID_INVALID")
+    _, state, current = _load_current(project)
+    if (
+        (expected_revision is not None and expected_revision != state.revision)
+        or (expected_head_id is not None and expected_head_id != state.active_head_id)
+    ):
+        raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
+    parse = current.snapshot.get("agent_parse")
+    if not isinstance(parse, dict) or parse.get("session_id") != session:
+        raise LocalPdfParseError("GENERATOR_SESSION_NOT_FOUND")
+
+    try:
+        receipt_rows, _receipt_digest = _receipt_sources(project)
+    except LocalPdfParseError:
+        raise
+    main_rows = [row for row in receipt_rows if row.get("document_role") == "MAIN"]
+    if not main_rows:
+        raise LocalPdfParseError("MAIN_SOURCE_MISSING")
+    study_ids = sorted({row["study_id"] for row in main_rows})
+    qualities: dict[str, dict[str, object]] = {}
+    for study_id in study_ids:
+        try:
+            quality = parse_quality_state(project, study_id)
+        except ParseQualityError as exc:
+            raise LocalPdfParseError(exc.code) from exc
+        if quality.get("status") == "stale":
+            raise LocalPdfParseError("PARSE_QUALITY_STALE")
+        if quality.get("workflow_can_continue") is not True:
+            raise LocalPdfParseError("PARSE_QUALITY_REVIEW_REQUIRED")
+        # The required bridge produces parsed_candidate rows.  A human-approved
+        # PDF-locator-only gate remains fail-closed for this automatic adapter.
+        if quality.get("automatic_extraction_allowed") is not True:
+            raise LocalPdfParseError("PARSE_PDF_LOCATOR_ONLY")
+        qualities[study_id] = quality
+
+    try:
+        evidence_before = paper_evidence_state(project)
+    except PaperEvidenceError as exc:
+        raise LocalPdfParseError(exc.code) from exc
+    existing_studies = {
+        row.get("study_id")
+        for row in evidence_before.get("rows", [])
+        if isinstance(row, dict) and isinstance(row.get("study_id"), str)
+    }
+    candidates = {
+        study_id: _build_pdf_only_evidence_candidate(project, study_id, qualities[study_id])
+        for study_id in study_ids
+        if study_id not in existing_studies
+    }
+
+    registered_count = 0
+    latest_trace: dict[str, Any] | None = None
+    for study_id in study_ids:
+        candidate = candidates.get(study_id)
+        if candidate is None:
+            continue
+        _, write_state, _write_current = _load_current(project)
+        produced = register_pdf_only_evidence(
+            project,
+            session_id=session,
+            study_id=study_id,
+            candidate=candidate,
+            expected_revision=write_state.revision,
+            expected_head_id=write_state.active_head_id,
+        )
+        registered_count += 1
+        latest_trace = produced.get("agent_trace")
+
+    _latest_context, final_state, final_current = _load_current(project)
+    try:
+        evidence_after = paper_evidence_state(project)
+    except PaperEvidenceError as exc:
+        raise LocalPdfParseError(exc.code) from exc
+    current_binding = {
+        "project_id": project.name,
+        "version_id": final_current.version_id,
+        "revision": final_state.revision,
+        "snapshot_digest": final_current.snapshot_digest,
+    }
+    next_action = {
+        "project_id": project.name,
+        "route": "/review",
+        "type": _HUMAN_ACTION_REQUIRED,
+        "reason_code": _PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED,
+    }
+    return {
+        "status": _HUMAN_ACTION_REQUIRED,
+        "reason_code": _PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED,
+        "project_id": project.name,
+        "session_id": session,
+        "current": current_binding,
+        "revision": final_state.revision,
+        "write_mode": "VERSION_CONTEXT" if registered_count else "NONE",
+        "evidence": {
+            "candidate_count": evidence_after.get("total_count", 0),
+            "registered_count": registered_count,
+            "status": evidence_after.get("status"),
+            "project_status": evidence_after.get("status"),
+            "study_count": evidence_after.get("study_count", len(study_ids)),
+        },
+        "next_action": next_action,
+        "agent_trace": latest_trace,
     }
 
 

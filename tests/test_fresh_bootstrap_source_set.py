@@ -641,6 +641,106 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert parse["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
         assert parse["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
         assert parse["source_count"] == 3
+
+        # Before the human gate is complete, public resume must preserve the
+        # parse current and leave Evidence storage untouched.
+        before_unapproved = VersionContext.load(project_root).state()
+        unapproved_candidates = sorted(
+            project_root.glob("01_evidence/**/paper_evidence_candidates.json")
+        )
+        unapproved = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        after_unapproved = VersionContext.load(project_root).state()
+        assert unapproved["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+        assert unapproved["write_mode"] == "NONE"
+        assert after_unapproved.revision == before_unapproved.revision
+        assert sorted(project_root.glob("01_evidence/**/paper_evidence_candidates.json")) == unapproved_candidates
+
+        # Close every actionable parse-quality object through the real HTTP
+        # Dashboard seam, then resume the public Agent flow.  Evidence should
+        # be materialized from the approved source-bound parse, not by a test
+        # helper or a second store.
+        status, quality = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/parse-quality"
+        )
+        assert status == 200
+        for study in quality["studies"]:
+            for obj in study["objects"]:
+                actions = obj["actions"]
+                if not actions:
+                    continue
+                action = (
+                    "approve_candidate_extraction"
+                    if "approve_candidate_extraction" in actions
+                    else "pdf_locator_only"
+                )
+                decision = {
+                    "study_id": study["study_id"],
+                    "object_id": obj["object_id"],
+                    "decision_token": obj["decision_token"],
+                    "action": action,
+                    "note": "Synthetic integration review completed against the source PDF.",
+                }
+                if action == "pdf_locator_only":
+                    source = next(
+                        row
+                        for row in sources["sources"]
+                        if row["study_id"] == study["study_id"]
+                    )
+                    decision["pdf_resolution"] = {
+                        "pages": [1],
+                        "source_scope": "Page 1 only",
+                        "limitations": "Synthetic PDF locator-only review.",
+                        "source_pdf_sha256": source["source_pdf_sha256"],
+                    }
+                status, saved = request(
+                    dashboard_url,
+                    "PUT",
+                    f"/api/project/{project_id}/parse-quality",
+                    decision,
+                )
+                assert status == 200
+                quality = saved
+        assert quality["workflow_can_continue"] is True
+
+        resumed = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        assert resumed["result"] == "RESUMED"
+        assert resumed["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert resumed["reason_code"] == "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
+        evidence = local_pdf_parse.paper_evidence_state(project_root)
+        assert evidence["total_count"] == 3
+        assert evidence["workflow_can_continue"] is False
+        assert all(
+            row["locator"]["source_mode"] == "parsed_candidate"
+            for row in evidence["rows"]
+        )
+
+        # A second resume after materialization is a true idempotent no-write.
+        candidate_bytes = {
+            path: path.read_bytes()
+            for path in project_root.glob("01_evidence/**/paper_evidence_candidates.json")
+        }
+        before_idempotent = VersionContext.load(project_root).state()
+        repeated = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        after_idempotent = VersionContext.load(project_root).state()
+        assert repeated["reason_code"] == "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
+        assert repeated["write_mode"] == "NONE"
+        assert after_idempotent.revision == before_idempotent.revision
+        assert {
+            path: path.read_bytes()
+            for path in project_root.glob("01_evidence/**/paper_evidence_candidates.json")
+        } == candidate_bytes
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
