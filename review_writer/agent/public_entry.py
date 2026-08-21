@@ -23,8 +23,6 @@ from review_writer.product_foundation import ProductFoundationError, VersionCont
 from review_writer.project.manuscript_v2 import manuscript_state
 from review_writer.product_foundation.project_root import resolve_project_root
 from review_writer.project.paper_evidence import paper_evidence_state
-from view.serve_review_dashboard import PublicProjectResumeError, _resume_artifact_refs
-
 from . import fresh_bootstrap, local_pdf_parse
 from .generator_runtime import RUNTIME_KEY, RUNTIME_SCHEMA, GeneratorSession
 
@@ -297,6 +295,10 @@ def _current_payload(project: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
         or snapshot.get("currentness") != "current"
     ):
         raise _error("VERSION_CONTEXT_INVALID", category="PRECONDITION_FAILED")
+    # Dashboard imports this package's generator runtime, so defer this reverse
+    # dependency until resume validation actually needs it.
+    from view.serve_review_dashboard import PublicProjectResumeError, _resume_artifact_refs
+
     try:
         _resume_artifact_refs(project, snapshot)
     except PublicProjectResumeError as exc:
