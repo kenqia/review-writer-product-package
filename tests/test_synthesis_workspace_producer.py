@@ -348,6 +348,149 @@ class PdfOnlySynthesisWorkspacePlanTest(unittest.TestCase):
             "CREATE_MULTI_STUDY_SYNTHESIS_CANDIDATE",
         )
 
+    def test_resume_repairs_missing_claim_after_coverage_write_then_claim_failure(self) -> None:
+        evidence = {
+            "projection_digest": "b" * 64,
+            "workflow_can_continue": True,
+            "rows": [
+                {
+                    "evidence_id": f"evidence-repair-{index}",
+                    "study_id": f"study-repair-{index}",
+                    "status": "approved",
+                    "statement": f"Study {index} reports a bounded observation.",
+                    "field_dependencies": [],
+                }
+                for index in range(1, 3)
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "repair-partial-synthesis"
+            (project / "01_evidence").mkdir(parents=True)
+            (project / "02_synthesis").mkdir()
+            (project / ".paper_evidence.lock").write_bytes(b"\0")
+            (project / "02_synthesis/comparison_protocol.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            state = SimpleNamespace(revision=4, active_head_id="head-repair")
+            current = SimpleNamespace(
+                snapshot={
+                    "agent_parse": {
+                        "session_id": "generator-repair",
+                        "tool_trace": [],
+                    }
+                },
+                version_id="version-repair",
+                snapshot_digest="c" * 64,
+            )
+            trace = {
+                "current": {
+                    "version_id": "version-repair-next",
+                    "revision": 5,
+                    "snapshot_digest": "d" * 64,
+                }
+            }
+            coverage_calls = 0
+            claim_calls = 0
+
+            def write_coverage(root: Path, payload: object) -> object:
+                nonlocal coverage_calls
+                coverage_calls += 1
+                (root / "02_synthesis/coverage_map.json").write_text(
+                    json.dumps(payload), encoding="utf-8"
+                )
+                return payload
+
+            def write_claims(root: Path, payload: object) -> dict[str, object]:
+                nonlocal claim_calls
+                claim_calls += 1
+                if claim_calls == 1:
+                    raise synthesis_producer.SynthesisError(
+                        "INJECTED_SYNTHESIS_FAILURE"
+                    )
+                (root / "02_synthesis/synthesis_claim_projection.jsonl").write_text(
+                    '{"claim":true}\n', encoding="utf-8"
+                )
+                return {"claims": [payload], "status": "needs_review"}
+
+            def coverage_state(root: Path) -> dict[str, object]:
+                return {
+                    "workflow_can_continue": (
+                        (root / "02_synthesis/coverage_map.json").is_file()
+                    )
+                }
+
+            def synthesis_state(root: Path) -> dict[str, object]:
+                return {
+                    "workflow_can_continue": False,
+                    "reason_code": (
+                        "SYNTHESIS_REVIEW_REQUIRED"
+                        if (root / "02_synthesis/synthesis_claim_projection.jsonl").is_file()
+                        else "SYNTHESIS_NOT_APPROVED"
+                    ),
+                }
+
+            with (
+                patch.object(local_pdf_parse, "_registered_project", return_value=project),
+                patch.object(
+                    local_pdf_parse,
+                    "_active_parse_session",
+                    return_value=("generator-repair", state, current),
+                ),
+                patch.object(local_pdf_parse, "paper_evidence_state", return_value=evidence),
+                patch.object(
+                    local_pdf_parse,
+                    "comparison_protocol_state",
+                    return_value={"workflow_can_continue": True},
+                ),
+                patch.object(local_pdf_parse, "coverage_map_state", side_effect=coverage_state),
+                patch.object(local_pdf_parse, "synthesis_state", side_effect=synthesis_state),
+                patch.object(local_pdf_parse, "register_coverage_map", side_effect=write_coverage),
+                patch.object(
+                    local_pdf_parse,
+                    "register_synthesis_candidates",
+                    side_effect=write_claims,
+                ),
+                patch.object(
+                    local_pdf_parse,
+                    "record_agent_tool_outcome",
+                    return_value=trace,
+                ),
+            ):
+                with self.assertRaises(local_pdf_parse.LocalPdfParseError) as first_failure:
+                    local_pdf_parse.prepare_pdf_only_synthesis_workspace(
+                        project,
+                        session_id="generator-repair",
+                        expected_revision=4,
+                        expected_head_id="head-repair",
+                    )
+                self.assertEqual(
+                    first_failure.exception.code,
+                    "INJECTED_SYNTHESIS_FAILURE",
+                )
+                self.assertTrue(
+                    (project / "02_synthesis/coverage_map.json").is_file()
+                )
+                self.assertFalse(
+                    (project / "02_synthesis/synthesis_claim_projection.jsonl").exists()
+                )
+
+                resumed = local_pdf_parse.prepare_pdf_only_synthesis_workspace(
+                    project,
+                    session_id="generator-repair",
+                    expected_revision=4,
+                    expected_head_id="head-repair",
+                )
+
+            self.assertEqual(coverage_calls, 1)
+            self.assertEqual(claim_calls, 2)
+            self.assertEqual(
+                resumed["action"],
+                "CREATE_MULTI_STUDY_SYNTHESIS_CANDIDATE",
+            )
+            self.assertTrue(
+                (project / "02_synthesis/synthesis_claim_projection.jsonl").is_file()
+            )
+
     def test_multi_study_plan_round_trips_through_existing_synthesis_producers(self) -> None:
         evidence = {
             "projection_digest": "5" * 64,

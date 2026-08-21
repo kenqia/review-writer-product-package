@@ -1970,6 +1970,7 @@ def prepare_pdf_only_synthesis_workspace(
         )
 
     coverage_path = project / "02_synthesis" / "coverage_map.json"
+    claims_path = project / "02_synthesis" / "synthesis_claim_projection.jsonl"
     try:
         coverage = coverage_map_state(project)
         synthesis = synthesis_state(project)
@@ -1980,6 +1981,11 @@ def prepare_pdf_only_synthesis_workspace(
     if not coverage_path.exists():
         try:
             register_coverage_map(project, plan["coverage_map"])
+        except SynthesisError as exc:
+            raise LocalPdfParseError(exc.code) from exc
+
+    if not claims_path.exists():
+        try:
             claims = register_synthesis_candidates(project, plan["synthesis_claim"])
         except SynthesisError as exc:
             raise LocalPdfParseError(exc.code) from exc
