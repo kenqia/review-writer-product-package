@@ -774,6 +774,60 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
         stack.enter_context(patch.object(manuscript_v2, "_figure_digests", return_value=(None, None)))
         return stack
 
+    def test_new_route_draft_does_not_repeat_prevalidation_before_locked_approval(self) -> None:
+        review_root, project, draft, _ = self._project()
+        manuscript_root = project / "04_manuscript"
+        manuscript_root.joinpath("section_drafts.jsonl").write_text(
+            json.dumps(
+                {
+                    **draft,
+                    "schema_version": "manuscript-section-draft.v1",
+                    "contract_digest": "f" * 64,
+                    "paper_evidence_projection_digest": "e" * 64,
+                    "synthesis_projection_digest": "s" * 64,
+                    "section_contract_projection_digest": "c" * 64,
+                    "generation_content_agent_result_digest": "d" * 64,
+                    "claim_bindings": [
+                        {
+                            "marker": "[evidence:case-1]",
+                            "paper_evidence_ids": ["case-1"],
+                            "synthesis_ids": [],
+                        }
+                    ],
+                    "decision": None,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        states = manuscript_v2._states
+        states.reset_mock()
+        states.side_effect = lambda _project: (
+            {
+                "workflow_can_continue": True,
+                "projection_digest": "e" * 64,
+                "rows": [{"evidence_id": "case-1", "status": "approved"}],
+            },
+            {
+                "workflow_can_continue": True,
+                "projection_digest": "s" * 64,
+                "rows": [],
+            },
+            {"workflow_can_continue": True, "projection_digest": "c" * 64, "rows": []},
+        )
+        with (
+            patch.object(dashboard, "build_manuscript_workspace", return_value={"sections": [draft]}),
+            patch.object(manuscript_v2, "_draft_is_current", return_value=True),
+            patch.object(manuscript_v2, "_merge_approved_sections_locked", return_value={"status": "approved"}),
+        ):
+            dashboard._write_new_route_draft_section(
+                review_root,
+                self.project_id,
+                self._payload(draft),
+            )
+
+        self.assertEqual(states.call_count, 1)
+
     def test_http_user_edited_approval_returns_without_reentrant_lock_hang(self) -> None:
         review_root, project, draft, _ = self._project()
         (project / "01_evidence/source_truth").mkdir(parents=True)
@@ -1020,24 +1074,42 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
 
     def _assert_marker_rejection_is_zero_write(self, invalid_body: str, error_code: str) -> None:
         review_root, project, draft, _ = self._project()
+        (project / "04_manuscript/section_drafts.jsonl").write_text(
+            json.dumps(
+                {
+                    **draft,
+                    "schema_version": "manuscript-section-draft.v1",
+                    "contract_digest": "f" * 64,
+                    "paper_evidence_projection_digest": "e" * 64,
+                    "synthesis_projection_digest": "s" * 64,
+                    "section_contract_projection_digest": "c" * 64,
+                    "generation_content_agent_result_digest": "d" * 64,
+                    "claim_bindings": [
+                        {
+                            "marker": "[evidence:case-1]",
+                            "paper_evidence_ids": ["case-1"],
+                            "synthesis_ids": [],
+                        }
+                    ],
+                    "decision": None,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         before, tracked = self._tracked_manuscript_state(project)
         payload = self._payload(draft)
         payload["edited_body"] = invalid_body
 
-        def reject_after_mutation(root: Path, *_args: object, **_kwargs: object) -> dict[str, object]:
-            (root / "04_manuscript/section_drafts.jsonl").write_bytes(b"mutation-before-rejection\n")
-            raise manuscript_v2.ManuscriptV2Error(error_code)
-
         with (
             patch.object(dashboard, "build_manuscript_workspace", return_value={"sections": [draft]}),
-            patch.object(manuscript_v2, "_approve_section_locked", side_effect=reject_after_mutation) as approve,
+            patch.object(manuscript_v2, "_draft_is_current", return_value=True),
             patch.object(manuscript_v2, "_merge_approved_sections_locked") as merge,
         ):
             with self.assertRaises(ValueError) as error:
                 dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
 
         self.assertEqual(str(error.exception), error_code)
-        approve.assert_not_called()
         merge.assert_not_called()
         self.assertEqual({path: self._fingerprint(path) for path in tracked}, before)
 
