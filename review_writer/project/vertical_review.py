@@ -220,6 +220,7 @@ def _validate_brief(brief: Any) -> dict[str, Any]:
         "output_language",
         "audience",
         "scope",
+        "output_format",
         "review_status",
     )
     for field in string_fields:

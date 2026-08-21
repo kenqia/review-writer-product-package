@@ -176,8 +176,22 @@ def test_public_entry_is_discoverable_and_maps_human_action_required(
     project.parent.mkdir()
     observed: dict[str, object] = {}
 
-    def fake_start(self: object, *, topic: str, authorized_pdf_folder: Path) -> dict[str, object]:
-        observed.update(topic=topic, authorized_pdf_folder=authorized_pdf_folder)
+    def fake_start(
+        self: object,
+        *,
+        topic: str,
+        authorized_pdf_folder: Path,
+        rq: str | None = None,
+        scope: str | None = None,
+        output_format: str | None = None,
+    ) -> dict[str, object]:
+        observed.update(
+            topic=topic,
+            authorized_pdf_folder=authorized_pdf_folder,
+            rq=rq,
+            scope=scope,
+            output_format=output_format,
+        )
         return {
             "status": fresh_bootstrap.HUMAN_ACTION_REQUIRED,
             "reason_code": fresh_bootstrap.SOURCE_ROLE_HUMAN_ACTION_REQUIRED,
@@ -210,7 +224,13 @@ def test_public_entry_is_discoverable_and_maps_human_action_required(
     assert result["current"]["version_id"] == "agent-bootstrap-v1"
     assert result["revision"] == 1
     assert result["dashboard_url"] == "http://127.0.0.1:43123"
-    assert observed == {"topic": "A bounded topic", "authorized_pdf_folder": authorized}
+    assert observed == {
+        "topic": "A bounded topic",
+        "authorized_pdf_folder": authorized,
+        "rq": "What is reported?",
+        "scope": "single study",
+        "output_format": "markdown",
+    }
 
 
 def test_resume_reads_current_and_is_zero_write(tmp_path: Path) -> None:

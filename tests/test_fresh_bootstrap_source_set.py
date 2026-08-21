@@ -228,8 +228,20 @@ def test_fresh_bootstrap_persists_the_complete_authorized_source_set(
         result = fresh_bootstrap.FreshAgentBootstrap(project_root).start(
             topic="A bounded source-set review",
             authorized_pdf_folder=folder,
+            rq="What source-bound evidence is available?",
+            scope="the authorized source set",
+            output_format="markdown",
         )
 
+    review_state = json.loads(
+        (project_root / "00_brief/review_state.json").read_text(encoding="utf-8")
+    )
+    assert review_state["brief"] == {
+        "topic": "A bounded source-set review",
+        "review_question": "What source-bound evidence is available?",
+        "scope": "the authorized source set",
+        "output_format": "markdown",
+    }
     current = VersionContext.load(project_root).view_version(
         VersionContext.load(project_root).state().current_version_id
     )

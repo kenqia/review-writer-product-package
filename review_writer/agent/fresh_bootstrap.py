@@ -494,10 +494,25 @@ class FreshAgentBootstrap:
         *,
         topic: str,
         authorized_pdf_folder: str | Path,
+        rq: str | None = None,
+        scope: str | None = None,
+        output_format: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(topic, str) or not topic.strip():
             raise FreshAgentBootstrapError("TOPIC_INVALID")
         normalized_topic = topic.strip()
+        brief = {
+            "topic": normalized_topic,
+            "review_question": (
+                rq
+                if rq is not None
+                else "What source-bound evidence is available for the supplied topic?"
+            ),
+        }
+        if scope is not None:
+            brief["scope"] = scope
+        if output_format is not None:
+            brief["output_format"] = output_format
         authorized_pdfs = _authorized_pdfs(authorized_pdf_folder)
         staged_archive, source_set = _build_authorized_archive(
             authorized_pdfs,
@@ -518,10 +533,7 @@ class FreshAgentBootstrap:
                     self.project_root.parent,
                     self.project_root.name,
                     {
-                        "topic": normalized_topic,
-                        "review_question": (
-                            "What source-bound evidence is available for the supplied topic?"
-                        ),
+                        **brief,
                     },
                 )
                 confirm_review_brief(project)

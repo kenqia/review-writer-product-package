@@ -536,11 +536,28 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     }
 
 
-def _fresh(topic: str, project: Path, authorized_pdf_folder: Path) -> dict[str, Any]:
+def _fresh(
+    topic: str,
+    project: Path,
+    authorized_pdf_folder: Path,
+    *,
+    rq: str | None = None,
+    scope: str | None = None,
+    output_format: str | None = None,
+) -> dict[str, Any]:
     try:
+        bootstrap_kwargs: dict[str, Any] = {
+            "topic": topic,
+            "authorized_pdf_folder": authorized_pdf_folder,
+        }
+        if rq is not None:
+            bootstrap_kwargs["rq"] = rq
+        if scope is not None:
+            bootstrap_kwargs["scope"] = scope
+        if output_format is not None:
+            bootstrap_kwargs["output_format"] = output_format
         result = FreshAgentBootstrap(project).start(
-            topic=topic,
-            authorized_pdf_folder=authorized_pdf_folder,
+            **bootstrap_kwargs,
         )
     except FreshAgentBootstrapError as exc:
         input_codes = {
@@ -582,9 +599,9 @@ def start_or_resume_review(
 ) -> dict[str, Any]:
     """Start a fresh review or resume its explicit project root."""
     topic = _required_text(topic, "TOPIC_INVALID")
-    _optional_text(rq, "REVIEW_QUESTION_INVALID")
-    _optional_text(scope, "SCOPE_INVALID")
-    _optional_text(output_format, "OUTPUT_FORMAT_INVALID")
+    rq = _optional_text(rq, "REVIEW_QUESTION_INVALID")
+    scope = _optional_text(scope, "SCOPE_INVALID")
+    output_format = _optional_text(output_format, "OUTPUT_FORMAT_INVALID")
     project, is_fresh = _explicit_root(explicit_project_root)
     try:
         authorized = Path(authorized_pdf_folder)
@@ -595,7 +612,14 @@ def start_or_resume_review(
     except fresh_bootstrap.FreshAgentBootstrapError as exc:
         raise _error(exc.code) from exc
     if is_fresh:
-        return _fresh(topic, project, authorized)
+        return _fresh(
+            topic,
+            project,
+            authorized,
+            rq=rq,
+            scope=scope,
+            output_format=output_format,
+        )
     return _resume(project, authorized_pdfs)
 
 
