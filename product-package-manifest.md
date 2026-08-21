@@ -50,9 +50,10 @@ current_pointer: .review-writer/version_context/current.json
 ## 质量边界
 
 合同文档和 FR 追踪表是公开规范边界；它们不复制 dirty/unpinned 的源 SRS/Design
-正文。当前 hash 文件在本次合同变更前已存在若干与实际文件不一致的旧条目；本次
-只重算实际改动或新增文档，不宣称全包 hash 完整性，未改动的旧 mismatch 仍需独立
-修复窗口处理。
+正文。本次已按上述受控 allowlist 对包内所有受控普通文件全量重算
+`product-package-sha256.txt`（排除 hash 文件自身、`.git`、tests、cache/pyc 及用户项目/数据），
+并验证 hash 条目与受控普通文件 exact set 一致、所有 digest 复算一致。该完整性检查不升级
+`Product Use`、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity 或 `PROMOTE/B2` 边界。
 
 - `Engineering`：import、静态资产和针对性运行时检查；不代表用户验收。
 - `Independent Quality`：需要独立浏览器与新鲜环境的验证，不随本包 hash 推断。
