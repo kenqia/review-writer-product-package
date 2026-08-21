@@ -13,6 +13,8 @@ import hashlib
 import os
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 from urllib.parse import urlparse
 
 from review_writer.delivery.project_release import (
@@ -215,7 +217,10 @@ def _validate_resume_source(
 def _loopback_url(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
     if parsed.scheme not in {"http", "https"} or parsed.hostname not in _SAFE_URL_HOSTS:
         return None
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -239,6 +244,64 @@ def _dashboard_url(snapshot: dict[str, Any]) -> str | None:
                     if found is not None:
                         return found
     return None
+
+
+def _dashboard_is_healthy(value: str) -> bool:
+    safe_url = _loopback_url(value)
+    if safe_url is None:
+        return False
+    try:
+        with urlopen(f"{safe_url.rstrip('/')}/api/projects", timeout=0.2) as response:
+            return response.status == 200
+    except (OSError, URLError, ValueError):
+        return False
+
+
+def _resume_dashboard(
+    project: Path, snapshot: dict[str, Any]
+) -> tuple[str | None, int | None, str | None]:
+    stored_url = _dashboard_url(snapshot)
+    if stored_url is not None and _dashboard_is_healthy(stored_url):
+        return stored_url, None, None
+    try:
+        started = fresh_bootstrap._start_dashboard(project.parent)
+    except fresh_bootstrap.FreshAgentBootstrapError as exc:
+        return None, None, exc.code
+    except OSError:
+        return None, None, "DASHBOARD_START_FAILED"
+    if (
+        not isinstance(started, tuple)
+        or len(started) != 2
+        or not isinstance(started[0], str)
+        or not isinstance(started[1], int)
+    ):
+        return None, None, "DASHBOARD_RESULT_INVALID"
+    dashboard_url, dashboard_pid = started
+    safe_url = _loopback_url(dashboard_url)
+    if safe_url is None:
+        return None, None, "DASHBOARD_RESULT_INVALID"
+    return safe_url, dashboard_pid, None
+
+
+def _dashboard_hold(
+    project: Path, current_payload: dict[str, Any], reason_code: str
+) -> dict[str, Any]:
+    return {
+        "result": "RESUMED",
+        "status": "HOLD",
+        "reason_code": reason_code,
+        "dashboard_url": None,
+        "current": copy.deepcopy(current_payload),
+        "revision": current_payload["revision"],
+        "write_mode": "NONE",
+        "next_action": {
+            "project_id": project.name,
+            "route": "/review",
+            "type": "HOLD",
+            "reason_code": reason_code,
+        },
+        "trace": {"event_count": 0},
+    }
 
 
 def _nested_status(
@@ -457,6 +520,12 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     snapshot = copy.deepcopy(dict(current.snapshot))
     _validate_resume_source(project, authorized_pdfs, snapshot)
     current_payload = _current_payload(project, snapshot)
+    dashboard_url, dashboard_pid, dashboard_failure = _resume_dashboard(project, snapshot)
+    if dashboard_failure is not None:
+        return _dashboard_hold(project, current_payload, dashboard_failure)
+    dashboard_fields: dict[str, Any] = {"dashboard_url": dashboard_url}
+    if dashboard_pid is not None:
+        dashboard_fields["dashboard_pid"] = dashboard_pid
     if _source_mapping_complete(project, snapshot) and not _parse_artifacts_exist(project):
         parsed = local_pdf_parse.parse_project_sources(
             project,
@@ -476,8 +545,8 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
             "result": "RESUMED",
             "current": parsed_current,
             "revision": parsed_current["revision"],
-            "dashboard_url": _dashboard_url(snapshot),
             "write_mode": "VERSION_CONTEXT",
+            **dashboard_fields,
         }
     parse_owner = snapshot.get("agent_parse")
     session_id = parse_owner.get("session_id") if isinstance(parse_owner, dict) else None
@@ -507,7 +576,7 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
                     "result": "RESUMED",
                     "current": continued_current,
                     "revision": continued_current["revision"],
-                    "dashboard_url": _dashboard_url(snapshot),
+                    **dashboard_fields,
                 }
             )
             result.setdefault(
@@ -527,12 +596,12 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
         "result": "RESUMED",
         "status": status,
         "reason_code": reason_code,
-        "dashboard_url": _dashboard_url(snapshot),
         "current": current_payload,
         "revision": current_payload["revision"],
         "write_mode": "NONE",
         "next_action": copy.deepcopy(next_action),
         "trace": copy.deepcopy(trace) if trace is not None else {"event_count": 0},
+        **dashboard_fields,
     }
 
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import shutil
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -166,6 +166,18 @@ def _complete_source_mapping(project: Path, authorized: Path) -> None:
     )
 
 
+def _replace_current_snapshot(project: Path, snapshot: dict[str, object]) -> None:
+    context = VersionContext.load(project)
+    state = context.state()
+    context.view_version(state.current_version_id)
+    context.publish_active_head(
+        copy.deepcopy(snapshot),
+        expected_head_id=state.active_head_id,
+        expected_revision=state.revision,
+        version_id="resume-test-current",
+    )
+
+
 def test_public_entry_is_discoverable_and_maps_human_action_required(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -233,9 +245,12 @@ def test_public_entry_is_discoverable_and_maps_human_action_required(
     }
 
 
-def test_resume_reads_current_and_is_zero_write(tmp_path: Path) -> None:
+def test_resume_reads_current_and_is_zero_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project, authorized, tracked = _resume_project(tmp_path)
     before = {path: _fingerprint(path) for path in tracked}
+    monkeypatch.setattr(public_entry, "_dashboard_is_healthy", lambda value: True)
 
     result = start_or_resume_review("Resume topic", project, authorized)
 
@@ -245,6 +260,93 @@ def test_resume_reads_current_and_is_zero_write(tmp_path: Path) -> None:
     assert result["current"]["revision"] == 0
     assert result["revision"] == 0
     assert result["dashboard_url"] == "http://127.0.0.1:43123"
+    assert {path: _fingerprint(path) for path in tracked} == before
+
+
+def test_resume_restarts_stale_dashboard_under_project_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, _ = _resume_project(tmp_path)
+    observed: list[Path] = []
+
+    def fake_start(review_root: Path) -> tuple[str, int]:
+        observed.append(review_root)
+        return "http://127.0.0.1:43210", 901
+
+    monkeypatch.setattr(fresh_bootstrap, "_start_dashboard", fake_start)
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert observed == [project.parent]
+    assert result["dashboard_url"] == "http://127.0.0.1:43210"
+    assert result["current"]["project_id"] == project.name
+    assert result["write_mode"] == "NONE"
+
+
+def test_resume_never_returns_external_dashboard_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, _ = _resume_project(tmp_path)
+    context = VersionContext.load(project)
+    state = context.state()
+    current = context.view_version(state.current_version_id)
+    snapshot = copy.deepcopy(dict(current.snapshot))
+    snapshot["agent_bootstrap"]["tool_trace"] = [
+        {"tool": "start_dashboard", "dashboard_url": "https://example.com/review"}
+    ]
+    _replace_current_snapshot(project, snapshot)
+
+    monkeypatch.setattr(
+        fresh_bootstrap,
+        "_start_dashboard",
+        lambda review_root: ("http://127.0.0.1:43211", 902),
+    )
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert result["dashboard_url"] == "http://127.0.0.1:43211"
+    assert result["dashboard_url"] != "https://example.com/review"
+    assert result["current"]["revision"] == state.revision + 1
+
+
+def test_resume_dashboard_start_failure_holds_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, tracked = _resume_project(tmp_path)
+    before = {path: _fingerprint(path) for path in tracked}
+    expected_current = {
+        "project_id": project.name,
+        "version_id": VersionContext.load(project).view_version(
+            VersionContext.load(project).state().current_version_id
+        ).version_id,
+        "revision": 0,
+        "snapshot_digest": VersionContext.load(project).view_version(
+            VersionContext.load(project).state().current_version_id
+        ).snapshot_digest,
+    }
+
+    def fail_start(review_root: Path) -> tuple[str, int]:
+        raise fresh_bootstrap.FreshAgentBootstrapError(
+            "DASHBOARD_START_FAILED", runtime_diagnostic="CHILD_EARLY_EXIT"
+        )
+
+    monkeypatch.setattr(fresh_bootstrap, "_start_dashboard", fail_start)
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert result["result"] == "RESUMED"
+    assert result["status"] == "HOLD"
+    assert result["reason_code"] == "DASHBOARD_START_FAILED"
+    assert result["dashboard_url"] is None
+    assert result["current"] == expected_current
+    assert result["revision"] == expected_current["revision"]
+    assert result["write_mode"] == "NONE"
+    assert result["next_action"] == {
+        "project_id": project.name,
+        "route": "/review",
+        "type": "HOLD",
+        "reason_code": "DASHBOARD_START_FAILED",
+    }
     assert {path: _fingerprint(path) for path in tracked} == before
 
 
