@@ -154,7 +154,7 @@ def _authorized_pdfs(value: str | Path) -> tuple[Path, ...]:
     candidates = tuple(
         sorted(entries, key=lambda path: (path.name.casefold(), path.name))
     )
-    if not 1 <= len(candidates) <= 3:
+    if not candidates:
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_COUNT_INVALID")
     seen_digests: set[str] = set()
     for candidate in candidates:

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from review_writer.agent import fresh_bootstrap
+from review_writer.agent import fresh_bootstrap, public_entry
 from review_writer.product_foundation import VersionContext
 
 
@@ -323,6 +323,53 @@ def test_n3_bootstrap_reaches_existing_dashboard_batch_role_gate(
         assert project_root.joinpath(
             "00_sources/manual_upload/inbox/source_bundle.zip"
         ).is_file()
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
+                result["dashboard_pid"]
+            )
+
+
+def test_public_fresh_bootstrap_records_all_n10_authorized_members_and_hashes(
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    for index in range(10):
+        _write_pdf(folder, f"paper-{index:02d}.pdf", f"synthetic-{index}".encode())
+    project_root = tmp_path / "projects" / "n10-public-review"
+    project_root.parent.mkdir()
+    result: dict[str, object] | None = None
+
+    try:
+        result = public_entry.start_or_resume_review(
+            "A bounded N=10 source-set review",
+            project_root,
+            folder,
+        )
+
+        assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        context = VersionContext.load(project_root)
+        current = context.view_version(context.state().current_version_id)
+        source_set = current.snapshot["agent_bootstrap"]["authorized_source_set"]
+        assert [row["name"] for row in source_set] == [
+            f"paper-{index:02d}.pdf" for index in range(10)
+        ]
+        assert [row["sha256"] for row in source_set] == [
+            hashlib.sha256(
+                (folder / f"paper-{index:02d}.pdf").read_bytes()
+            ).hexdigest()
+            for index in range(10)
+        ]
+
+        archive_path = project_root / fresh_bootstrap.SOURCE_ARCHIVE_RELATIVE
+        preflight = fresh_bootstrap._source_archive_preflight(archive_path)
+        assert [member["name"] for member in preflight["members"]] == [
+            f"paper-{index:02d}.pdf" for index in range(10)
+        ]
+        assert [member["sha256"] for member in preflight["members"]] == [
+            row["sha256"] for row in source_set
+        ]
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
