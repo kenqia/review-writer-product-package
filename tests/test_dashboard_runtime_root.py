@@ -406,14 +406,15 @@ class DashboardRuntimeRootTest(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
 
     def test_sidecar_data_root_is_writable_but_foreign_checkout_is_read_only(self) -> None:
-        product_sidecar = Path("/home/kenqia/my_folder/test/review-projects")
-        product_context = dashboard.configure_runtime(product_sidecar)
-        self.assertEqual(product_context.mode, dashboard.WRITABLE)
+        with tempfile.TemporaryDirectory(dir=dashboard.REPO_ROOT.parent) as temporary:
+            product_sidecar = Path(temporary) / "review-projects"
+            product_sidecar.mkdir()
+            product_context = dashboard.configure_runtime(product_sidecar)
+            self.assertEqual(product_context.mode, dashboard.WRITABLE)
 
-        code_context = dashboard.configure_runtime(dashboard.REPO_ROOT)
-        self.assertEqual(code_context.mode, dashboard.WRITABLE)
+            code_context = dashboard.configure_runtime(dashboard.REPO_ROOT)
+            self.assertEqual(code_context.mode, dashboard.WRITABLE)
 
-        with tempfile.TemporaryDirectory() as temporary:
             aggregate = Path(temporary) / "aggregate"
             aggregate.mkdir()
             sidecar = aggregate / "review-projects"
@@ -444,15 +445,16 @@ class DashboardRuntimeRootTest(unittest.TestCase):
             self.assertEqual(foreign_context.mode, dashboard.HISTORICAL_READ_ONLY)
 
     def test_sidecar_source_mapping_posts_a_main_record(self) -> None:
-        source_root = Path("/home/kenqia/my_folder/test/review-projects")
-        archive = (
-            source_root
-            / "nickel-coupling-review"
-            / "00_sources/manual_upload/inbox/source_bundle.zip"
-        )
-        self.assertTrue(archive.is_file())
-        with tempfile.TemporaryDirectory(dir=source_root, prefix=".runtime-root-test-") as temporary:
-            review_root = Path(temporary)
+        with tempfile.TemporaryDirectory(
+            dir=dashboard.REPO_ROOT.parent,
+            prefix=".runtime-root-test-",
+        ) as temporary:
+            source_root = Path(temporary)
+            archive = source_root / "source_bundle.zip"
+            with zipfile.ZipFile(archive, "w") as source_bundle:
+                source_bundle.writestr("a.pdf", _valid_pdf_bytes(b"a"))
+            review_root = source_root / "review-projects"
+            review_root.mkdir()
             project_id = "source-mapping-check"
             context = dashboard.configure_runtime(review_root)
             self.assertEqual(context.mode, dashboard.WRITABLE)
