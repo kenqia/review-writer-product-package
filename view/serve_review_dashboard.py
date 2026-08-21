@@ -131,6 +131,7 @@ from review_writer.project.review_figures import (  # noqa: E402
     source_figure_target_binding_status,
     source_figure_target_options,
     source_figure_workspace_revision,
+    register_synthesis_figure_placeholder,
     synthesis_figure_placeholders,
     write_source_figure_selection,
 )
@@ -6836,6 +6837,115 @@ def _agent_figure_candidate_binding(
     return context, state, current, binding
 
 
+def _placeholder_registration_binding(
+    project: Path,
+) -> tuple[VersionContext, Any, Any, dict[str, Any]] | None:
+    """Bind a placeholder registration form to the writable current version."""
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+        snapshot_digest = current.snapshot_digest
+    except (OSError, ProductFoundationError, TypeError, ValueError, AttributeError):
+        return None
+    if (
+        state.project_id != project.name
+        or not isinstance(state.current_version_id, str)
+        or state.current_version_id != current.version_id
+        or not isinstance(state.active_head_id, str)
+        or type(state.revision) is not int
+        or state.revision < 0
+        or not isinstance(snapshot_digest, str)
+        or not snapshot_digest
+        or not getattr(current, "is_current", True)
+        or not getattr(current, "is_active_head", True)
+        or not getattr(current, "can_write", True)
+    ):
+        return None
+    binding = {
+        "version_id": current.version_id,
+        "revision": state.revision,
+        "snapshot_digest": snapshot_digest,
+    }
+    return context, state, current, binding
+
+
+def _placeholder_registration_candidate(project: Path) -> dict[str, Any]:
+    """Return a conservative, editable brief for a researcher-owned figure."""
+    question = "跨研究结果在当前比较轴上的共同点、差异与不可比性是什么？"
+    takeaway = "综合图仅表达已批准证据支持的比较，不替代原始研究数据。"
+    task = "标注各研究的结果、差异和不可比性；不得补写未提供的数据。"
+    comparison_axis = "source-reported observation"
+    synthesis_claim_ids: list[str] = []
+    try:
+        contracts = section_contract_state(project).get("rows", [])
+    except (
+        OSError,
+        PaperEvidenceError,
+        SectionContractError,
+        SynthesisError,
+        TypeError,
+        ValueError,
+    ):
+        contracts = []
+    if isinstance(contracts, list):
+        contract = next(
+            (row for row in contracts if isinstance(row, dict) and row.get("status") == "approved"),
+            next((row for row in contracts if isinstance(row, dict)), None),
+        )
+        if isinstance(contract, dict):
+            question = visible_text(contract.get("research_question")) or question
+            takeaway = visible_text(contract.get("expected_synthesis")) or takeaway
+            axes = contract.get("comparison_axes")
+            if isinstance(axes, list) and axes:
+                comparison_axis = visible_text(axes[0]) or comparison_axis
+            limits = contract.get("counterevidence_and_limitations")
+            if isinstance(limits, list):
+                counter_evidence = [visible_text(value) for value in limits if visible_text(value)]
+            else:
+                counter_evidence = []
+        else:
+            counter_evidence = []
+    else:
+        counter_evidence = []
+    try:
+        synthesis_rows = synthesis_state(project).get("rows", [])
+    except (OSError, SynthesisError, TypeError, ValueError):
+        synthesis_rows = []
+    if isinstance(synthesis_rows, list):
+        synthesis_claim_ids = [
+            visible_text(row.get("synthesis_id"))
+            for row in synthesis_rows
+            if isinstance(row, dict) and visible_text(row.get("synthesis_id"))
+        ]
+    return {
+        "placeholder_id": "synthesis-figure-1",
+        "scientific_question": question,
+        "reader_takeaway": takeaway,
+        "panels": [
+            {
+                "panel": "A",
+                "task": task,
+                "synthesis_claim_ids": synthesis_claim_ids,
+                "source_figure_ids": [],
+            }
+        ],
+        "comparison_axis": comparison_axis,
+        "required_labels_units": [],
+        "counter_evidence": counter_evidence,
+        "forbidden_overclaims": [
+            "不得把占位符视为已验证图片。",
+            "不得补写未提供的数值或机制。",
+        ],
+        "unresolved_uncertainties": [
+            "真实图件、单位、比例尺和版权依据待研究者提供。"
+        ],
+        "caption_draft": "综合图占位符：待研究者提供真实图件或合法制图资产。",
+        "target_size": "single-column",
+        "status": "awaiting_human_figure",
+    }
+
+
 def project_review_figures_workspace_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id)
     if _dashboard_route(project) != "evidence-to-release.v1":
@@ -7024,6 +7134,21 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         item["gap_reason"] = ". ".join(part for part in gap_parts if part)
         item["version_token"] = _workspace_token("review-placeholder", str(row.get("placeholder_id")), row)
         placeholders.append(item)
+    placeholder_registration = None
+    if not placeholders and registry_status in {"not_built", "candidate_only"}:
+        registration_binding = _placeholder_registration_binding(project)
+        if registration_binding is not None:
+            _context, _state, _current, binding = registration_binding
+            placeholder_registration = {
+                "placeholder": _placeholder_registration_candidate(project),
+                "version_id": binding["version_id"],
+                "revision": binding["revision"],
+                "snapshot_digest": binding["snapshot_digest"],
+                "version_token": _workspace_token(
+                    "review-placeholder-registration", project.name, binding
+                ),
+                "next_action": "HUMAN_ACTION_REQUIRED",
+            }
     locator_gaps = [
         {
             "study_id": visible_text(row.get("study_id")),
@@ -7041,6 +7166,7 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         "source_figures": source_figures,
         "locator_gaps": locator_gaps,
         "placeholders": placeholders,
+        "placeholder_registration": placeholder_registration,
         "summary": {
             "source_count": len(source_figures),
             "selected_count": sum(
@@ -7100,6 +7226,9 @@ _CANDIDATE_RIGHTS_FIELDS = frozenset(
     {"rights_status", "license_or_rights_basis", "attribution", "rights_evidence_reference"}
 )
 _CANDIDATE_RIGHTS_KEYS = _CANDIDATE_RIGHTS_FIELDS | {"rights_license"}
+_PLACEHOLDER_REGISTRATION_FIELDS = frozenset(
+    {"action", "placeholder", "version_token", "actor_type", "actor_label"}
+)
 
 
 def _candidate_only_rights_overlay(
@@ -7141,6 +7270,83 @@ def _candidate_only_rights_overlay(
     target = next(row for row in projected_rows if row.get("figure_id") == figure_id)
     target.update(copy.deepcopy(supplied))
     return projected
+
+
+def _write_placeholder_registration(
+    review_root: Path, project_id: str, project: Path, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Register one researcher-owned placeholder and publish its current binding."""
+    if set(payload) != _PLACEHOLDER_REGISTRATION_FIELDS:
+        raise ReviewFigureError("PLACEHOLDER_DECISION_INVALID")
+    if payload.get("actor_type") != "human_researcher":
+        raise ReviewFigureError("FIGURE_ACTOR_INVALID")
+    actor_label = payload.get("actor_label")
+    if not isinstance(actor_label, str) or not actor_label.strip():
+        raise ReviewFigureError("FIGURE_ACTOR_INVALID")
+    placeholder = payload.get("placeholder")
+    if not isinstance(placeholder, dict):
+        raise ReviewFigureError("PLACEHOLDER_INVALID")
+    if placeholder.get("status") != "awaiting_human_figure":
+        raise ReviewFigureError("PLACEHOLDER_STATUS_INVALID")
+    bound = _placeholder_registration_binding(project)
+    if bound is None:
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+    context, state, current, binding = bound
+    expected_token = _workspace_token(
+        "review-placeholder-registration", project.name, binding
+    )
+    if payload.get("version_token") != expected_token:
+        raise WorkspaceStaleError("WORKSPACE_STALE")
+
+    placeholder_path = project / "03_figures/synthesis_figure_placeholders.json"
+    previous = _snapshot_figure_transaction_file(placeholder_path)
+    published = False
+    try:
+        registered = register_synthesis_figure_placeholder(project, placeholder)
+        placeholders = synthesis_figure_placeholders(project)
+        next_snapshot = copy.deepcopy(dict(current.snapshot))
+        review_figures = next_snapshot.get("review_figures")
+        review_figures = copy.deepcopy(review_figures) if isinstance(review_figures, dict) else {}
+        review_figures.update(
+            {
+                "placeholder_registry_digest": canonical_digest(placeholders),
+                "placeholder_count": len(placeholders),
+                "placeholder_id": registered["placeholder_id"],
+                "version_id": binding["version_id"],
+                "revision": binding["revision"],
+                "snapshot_digest": binding["snapshot_digest"],
+                "decision": {
+                    "action": "register_placeholder",
+                    "placeholder_id": registered["placeholder_id"],
+                    "status": registered["status"],
+                    "actor_type": "human_researcher",
+                    "actor_label": actor_label.strip(),
+                },
+            }
+        )
+        next_snapshot["review_figures"] = review_figures
+        context.publish_active_head(
+            next_snapshot,
+            expected_head_id=state.active_head_id,
+            expected_revision=state.revision,
+            version_id=f"dashboard-review-placeholder-{uuid.uuid4().hex}",
+        )
+        published = True
+        return project_review_figures_workspace_payload(review_root, project_id)
+    except Exception as exc:
+        if not published:
+            try:
+                _restore_figure_transaction_file(placeholder_path, previous)
+            except ReviewFigureError as rollback_error:
+                raise rollback_error from exc
+        if isinstance(exc, (ReviewFigureError, WorkspaceStaleError)):
+            raise
+        if isinstance(exc, ProductFoundationError):
+            raise WorkspaceStaleError("WORKSPACE_STALE") from exc
+        code = getattr(exc, "code", None)
+        raise ReviewFigureError(
+            code if isinstance(code, str) and code else "PLACEHOLDER_REGISTRATION_FAILED"
+        ) from exc
 
 
 def _write_candidate_only_figure_decision(
@@ -7294,6 +7500,12 @@ def write_project_workspace_decision(review_root: Path, project_id: str, kind: s
         apply_section_contract_decision(project, {"section_id": sid, "action": payload.get("action"), "reason": payload.get("reason"), "actor_type": payload.get("actor_type", "human_researcher"), "actor_label": payload.get("actor_label", "local-researcher")})
         return project_section_contracts_payload(review_root, project_id)
     if kind == "review-figures":
+        if payload.get("action") == "register_placeholder":
+            with SOURCE_TRANSACTION_LOCK:
+                with project_write_lock(project):
+                    return _write_placeholder_registration(
+                        review_root, project_id, project, payload
+                    )
         if not os.path.lexists(project / "03_figures/source_figure_registry.json"):
             with SOURCE_TRANSACTION_LOCK:
                 with project_write_lock(project):

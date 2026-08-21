@@ -188,6 +188,84 @@
     panel.append(sectionLabel, markerLabel, saveButton, message);
     parent.append(panel);
   }
+  function appendPlaceholderRegistrationControls(parent, registration) {
+    const candidate = registration?.placeholder;
+    if (!candidate || typeof candidate !== "object") return;
+    const panel = document.createElement("div"); panel.className = "placeholder-registration-form";
+    panel.append(
+      text("strong", "登记综合图占位符"),
+      text("p", "这是由研究者负责的制图任务，不会伪造图片；提交后仍需真实图件、权利和专家制图验证。", "evidence-meta"),
+    );
+    const fields = new Map();
+    const stringField = (name, labelText, multiline = false) => {
+      const labelNode = document.createElement("label"); labelNode.textContent = `${labelText} `;
+      const input = document.createElement(multiline ? "textarea" : "input");
+      input.name = `placeholder-${name}`; input.setAttribute("aria-label", labelText); input.required = true;
+      if (multiline) input.rows = 3;
+      input.value = typeof candidate[name] === "string" ? candidate[name] : "";
+      labelNode.append(input); panel.append(labelNode); fields.set(name, input);
+    };
+    [
+      ["placeholder_id", "placeholder_id", false],
+      ["scientific_question", "scientific_question", true],
+      ["reader_takeaway", "reader_takeaway", true],
+      ["comparison_axis", "comparison_axis", false],
+      ["caption_draft", "caption_draft", true],
+      ["target_size", "target_size", false],
+    ].forEach(([name, labelText, multiline]) => stringField(name, labelText, multiline));
+    [
+      "panels",
+      "required_labels_units",
+      "counter_evidence",
+      "forbidden_overclaims",
+      "unresolved_uncertainties",
+    ].forEach(name => {
+      const labelNode = document.createElement("label"); labelNode.textContent = `${name} (JSON) `;
+      const input = document.createElement("textarea"); input.name = `placeholder-${name}`; input.rows = 4;
+      input.setAttribute("aria-label", name); input.required = true; input.value = JSON.stringify(candidate[name] || [], null, 2);
+      labelNode.append(input); panel.append(labelNode); fields.set(name, input);
+    });
+    const message = text("p", "", "workspace-error"); message.role = "status";
+    const register = document.createElement("button"); register.type = "button"; register.name = "placeholder-register"; register.textContent = "登记占位符";
+    function setBusy(value) { register.disabled = value; }
+    register.addEventListener("click", async () => {
+      message.textContent = "";
+      const placeholder = {...candidate};
+      ["placeholder_id", "scientific_question", "reader_takeaway", "comparison_axis", "caption_draft", "target_size"].forEach(name => {
+        placeholder[name] = fields.get(name).value.trim();
+      });
+      for (const name of ["panels", "required_labels_units", "counter_evidence", "forbidden_overclaims", "unresolved_uncertainties"]) {
+        try {
+          const parsed = JSON.parse(fields.get(name).value);
+          if (!Array.isArray(parsed)) throw new Error("array required");
+          placeholder[name] = parsed;
+        } catch (_error) {
+          message.textContent = `${name} 必须是合法 JSON 数组；本次不会保存。`;
+          fields.get(name).focus();
+          return;
+        }
+      }
+      if (["placeholder_id", "scientific_question", "reader_takeaway", "comparison_axis", "caption_draft", "target_size"].some(name => !placeholder[name])) {
+        message.textContent = "请填写所有必填的占位符字段；本次不会保存。";
+        return;
+      }
+      placeholder.status = "awaiting_human_figure";
+      setBusy(true); busy = true;
+      try {
+        await coordinator.mutate(
+          id => api(id, "review-figures", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({
+            action: "register_placeholder",
+            placeholder,
+            version_token: registration.version_token,
+            actor_type: "human_researcher",
+            actor_label: "Dashboard researcher",
+          })}),
+          {refreshAfterMutation: true, onError: error => { message.textContent = error.message; }},
+        );
+      } finally { busy = false; setBusy(false); }
+    });
+    panel.append(register, message); parent.append(panel);
+  }
   function render(protocol, synthesis, contracts, figures) {
     root.replaceChildren();
     if (protocol.route !== "evidence-to-release.v1") {
@@ -276,6 +354,7 @@
       }); row.append(button); figurePanel.append(row);
     });
     figurePanel.append(text("h4", "综合图制图任务", "placeholder-heading"));
+    appendPlaceholderRegistrationControls(figurePanel, figures.placeholder_registration);
     (figures.placeholders || []).forEach((item, index) => figurePanel.append(text("p", `任务：${label(item.scientific_question, `综合图任务 ${index + 1}`)}；读者结论：${label(item.reader_takeaway, "未提供")}；${label(item.gap_reason, "缺口原因未提供")}；状态：${window.ReviewAuditUI.humanStatus(item.status)}`, "figure-placeholder-row")));
     root.append(protocolPanel, coveragePanel, claimPanel, contractPanel, figurePanel);
   }

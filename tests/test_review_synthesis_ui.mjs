@@ -68,7 +68,7 @@ function flush() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-async function loadSynthesisWorkspace({synthesisDecision = null, sourceFigures = []} = {}) {
+async function loadSynthesisWorkspace({synthesisDecision = null, sourceFigures = [], placeholderRegistration = null} = {}) {
   const root = new FakeElement("div");
   const projectSelect = new FakeElement("select");
   projectSelect.value = "automated-qa-project";
@@ -121,7 +121,7 @@ async function loadSynthesisWorkspace({synthesisDecision = null, sourceFigures =
       version_token: "contract-token-1",
     }],
   };
-  const figures = {route: "evidence-to-release.v1", source_figures: sourceFigures, placeholders: [], locator_gaps: [], manuscript: {}};
+  const figures = {route: "evidence-to-release.v1", source_figures: sourceFigures, placeholders: [], locator_gaps: [], manuscript: {}, placeholder_registration: placeholderRegistration};
   const window = {
     document: {
       readyState: "complete",
@@ -414,4 +414,49 @@ test("Candidate-only cleared rights require all rights fields before selection",
     "missing cleared rights error",
   );
   assert.match(status.textContent, /license_or_rights_basis/);
+});
+
+test("Placeholder registration sends the complete human-bound schema envelope", async () => {
+  const placeholder = {
+    placeholder_id: "synthesis-figure-1",
+    scientific_question: "How do the studies differ?",
+    reader_takeaway: "Differences remain bounded.",
+    panels: [{panel: "A", task: "Compare reported observations.", synthesis_claim_ids: ["synthesis-1"], source_figure_ids: []}],
+    comparison_axis: "source-reported observation",
+    required_labels_units: [],
+    counter_evidence: [],
+    forbidden_overclaims: ["Do not invent values."],
+    unresolved_uncertainties: ["Rights remain unresolved."],
+    caption_draft: "Synthesis figure placeholder.",
+    target_size: "single-column",
+    status: "awaiting_human_figure",
+  };
+  const workspace = await loadSynthesisWorkspace({
+    placeholderRegistration: {
+      placeholder,
+      version_id: "v1",
+      revision: 3,
+      snapshot_digest: "snapshot-digest",
+      version_token: "placeholder-registration-token",
+      next_action: "HUMAN_ACTION_REQUIRED",
+    },
+  });
+  const register = one(
+    workspace.root,
+    node => node.name === "placeholder-register",
+    "placeholder registration button",
+  );
+  register.click();
+  await flush();
+
+  assert.deepEqual(workspace.requests, [{
+    url: "/api/project/automated-qa-project/review-figures",
+    body: {
+      action: "register_placeholder",
+      placeholder,
+      version_token: "placeholder-registration-token",
+      actor_type: "human_researcher",
+      actor_label: "Dashboard researcher",
+    },
+  }]);
 });
