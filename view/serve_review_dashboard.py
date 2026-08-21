@@ -1365,6 +1365,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_file(self.final_app_path, "text/html; charset=utf-8")
         elif parsed.path.startswith("/assets/"):
             self.handle_static_asset(parsed.path)
+        elif parsed.path == "/api/health":
+            self.send_json({"status": "ok"})
         elif parsed.path == "/api/projects":
             self.handle_projects()
         elif parsed.path == "/api/papers":

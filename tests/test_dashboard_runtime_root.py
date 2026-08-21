@@ -85,6 +85,32 @@ class DashboardRuntimeRootTest(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_health_endpoint_is_static_and_does_not_list_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            review_root = Path(temporary)
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(
+                ("127.0.0.1", 0), dashboard.DashboardHandler
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+            def fail_if_projects_are_listed(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+                raise AssertionError("health must not list review projects")
+
+            thread.start()
+            try:
+                with patch.object(
+                    dashboard, "list_review_projects", fail_if_projects_are_listed
+                ):
+                    status, payload = self._request(server, "GET", "/api/health")
+                self.assertEqual(status, 200)
+                self.assertEqual(payload, {"status": "ok"})
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
     def _prepare_n3_archive(
         self,
         server: dashboard.ThreadingHTTPServer,

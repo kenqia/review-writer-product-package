@@ -259,7 +259,7 @@ def _dashboard_is_healthy(value: str) -> bool:
     if safe_url is None:
         return False
     try:
-        with urlopen(f"{safe_url.rstrip('/')}/api/projects", timeout=0.2) as response:
+        with urlopen(f"{safe_url.rstrip('/')}/api/health", timeout=0.2) as response:
             return response.status == 200
     except (OSError, URLError, ValueError):
         return False

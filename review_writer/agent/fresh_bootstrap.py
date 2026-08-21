@@ -402,7 +402,7 @@ def _start_dashboard(review_root: Path) -> tuple[str, int]:
                     ),
                 )
             try:
-                with urlopen(f"{base_url}/api/projects", timeout=0.2) as response:
+                with urlopen(f"{base_url}/api/health", timeout=0.2) as response:
                     if response.status == 200:
                         _OWNED_DASHBOARDS[process.pid] = process
                         return base_url, process.pid

@@ -6,7 +6,9 @@ import copy
 import hashlib
 import json
 import shutil
+import time
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 
@@ -15,6 +17,16 @@ from review_writer.agent import public_entry
 from review_writer.agent import fresh_bootstrap
 from review_writer.agent import local_pdf_parse
 from review_writer.product_foundation import VersionContext
+
+
+class _FastHealthResponse:
+    status = 200
+
+    def __enter__(self) -> "_FastHealthResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
 
 
 def _pdf(path: Path, label: bytes = b"fixture") -> Path:
@@ -176,6 +188,51 @@ def _replace_current_snapshot(project: Path, snapshot: dict[str, object]) -> Non
         expected_revision=state.revision,
         version_id="resume-test-current",
     )
+
+
+def test_dashboard_health_probe_uses_static_health_when_projects_is_slow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fake_urlopen(url: str, *, timeout: float) -> _FastHealthResponse:
+        calls.append((url, timeout))
+        if url.endswith("/api/projects"):
+            time.sleep(0.25)
+            raise URLError("projects listing is intentionally slow")
+        assert url.endswith("/api/health")
+        return _FastHealthResponse()
+
+    monkeypatch.setattr(public_entry, "urlopen", fake_urlopen)
+
+    assert public_entry._dashboard_is_healthy("http://127.0.0.1:43123") is True
+    assert calls == [("http://127.0.0.1:43123/api/health", 0.2)]
+
+
+def test_dashboard_start_probe_uses_static_health_when_projects_is_slow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fake_urlopen(url: str, *, timeout: float) -> _FastHealthResponse:
+        calls.append((url, timeout))
+        if url.endswith("/api/projects"):
+            time.sleep(0.25)
+            raise URLError("projects listing is intentionally slow")
+        assert url.endswith("/api/health")
+        return _FastHealthResponse()
+
+    monkeypatch.setattr(fresh_bootstrap, "urlopen", fake_urlopen)
+    monkeypatch.setattr(fresh_bootstrap, "_DASHBOARD_START_TIMEOUT_SECONDS", 0.1)
+
+    dashboard_url, dashboard_pid = fresh_bootstrap._start_dashboard(tmp_path)
+    try:
+        assert dashboard_url.startswith("http://127.0.0.1:")
+        assert dashboard_pid > 0
+        assert calls == [(f"{dashboard_url}/api/health", 0.2)]
+    finally:
+        fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(dashboard_pid)
 
 
 def test_public_entry_is_discoverable_and_maps_human_action_required(

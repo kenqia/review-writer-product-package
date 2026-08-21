@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import os
+import subprocess
+import sys
 from urllib.parse import urlsplit
 import zipfile
 from pathlib import Path
@@ -56,6 +59,33 @@ def _write_pdf(folder: Path, name: str, payload: bytes) -> Path:
     )
     path.write_bytes(document)
     return path
+
+
+def _run_child_json(script: str, *arguments: Path) -> dict[str, object]:
+    repo_root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        item for item in (str(repo_root), existing_pythonpath) if item
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, *(str(argument) for argument in arguments)],
+        cwd=repo_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=False,
+    )
+    assert completed.returncode == 0, (
+        f"child failed with rc={completed.returncode}: "
+        f"stdout={completed.stdout[-2000:]!r} stderr={completed.stderr[-2000:]!r}"
+    )
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert lines, f"child produced no JSON: stderr={completed.stderr[-2000:]!r}"
+    payload = json.loads(lines[-1])
+    assert isinstance(payload, dict)
+    return payload
 
 
 @pytest.mark.parametrize("count", [1, 3])
@@ -642,6 +672,70 @@ def test_n3_native_bootstrap_maps_all_members_through_real_dashboard(
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
                 result["dashboard_pid"]
             )
+
+
+def test_cold_process_restart_resumes_with_loopback_dashboard(tmp_path: Path) -> None:
+    folder = tmp_path / "authorized"
+    folder.mkdir()
+    _write_pdf(folder, "main.pdf", b"cold-resume")
+    project_root = tmp_path / "projects" / "cold-resume"
+    project_root.parent.mkdir()
+
+    start_script = """
+import json
+import sys
+from pathlib import Path
+from review_writer.agent import fresh_bootstrap
+
+project = Path(sys.argv[1])
+folder = Path(sys.argv[2])
+result = fresh_bootstrap.FreshAgentBootstrap(project).start(
+    topic="Cold resume health probe",
+    authorized_pdf_folder=folder,
+)
+pid = result["dashboard_pid"]
+fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(pid)
+print(json.dumps({"dashboard_url": result["dashboard_url"], "dashboard_pid": pid}))
+"""
+    started = _run_child_json(start_script, project_root, folder)
+    assert isinstance(started["dashboard_url"], str)
+    assert started["dashboard_url"].startswith("http://127.0.0.1:")
+    assert isinstance(started["dashboard_pid"], int)
+    assert started["dashboard_pid"] > 0
+
+    resume_script = """
+import json
+import sys
+from pathlib import Path
+from review_writer.agent import fresh_bootstrap, public_entry
+
+project = Path(sys.argv[1])
+folder = Path(sys.argv[2])
+result = public_entry.start_or_resume_review(
+    "Cold resume health probe",
+    project,
+    folder,
+)
+pid = result.get("dashboard_pid")
+try:
+    print(json.dumps({
+        "result": result.get("result"),
+        "status": result.get("status"),
+        "reason_code": result.get("reason_code"),
+        "dashboard_url": result.get("dashboard_url"),
+        "dashboard_pid": pid,
+    }))
+finally:
+    if isinstance(pid, int):
+        fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(pid)
+"""
+    resumed = _run_child_json(resume_script, project_root, folder)
+    assert resumed["result"] == "RESUMED"
+    assert resumed["status"] != "HOLD"
+    assert isinstance(resumed["dashboard_url"], str)
+    assert resumed["dashboard_url"].startswith("http://127.0.0.1:")
+    assert isinstance(resumed["dashboard_pid"], int)
+    assert resumed["dashboard_pid"] > 0
 
 
 def test_public_n3_mapping_resume_reaches_parse_quality_gate(
