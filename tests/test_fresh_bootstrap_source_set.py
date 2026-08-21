@@ -777,6 +777,70 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert status == 200
         assert protocol["protocol"]["comparison_id"]
         assert protocol["workflow_can_continue"] is False
+
+        status, protocol = request(
+            dashboard_url, "PUT", f"/api/project/{project_id}/comparison-protocol",
+            {
+                "version_token": protocol["protocol"]["version_token"],
+                "action": "approve",
+                "reason": "Synthetic comparison protocol review completed.",
+            },
+        )
+        assert status == 200
+        assert protocol["workflow_can_continue"] is True
+
+        continued = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        assert continued["reason_code"] == "SYNTHESIS_CLAIM_HUMAN_ACTION_REQUIRED"
+        status, synthesis = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/synthesis"
+        )
+        assert status == 200
+        assert len(synthesis["items"]) == 1
+        assert synthesis["items"][0]["status"] == "needs_review"
+
+        item = synthesis["items"][0]
+        status, synthesis = request(
+            dashboard_url, "PUT", f"/api/project/{project_id}/synthesis",
+            {
+                "synthesis_id": item["synthesis_id"],
+                "version_token": item["version_token"],
+                "action": "approve",
+                "reason": "Synthetic synthesis claim review completed.",
+            },
+        )
+        assert status == 200
+        assert synthesis["workflow_can_continue"] is True
+
+        continued = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        assert continued["reason_code"] == "SECTION_CONTRACT_HUMAN_ACTION_REQUIRED"
+        status, contracts = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/section-contracts"
+        )
+        assert status == 200
+        assert len(contracts["items"]) == 1
+        assert contracts["items"][0]["status"] == "needs_review"
+
+        contract = contracts["items"][0]
+        status, contracts = request(
+            dashboard_url, "PUT", f"/api/project/{project_id}/section-contracts",
+            {
+                "section_id": contract["section_id"],
+                "version_token": contract["version_token"],
+                "action": "approve",
+                "reason": "Synthetic section contract review completed.",
+            },
+        )
+        assert status == 200
+        assert contracts["workflow_can_continue"] is True
+
+        continued = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        assert continued["reason_code"] == "SECTION_DRAFT_HUMAN_ACTION_REQUIRED"
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
