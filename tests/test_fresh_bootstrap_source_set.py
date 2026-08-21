@@ -741,6 +741,42 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             path: path.read_bytes()
             for path in project_root.glob("01_evidence/**/paper_evidence_candidates.json")
         } == candidate_bytes
+
+        # Approve every candidate through the real Paper Evidence Dashboard
+        # seam, then public resume should create the next synthesis candidate.
+        status, paper = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/paper-evidence"
+        )
+        assert status == 200
+        assert len(paper["items"]) == 3
+        for item in paper["items"]:
+            status, paper = request(
+                dashboard_url,
+                "PUT",
+                f"/api/project/{project_id}/paper-evidence",
+                {
+                    "evidence_id": item["evidence_id"],
+                    "version_token": item["version_token"],
+                    "action": "approve",
+                    "reason": "Synthetic source-bound evidence review completed.",
+                },
+            )
+            assert status == 200
+        assert paper["summary"]["approved_count"] == 3
+        continued = public_entry.start_or_resume_review(
+            "A bounded N=3 source-set review",
+            project_root,
+            folder,
+        )
+        assert continued["result"] == "RESUMED"
+        assert continued["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert continued["reason_code"] == "SYNTHESIS_PROTOCOL_HUMAN_ACTION_REQUIRED"
+        status, protocol = request(
+            dashboard_url, "GET", f"/api/project/{project_id}/comparison-protocol"
+        )
+        assert status == 200
+        assert protocol["protocol"]["comparison_id"]
+        assert protocol["workflow_can_continue"] is False
     finally:
         if result is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(
