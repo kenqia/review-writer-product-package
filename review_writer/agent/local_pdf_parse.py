@@ -88,8 +88,19 @@ _CHEMICAL_GAP_LIMITATION = (
     "Chemical GAP: no verified Chemical Paper binding is available from the PDF-only input; "
     "chemical-field-dependent claims remain unsupported."
 )
-_MINERU_PARSER = Path(
-    "/home/kenqia/.codex/review-writer/skills/"
+_MINERU_PARSER: Path | None = None
+_MINERU_PARSER_ENV = "REVIEW_WRITER_MINERU_PARSER"
+_MINERU_PARSER_RELATIVE_PATHS = (
+    Path(
+        ".agents/skills/mineru-precise-parse-review-writer/scripts/"
+        "parse_review_writer_pdfs.py"
+    ),
+    Path(
+        "skills/mineru-precise-parse-review-writer/scripts/"
+        "parse_review_writer_pdfs.py"
+    ),
+)
+_MINERU_PARSER_SKILL_RELATIVE_PATH = Path(
     "mineru-precise-parse-review-writer/scripts/parse_review_writer_pdfs.py"
 )
 _MINERU_TIMEOUT_SECONDS = 35 * 60
@@ -109,6 +120,74 @@ class _MinerUParseFailure(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def _mineru_parser_candidates(
+    *,
+    package_root: Path | None = None,
+    home: Path | None = None,
+    path_lookup: Any = shutil.which,
+) -> tuple[Path, ...]:
+    """Return optional MinerU parser locations in portable preference order.
+
+    The product package intentionally does not vendor the external MinerU
+    skill.  A user may install that skill next to the package, in a normal
+    user skill directory, or provide an explicit parser path.  Keep all of
+    those choices outside the project authority and let the existing local
+    text fallback handle a missing or unusable parser.
+    """
+
+    root = package_root or Path(__file__).resolve().parents[2]
+    user_home = home or Path.home()
+    candidates: list[Path] = []
+    configured = os.environ.get(_MINERU_PARSER_ENV, "").strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        candidates.append(
+            configured_path if configured_path.is_absolute() else root / configured_path
+        )
+    if _MINERU_PARSER is not None:
+        candidates.append(_MINERU_PARSER)
+    candidates.extend(root / relative for relative in _MINERU_PARSER_RELATIVE_PATHS)
+    for skill_root in (
+        user_home / ".codex/skills",
+        user_home / ".codex/review-writer/skills",
+        user_home / ".agents/skills",
+    ):
+        candidates.append(skill_root / _MINERU_PARSER_SKILL_RELATIVE_PATH)
+    executable = path_lookup("parse_review_writer_pdfs.py")
+    if executable:
+        candidates.append(Path(executable))
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(str(candidate))
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return tuple(unique)
+
+
+def _resolve_mineru_parser(
+    *,
+    package_root: Path | None = None,
+    home: Path | None = None,
+    path_lookup: Any = shutil.which,
+) -> Path | None:
+    """Resolve an installed MinerU parser without a checkout-specific path."""
+
+    for candidate in _mineru_parser_candidates(
+        package_root=package_root,
+        home=home,
+        path_lookup=path_lookup,
+    ):
+        try:
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+        except OSError:
+            continue
+    return None
 
 
 def _new_id(prefix: str) -> str:
@@ -625,7 +704,8 @@ def _write_mineru_parse_output(
     evidence: Path,
     rows: list[dict[str, str]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    if not _MINERU_PARSER.is_file() or _MINERU_PARSER.is_symlink():
+    parser_path = _resolve_mineru_parser()
+    if parser_path is None:
         raise _MinerUParseFailure("MINERU_PARSER_UNAVAILABLE")
     workspace = Path(tempfile.mkdtemp(prefix=".mineru-agent-parse.", dir=evidence.parent))
     materialized = workspace / "materialized"
@@ -641,7 +721,7 @@ def _write_mineru_parse_output(
                 completed = subprocess.run(
                     [
                         sys.executable,
-                        str(_MINERU_PARSER),
+                        str(parser_path),
                         "--pdf",
                         str(pdf),
                         "--input-dir",
