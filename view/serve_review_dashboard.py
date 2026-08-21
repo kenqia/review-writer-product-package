@@ -6599,20 +6599,20 @@ def project_source_pdf_descriptors_payload(
     return {"status": "current", "items": items}
 
 
+def _dashboard_route(project: Path) -> str:
+    """Discriminate Dashboard routes without projecting downstream state."""
+    if os.path.lexists(project / SOURCE_TRUTH_ROOT):
+        return "evidence-to-release.v1"
+    workflow = workflow_state(project)
+    route = workflow.get("route")
+    return route if isinstance(route, str) and route else "legacy"
+
+
 def project_paper_evidence_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id)
-    # The source-truth root is the authoritative route discriminator.  Calling
-    # workflow_state here would rebuild paper_evidence_state once before this
-    # payload computes the same state below, which makes a read-only Dashboard
-    # request scale with every source-truth sidecar on WSL.  Legacy projects
-    # still use the full legacy projection.
-    workflow = (
-        {"route": "evidence-to-release.v1"}
-        if os.path.lexists(project / SOURCE_TRUTH_ROOT)
-        else workflow_state(project)
-    )
-    if workflow.get("route") != "evidence-to-release.v1":
-        return {"route": workflow.get("route", "legacy"), "status": "legacy", "items": [], "workflow_can_continue": False}
+    route = _dashboard_route(project)
+    if route != "evidence-to-release.v1":
+        return {"route": route, "status": "legacy", "items": [], "workflow_can_continue": False}
     state = paper_evidence_state(project)
     items = [_safe_evidence_row(project_id, row) for row in state.get("rows", []) if isinstance(row, dict)]
     return {
@@ -6627,20 +6627,21 @@ def project_paper_evidence_payload(review_root: Path, project_id: str) -> dict[s
 
 
 def project_comparison_protocol_payload(review_root: Path, project_id: str) -> dict[str, Any]:
-    project = project_dir(review_root, project_id); workflow = workflow_state(project)
-    if workflow.get("route") != "evidence-to-release.v1":
-        return {"route": workflow.get("route", "legacy"), "status": "legacy", "available": False}
+    project = project_dir(review_root, project_id)
+    if _dashboard_route(project) != "evidence-to-release.v1":
+        return {"route": "legacy", "status": "legacy", "available": False}
     state = comparison_protocol_state(project); value = state.get("value") if isinstance(state.get("value"), dict) else {}
+    evidence = paper_evidence_state(project)
     visible = {key: value.get(key) for key in ("comparison_id", "comparison_objects", "axes", "normalization_rules", "missing_value_policy", "incomparability_rules", "counterevidence_rules", "claim_strength") if key in value}
     visible["decision"] = _safe_decision(value.get("decision"))
     visible["version_token"] = _workspace_token("comparison-protocol", str(value.get("comparison_id") or "protocol"), value.get("protocol_digest"))
-    return {"route": "evidence-to-release.v1", "status": state.get("status", "needs_review"), "reason": state.get("reason_code"), "workflow_can_continue": bool(state.get("workflow_can_continue")), "evidence_ready": bool(workflow.get("paper_evidence_ready")), "protocol": visible}
+    return {"route": "evidence-to-release.v1", "status": state.get("status", "needs_review"), "reason": state.get("reason_code"), "workflow_can_continue": bool(state.get("workflow_can_continue")), "evidence_ready": bool(evidence.get("workflow_can_continue")), "protocol": visible}
 
 
 def project_synthesis_payload(review_root: Path, project_id: str) -> dict[str, Any]:
-    project = project_dir(review_root, project_id); workflow = workflow_state(project)
-    if workflow.get("route") != "evidence-to-release.v1":
-        return {"route": workflow.get("route", "legacy"), "status": "legacy", "items": []}
+    project = project_dir(review_root, project_id)
+    if _dashboard_route(project) != "evidence-to-release.v1":
+        return {"route": "legacy", "status": "legacy", "items": []}
     state = synthesis_state(project); coverage = coverage_map_state(project); items = []
     for row in state.get("rows", []):
         if not isinstance(row, dict): continue
@@ -6685,9 +6686,9 @@ def project_synthesis_payload(review_root: Path, project_id: str) -> dict[str, A
 
 
 def project_section_contracts_payload(review_root: Path, project_id: str) -> dict[str, Any]:
-    project = project_dir(review_root, project_id); workflow = workflow_state(project)
-    if workflow.get("route") != "evidence-to-release.v1":
-        return {"route": workflow.get("route", "legacy"), "status": "legacy", "items": []}
+    project = project_dir(review_root, project_id)
+    if _dashboard_route(project) != "evidence-to-release.v1":
+        return {"route": "legacy", "status": "legacy", "items": []}
     state = section_contract_state(project); items = []
     for row in state.get("rows", []):
         if not isinstance(row, dict): continue
@@ -6750,9 +6751,9 @@ def _agent_figure_candidate_binding(
 
 
 def project_review_figures_workspace_payload(review_root: Path, project_id: str) -> dict[str, Any]:
-    project = project_dir(review_root, project_id); workflow = workflow_state(project)
-    if workflow.get("route") != "evidence-to-release.v1":
-        return {"route": workflow.get("route", "legacy"), "status": "legacy", "source_figures": [], "placeholders": []}
+    project = project_dir(review_root, project_id)
+    if _dashboard_route(project) != "evidence-to-release.v1":
+        return {"route": "legacy", "status": "legacy", "source_figures": [], "placeholders": []}
     manuscript = current_manuscript_target_projection(project)
     manuscript_markdown = ""
     if manuscript.get("sha256"):
@@ -9412,7 +9413,7 @@ def _project_figure_image_is_available(project: Path, row: dict[str, Any]) -> bo
 
 def project_figures_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id)
-    if workflow_state(project).get("route") == "evidence-to-release.v1":
+    if _dashboard_route(project) == "evidence-to-release.v1":
         workspace = project_review_figures_workspace_payload(review_root, project_id)
         registry = read_json_if_exists(
             project / "03_figures/source_figure_registry.json"

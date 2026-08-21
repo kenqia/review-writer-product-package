@@ -243,6 +243,46 @@ def test_dashboard_source_pdf_descriptors_reuse_persisted_bundle_and_fail_closed
     assert stale == {"status": "stale", "items": []}
 
 
+def test_dashboard_comparison_protocol_payload_uses_lightweight_new_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    (project / "01_evidence/source_truth").mkdir(parents=True)
+    monkeypatch.setattr(dashboard, "project_dir", lambda _root, _id: project)
+    monkeypatch.setattr(
+        dashboard,
+        "workflow_state",
+        lambda _project: (_ for _ in ()).throw(
+            AssertionError("new-route payload must not project full workflow")
+        ),
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "comparison_protocol_state",
+        lambda _project: {
+            "status": "needs_review",
+            "workflow_can_continue": False,
+            "reason_code": "COMPARISON_PROTOCOL_NOT_APPROVED",
+            "value": {
+                "comparison_id": "comparison-1",
+                "protocol_digest": "p" * 64,
+                "decision": None,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "paper_evidence_state",
+        lambda _project: {"workflow_can_continue": True},
+    )
+
+    payload = dashboard.project_comparison_protocol_payload(tmp_path, project.name)
+
+    assert payload["route"] == "evidence-to-release.v1"
+    assert payload["evidence_ready"] is True
+
+
 def test_malformed_pdf_is_rejected_before_project_write(tmp_path: Path) -> None:
     folder = tmp_path / "authorized"
     folder.mkdir()
