@@ -54,6 +54,11 @@ from review_writer.project.section_contract import (
     register_section_contracts,
 )
 from review_writer.project.path_safety import PathSafetyError, validate_source_file
+from review_writer.project.review_figures import (
+    ReviewFigureError,
+    build_source_figure_registry,
+    project_source_figure_candidates,
+)
 from review_writer.project.source_truth import (
     SourceTruthError,
     canonical_digest,
@@ -788,6 +793,158 @@ def _publish_components(project: Path, staged_project: Path) -> None:
             except OSError:
                 pass
         raise
+
+
+def _figure_candidate_input(row: dict[str, Any]) -> dict[str, Any]:
+    fragments = row.get("fragments")
+    if not isinstance(fragments, list) or not fragments or not isinstance(fragments[0], dict):
+        raise LocalPdfParseError("FIGURE_CANDIDATE_INVALID")
+    anchor = fragments[0]
+    page = row.get("page")
+    label = row.get("figure_label")
+    caption = row.get("caption")
+    for value in (page, label, caption):
+        if value is None:
+            raise LocalPdfParseError("FIGURE_CANDIDATE_INVALID")
+    parsed: dict[str, Any] = {
+        "study_id": row.get("study_id"),
+        "source_id": row.get("source_id"),
+        "document_role": "MAIN",
+        "source_pdf_sha256": row.get("source_pdf_sha256"),
+        "page": page,
+        "figure_label": label,
+        "caption": caption,
+        "asset_path": anchor.get("asset_path"),
+        "asset_sha256": anchor.get("asset_sha256"),
+        "block_index": anchor.get("block_index"),
+        "bbox": anchor.get("bbox"),
+        "locator": {
+            "source_mode": "parsed_candidate",
+            "page": page,
+            "section_or_item": f"page {page}",
+            "figure_or_table": label,
+            "exact_quote": caption,
+        },
+    }
+    for field in (
+        "attribution",
+        "license_or_rights_basis",
+        "rights_status",
+        "rights_evidence_reference",
+    ):
+        if field in row:
+            parsed[field] = copy.deepcopy(row[field])
+    return parsed
+
+
+def _fallback_figure_gap(
+    authorized_sources: list[dict[str, Any]],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "code": "FIGURE_ASSET_UNAVAILABLE",
+        "reason": reason,
+        "sources": [
+            {
+                "study_id": source.get("study_id"),
+                "source_id": source.get("source_id"),
+                "source_pdf_sha256": (
+                    source.get("pdf", {}).get("sha256")
+                    if isinstance(source.get("pdf"), dict)
+                    else None
+                ),
+            }
+            for source in authorized_sources
+            if isinstance(source, dict) and source.get("document_role") == "MAIN"
+        ],
+    }
+
+
+def _build_staged_figure_candidates(
+    staged_project: Path,
+    authorized_sources: list[dict[str, Any]],
+    *,
+    parser_mode: str,
+) -> dict[str, Any]:
+    """Build candidate-only figure metadata from the temporary parse tree.
+
+    ``build_source_figure_registry`` owns the deterministic content-list/image
+    grouping algorithm.  Its staging write is discarded with the staging tree;
+    only the validated candidate projection is returned to the Agent snapshot.
+    """
+    try:
+        registry = build_source_figure_registry(staged_project)
+        raw_figures = registry.get("figures") if isinstance(registry, dict) else None
+        raw_gaps = registry.get("locator_gaps") if isinstance(registry, dict) else None
+        if not isinstance(raw_figures, list) or not isinstance(raw_gaps, list):
+            raise ReviewFigureError("FIGURE_REGISTRY_INVALID")
+        parsed_figures = [
+            _figure_candidate_input(row)
+            for row in raw_figures
+            if isinstance(row, dict)
+        ]
+        projected = project_source_figure_candidates(
+            staged_project,
+            authorized_sources,
+            parsed_figures,
+        )
+        projected_figures = projected.get("figures")
+        projected_gaps = projected.get("gaps")
+        if not isinstance(projected_figures, list) or not isinstance(projected_gaps, list):
+            raise ReviewFigureError("FIGURE_CANDIDATES_INVALID")
+        registry_by_id = {
+            row.get("figure_id"): row
+            for row in raw_figures
+            if isinstance(row, dict) and isinstance(row.get("figure_id"), str)
+        }
+        figures: list[dict[str, Any]] = []
+        for candidate in projected_figures:
+            if not isinstance(candidate, dict):
+                raise ReviewFigureError("FIGURE_CANDIDATE_INVALID")
+            figure_id = candidate.get("figure_id")
+            source_row = registry_by_id.get(figure_id)
+            if isinstance(source_row, dict) and isinstance(source_row.get("fragments"), list):
+                candidate = copy.deepcopy(candidate)
+                candidate["fragments"] = copy.deepcopy(source_row["fragments"])
+            candidate["selection_status"] = "available"
+            figures.append(candidate)
+        gaps = [copy.deepcopy(gap) for gap in raw_gaps if isinstance(gap, dict)]
+        gaps.extend(copy.deepcopy(gap) for gap in projected_gaps if isinstance(gap, dict))
+        if parser_mode == "FALLBACK" and not figures:
+            gaps.append(
+                _fallback_figure_gap(
+                    authorized_sources,
+                    reason=(
+                        "fallback parser produced no extracted image assets; "
+                        "source figure candidates remain unavailable until a visual parser run."
+                    ),
+                )
+            )
+        return {
+            "schema_version": "review-writer.agent-figure-candidates.v1",
+            "project_id": staged_project.name,
+            "status": "candidate" if figures else "gap",
+            "parser_mode": parser_mode,
+            "figures": figures,
+            "gaps": gaps,
+        }
+    except ReviewFigureError as exc:
+        if parser_mode == "FALLBACK":
+            return {
+                "schema_version": "review-writer.agent-figure-candidates.v1",
+                "project_id": staged_project.name,
+                "status": "gap",
+                "parser_mode": parser_mode,
+                "figures": [],
+                "gaps": [
+                    _fallback_figure_gap(
+                        authorized_sources,
+                        reason=f"fallback figure candidate projection unavailable: {exc.code}",
+                    )
+                ],
+            }
+        raise LocalPdfParseError(exc.code) from exc
 
 
 def record_agent_tool_outcome(
@@ -1669,6 +1826,23 @@ def parse_project_sources(
         gates = [write_parse_quality_gate(staged_project, row["study_id"]) for row in rows if row["document_role"] == "MAIN"]
         if len(bundles) != len({row["study_id"] for row in rows}) or len(gates) != len(bundles):
             raise LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
+        figure_sources: list[dict[str, Any]] = []
+        for bundle in bundles:
+            if not isinstance(bundle, dict) or not isinstance(bundle.get("study_id"), str):
+                raise LocalPdfParseError("FIGURE_SOURCE_RECORDS_INVALID")
+            sources = bundle.get("sources")
+            if not isinstance(sources, list):
+                raise LocalPdfParseError("FIGURE_SOURCE_RECORDS_INVALID")
+            for source in sources:
+                if isinstance(source, dict) and source.get("document_role") == "MAIN":
+                    figure_sources.append(
+                        {"study_id": bundle["study_id"], **copy.deepcopy(source)}
+                    )
+        figure_candidates = _build_staged_figure_candidates(
+            staged_project,
+            figure_sources,
+            parser_mode=parser["parser_mode"],
+        )
         with project_write_lock(project):
             latest_context, latest_state, latest_current = _load_current(project)
             if (
@@ -1712,6 +1886,13 @@ def parse_project_sources(
                     "status": "SUCCESS",
                     "result_digest": canonical_digest([gate["gate_digest"] for gate in gates]),
                 },
+                {
+                    "tool": "build_source_figure_registry",
+                    "status": "SUCCESS",
+                    "candidate_count": len(figure_candidates["figures"]),
+                    "gap_count": len(figure_candidates["gaps"]),
+                    "result_digest": canonical_digest(figure_candidates),
+                },
             ]
             snapshot = {
                 **copy.deepcopy(dict(latest_current.snapshot)),
@@ -1725,6 +1906,7 @@ def parse_project_sources(
                     "source_receipt_sha256": receipt_sha256,
                     "source_count": len(rows),
                     "parser": copy.deepcopy(parser),
+                    "figure_candidates": copy.deepcopy(figure_candidates),
                     "tool_trace": trace,
                     "next_action": next_action,
                 },
@@ -1757,7 +1939,12 @@ def parse_project_sources(
                 for gate in gates
             ],
             "parser": parser,
-            "trace": {"event_count": 3, "parser": parser},
+            "figure_candidates": copy.deepcopy(figure_candidates),
+            "trace": {
+                "event_count": 4,
+                "parser": parser,
+                "figure_candidates": copy.deepcopy(figure_candidates),
+            },
         }
     except LocalPdfParseError:
         raise

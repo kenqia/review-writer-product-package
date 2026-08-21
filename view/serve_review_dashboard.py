@@ -6677,6 +6677,27 @@ def project_section_contracts_payload(review_root: Path, project_id: str) -> dic
     return {"route": "evidence-to-release.v1", "status": state.get("status", "needs_review"), "reason": state.get("reason_code"), "workflow_can_continue": bool(state.get("workflow_can_continue")), "synthesis_ready": bool(synthesis_state(project).get("workflow_can_continue")), "items": items}
 
 
+def _agent_figure_candidate_projection(project: Path) -> dict[str, Any] | None:
+    """Read candidate-only figure metadata from the canonical current snapshot."""
+    try:
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+        snapshot = current.snapshot
+    except (OSError, ProductFoundationError, TypeError, ValueError):
+        return None
+    agent_parse = snapshot.get("agent_parse") if isinstance(snapshot, dict) else None
+    candidates = agent_parse.get("figure_candidates") if isinstance(agent_parse, dict) else None
+    if (
+        not isinstance(candidates, dict)
+        or candidates.get("schema_version") != "review-writer.agent-figure-candidates.v1"
+        or not isinstance(candidates.get("figures"), list)
+        or not isinstance(candidates.get("gaps"), list)
+    ):
+        return None
+    return copy.deepcopy(candidates)
+
+
 def project_review_figures_workspace_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id); workflow = workflow_state(project)
     if workflow.get("route") != "evidence-to-release.v1":
@@ -6687,16 +6708,26 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         manuscript_markdown = (project / "04_manuscript/manuscript.md").read_text(encoding="utf-8")
     registry_path = project / "03_figures/source_figure_registry.json"
     registry_status = "current"
+    candidate_only = False
     if not registry_path.is_file():
-        registry_status = "not_built"
-        registry = {
-            "figures": [],
-            "locator_gaps": [
-                {
-                    "reason": "原论文图注册表尚未在正式制图阶段生成。"
-                }
-            ],
-        }
+        candidate_projection = _agent_figure_candidate_projection(project)
+        if candidate_projection is not None:
+            registry_status = "candidate_only"
+            candidate_only = True
+            registry = {
+                "figures": candidate_projection["figures"],
+                "locator_gaps": candidate_projection["gaps"],
+            }
+        else:
+            registry_status = "not_built"
+            registry = {
+                "figures": [],
+                "locator_gaps": [
+                    {
+                        "reason": "原论文图注册表尚未在正式制图阶段生成。"
+                    }
+                ],
+            }
     else:
         try:
             registry = load_source_figure_registry(project)
@@ -6738,7 +6769,8 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
     source_figures = []
     for row in registry.get("figures", []):
         if not isinstance(row, dict): continue
-        item = {key: row.get(key) for key in ("figure_id", "study_id", "source_id", "page", "figure_label", "caption", "evidence_ids", "selection_status", "asset_sha256", "target_binding")}
+        item = {key: row.get(key) for key in ("figure_id", "study_id", "source_id", "page", "figure_label", "caption", "evidence_ids", "selection_status", "asset_sha256", "source_pdf_sha256", "release_status", "target_binding")}
+        item["candidate_only"] = candidate_only
         publication = publication_by_study.get(visible_text(row.get("study_id")), {})
         item["publication_identity"] = publication
         attribution_parts = []
@@ -6774,35 +6806,44 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
                 else "Internal review only; publication reuse rights are not cleared."
             ),
         }
-        current_asset_sha256 = None
-        if row.get("target_binding") is not None:
-            try:
-                current_asset_sha256 = current_source_figure_asset_sha256(project, row)
-            except ReviewFigureError:
-                current_asset_sha256 = ""
-        item["target_binding_status"] = (
-            source_figure_target_binding_status(
-                row,
-                manuscript_markdown,
-                current_asset_sha256=current_asset_sha256,
+        if candidate_only:
+            item["target_binding_status"] = "not_available"
+            item["target_options"] = []
+            item["version_token"] = None
+            item["image_url"] = None
+        else:
+            current_asset_sha256 = None
+            if row.get("target_binding") is not None:
+                try:
+                    current_asset_sha256 = current_source_figure_asset_sha256(project, row)
+                except ReviewFigureError:
+                    current_asset_sha256 = ""
+            item["target_binding_status"] = (
+                source_figure_target_binding_status(
+                    row,
+                    manuscript_markdown,
+                    current_asset_sha256=current_asset_sha256,
+                )
+                if manuscript_markdown
+                else "stale"
+                if row.get("target_binding") is not None
+                else "missing"
             )
-            if manuscript_markdown
-            else "stale"
-            if row.get("target_binding") is not None
-            else "missing"
-        )
-        item["target_options"] = source_figure_target_options(
-            row, manuscript.get("sections", []) if isinstance(manuscript.get("sections"), list) else []
-        )
-        item["version_token"] = _workspace_token(
-            "review-figures",
-            str(row.get("figure_id")),
-            source_figure_workspace_revision(
-                registry, row, str(manuscript.get("sha256") or "")
-            ),
-        )
-        item["image_url"] = f"/api/project/{quote(project_id, safe='')}/source-figure?figure_id={quote(str(row.get('figure_id')), safe='')}"
+            item["target_options"] = source_figure_target_options(
+                row, manuscript.get("sections", []) if isinstance(manuscript.get("sections"), list) else []
+            )
+            item["version_token"] = _workspace_token(
+                "review-figures",
+                str(row.get("figure_id")),
+                source_figure_workspace_revision(
+                    registry, row, str(manuscript.get("sha256") or "")
+                ),
+            )
+            item["image_url"] = f"/api/project/{quote(project_id, safe='')}/source-figure?figure_id={quote(str(row.get('figure_id')), safe='')}"
         fragments = row.get("fragments")
+        if candidate_only:
+            item["locator"] = copy.deepcopy(row.get("locator"))
+            item["fragments"] = copy.deepcopy(fragments) if isinstance(fragments, list) else []
         item["fragment_urls"] = [
             (
                 f"/api/project/{quote(project_id, safe='')}/source-figure"
@@ -6810,9 +6851,11 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
                 f"&fragment={index}"
             )
             for index, fragment in enumerate(fragments if isinstance(fragments, list) else [])
-            if isinstance(fragment, dict)
+            if isinstance(fragment, dict) and not candidate_only
         ]
-        item["fragment_count"] = len(item["fragment_urls"])
+        item["fragment_count"] = (
+            len(fragments) if candidate_only and isinstance(fragments, list) else len(item["fragment_urls"])
+        )
         item["pdf_page_url"] = f"/api/project/{quote(project_id, safe='')}/source/{quote(str(row.get('source_id')), safe='')}/pdf-page?page={int(row.get('page') or 1)}"
         source_figures.append(item)
     placeholders = []
@@ -6852,6 +6895,11 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         "placeholders": placeholders,
         "summary": {
             "source_count": len(source_figures),
+            "selected_count": sum(
+                row.get("selection_status") == "selected"
+                for row in source_figures
+                if isinstance(row, dict)
+            ),
             "locator_gap_count": len(locator_gaps),
             "placeholder_count": len(placeholders),
         },
