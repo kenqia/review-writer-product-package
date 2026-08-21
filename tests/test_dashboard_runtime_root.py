@@ -1334,7 +1334,7 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
         ):
             dashboard._write_new_route_draft_section(review_root, self.project_id, self._payload(draft))
-        build_workspace.assert_called_once_with(project)
+        build_workspace.assert_called_once_with(project, include_authoritative=False)
 
         context = VersionContext.load(project)
         state = context.state()

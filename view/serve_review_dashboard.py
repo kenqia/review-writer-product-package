@@ -9081,7 +9081,7 @@ def _write_new_route_draft_section(
         raise ValueError("new-route dashboard actor is invalid")
     project = project_dir(review_root, project_id)
     with SOURCE_TRANSACTION_LOCK:
-        workspace = build_manuscript_workspace(project)
+        workspace = build_manuscript_workspace(project, include_authoritative=False)
         section_id = data.get("section_id")
         row = next(
             (

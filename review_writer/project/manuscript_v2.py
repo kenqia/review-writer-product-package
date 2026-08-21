@@ -626,8 +626,18 @@ def _projected_drafts(project: Path) -> list[dict[str, Any]]:
     return projected
 
 
-def build_manuscript_workspace(project: Path) -> dict[str, Any]:
-    """Return only new-route section/manuscript state; legacy draft bytes are ignored."""
+def build_manuscript_workspace(
+    project: Path,
+    *,
+    include_authoritative: bool = True,
+) -> dict[str, Any]:
+    """Return only new-route section/manuscript state; legacy draft bytes are ignored.
+
+    Dashboard approval only needs the projected section rows before entering
+    its transaction.  The authoritative manuscript check is repeated by the
+    locked merge producer, so callers that are already on that write path may
+    skip it without weakening the final gate.
+    """
     root = _root(project)
     sections = _projected_drafts(root)
     manuscript: str | None = None
@@ -639,13 +649,21 @@ def build_manuscript_workspace(project: Path) -> dict[str, Any]:
         except (OSError, UnicodeError) as exc:
             raise ManuscriptV2Error("MANUSCRIPT_INVALID") from exc
     lineage_present = lineage_path.is_file() and not lineage_path.is_symlink()
-    authoritative = manuscript_state(root)
+    authoritative = manuscript_state(root) if include_authoritative else None
     return {
         "schema_version": "manuscript-workspace.v2",
         "route": NEW_ROUTE,
         "project_id": root.name,
-        "status": "approved" if authoritative["workflow_can_continue"] else "in_progress",
-        "reason_code": authoritative["reason_code"],
+        "status": (
+            "approved"
+            if authoritative is not None and authoritative["workflow_can_continue"]
+            else "in_progress"
+        ),
+        "reason_code": (
+            authoritative["reason_code"]
+            if authoritative is not None
+            else "MANUSCRIPT_NOT_APPROVED"
+        ),
         "sections": sections,
         "manuscript": manuscript,
         "lineage_present": lineage_present,
