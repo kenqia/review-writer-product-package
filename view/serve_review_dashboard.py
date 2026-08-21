@@ -1475,6 +1475,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.NOT_FOUND, "project route not found")
                 return
             self.handle_project_history_get(project_id)
+        elif parsed.path.startswith("/api/project/") and parsed.path.endswith("/compare"):
+            project_id = project_id_from_route(parsed.path, "compare")
+            if project_id is None:
+                self.send_error(HTTPStatus.NOT_FOUND, "project route not found")
+                return
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            left_versions = query.get("left_version_id", [])
+            right_versions = query.get("right_version_id", [])
+            if (
+                set(query) != {"left_version_id", "right_version_id"}
+                or len(left_versions) != 1
+                or len(right_versions) != 1
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", left_versions[0]) is None
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", right_versions[0]) is None
+            ):
+                self.send_json(
+                    {
+                        "ok": False,
+                        "error_code": "HISTORY_COMPARE_REQUEST_INVALID",
+                        "message": "compare request is invalid",
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self.handle_project_history_compare_get(
+                project_id,
+                left_versions[0],
+                right_versions[0],
+            )
         elif parsed.path.startswith("/api/project/"):
             parts = parsed.path.strip("/").split("/")
             if (
@@ -2436,6 +2465,63 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_json(
                 {"ok": False, "error_code": exc.code, "message": str(exc)},
                 status=exc.status,
+            )
+            return
+        self.send_json(payload)
+
+    @staticmethod
+    def _history_version_payload(view: Any) -> dict[str, Any]:
+        return {
+            "version_id": view.version_id,
+            "parent_version_id": view.parent_version_id,
+            "branch_id": view.branch_id,
+            "branch_name": view.branch_name,
+            "snapshot_digest": view.snapshot_digest,
+            "read_only": view.read_only,
+            "can_write": view.can_write,
+            "is_current": view.is_current,
+            "is_active_head": view.is_active_head,
+        }
+
+    def handle_project_history_compare_get(
+        self,
+        project_id: str,
+        left_version_id: str,
+        right_version_id: str,
+    ) -> None:
+        try:
+            context = self._history_context(project_id)
+            state = context.state()
+            current = context.view_version(state.current_version_id)
+            left = context.view_version(left_version_id)
+            right = context.view_version(right_version_id)
+            comparison = context.compare_versions(left_version_id, right_version_id)
+            payload = {
+                "project_id": state.project_id,
+                "revision": state.revision,
+                "current": {
+                    "version_id": current.version_id,
+                    "branch_id": current.branch_id,
+                    "snapshot_digest": current.snapshot_digest,
+                },
+                "left": self._history_version_payload(left),
+                "right": self._history_version_payload(right),
+                "comparison": comparison.to_dict(),
+            }
+        except PublicProjectHistoryError as exc:
+            self.send_json(
+                {"ok": False, "error_code": exc.code, "message": str(exc)},
+                status=exc.status,
+            )
+            return
+        except ProductFoundationError as exc:
+            self.send_json(
+                {
+                    "ok": False,
+                    "error_code": exc.code,
+                    "message": "version comparison was rejected",
+                },
+                status=HTTPStatus.CONFLICT,
             )
             return
         self.send_json(payload)
