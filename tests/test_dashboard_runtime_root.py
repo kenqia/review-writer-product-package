@@ -1371,6 +1371,105 @@ class DashboardDraftVersionContextTest(unittest.TestCase):
             )
         self.assertEqual(continuation["candidate"]["version"], "v2")
 
+    def test_new_route_v2_user_edited_approval_accepts_marker_preserving_candidate(self) -> None:
+        review_root, project, draft, _ = self._project()
+        context = VersionContext.load(project)
+        state = context.state()
+        current = context.view_version(state.current_version_id)
+        candidate_body = "V2 candidate source-bound text [evidence:case-1]."
+        candidate_digest = "c" * 64
+        v2_draft = {
+            **copy.deepcopy(draft),
+            "body": candidate_body,
+            "draft_digest": candidate_digest,
+            "status": "needs_human_edit",
+            "decision": None,
+        }
+        runtime = copy.deepcopy(current.snapshot[RUNTIME_KEY])
+        runtime.update(
+            {
+                "phase": "v2",
+                "last_action": "GENERATE_CANDIDATE_V2",
+                "last_run_id": "generator-run-v2",
+                "candidate": {
+                    "version": "v2",
+                    "section_id": self.section_id,
+                    "draft_digest": candidate_digest,
+                    "status": "needs_human_edit",
+                    "generation_digest": "d" * 64,
+                },
+                "human_decision": {
+                    "action": "approve",
+                    "decision_digest": "e" * 64,
+                    "edited_body_sha256": hashlib.sha256(self.edited_body.encode("utf-8")).hexdigest(),
+                    "draft_digest": draft["draft_digest"],
+                },
+            }
+        )
+        snapshot = copy.deepcopy(dict(current.snapshot))
+        snapshot[RUNTIME_KEY] = runtime
+        context.publish_active_head(
+            snapshot,
+            expected_head_id=state.active_head_id,
+            expected_revision=state.revision,
+            version_id="generator-v2-approval",
+        )
+        edited_body = "V2 edited source-bound text [evidence:case-1]."
+        approved = {
+            **copy.deepcopy(v2_draft),
+            "body": edited_body,
+            "draft_digest": "e" * 64,
+            "status": "approved",
+            "decision": {
+                "actor_type": "human_researcher",
+                "actor_label": "研究者",
+                "action": "approve",
+                "bound_object_digest": "e" * 64,
+            },
+        }
+        payload = {
+            "section_id": self.section_id,
+            "edited_body": edited_body,
+            "reason": "Checked the marker binding after the v2 edit.",
+            "version_token": dashboard._workspace_token(
+                "manuscript-section", self.section_id, candidate_digest
+            ),
+            "actor_type": "human_researcher",
+            "actor_label": "研究者",
+        }
+
+        def approve(_: Path, section_id: str, actor: object, **kwargs: object) -> dict[str, object]:
+            self.assertEqual(section_id, self.section_id)
+            self.assertEqual(actor, {"actor_type": "human_researcher", "actor_label": "研究者"})
+            self.assertEqual(kwargs["expected_draft_digest"], candidate_digest)
+            (project / "04_manuscript/section_drafts.jsonl").write_bytes(b'{"after":"v2-draft"}\n')
+            return copy.deepcopy(approved)
+
+        def merge(_: Path) -> dict[str, object]:
+            (project / "04_manuscript/manuscript.md").write_bytes(b"# V2 After\n")
+            (project / "04_manuscript/manuscript_lineage.v2.json").write_bytes(b'{"after":"v2-lineage"}\n')
+            return {"status": "approved"}
+
+        with (
+            patch.object(
+                dashboard,
+                "build_manuscript_workspace",
+                side_effect=[{"sections": [v2_draft]}, {"sections": [approved], "status": "approved"}],
+            ),
+            patch.object(manuscript_v2, "_approve_section_locked", side_effect=approve),
+            patch.object(manuscript_v2, "_merge_approved_sections_locked", side_effect=merge),
+        ):
+            result = dashboard._write_new_route_draft_section(review_root, self.project_id, payload)
+
+        self.assertEqual(result["status"], "approved")
+        self.assertEqual(result["sections"][0]["body"], edited_body)
+        after = VersionContext.load(project).state()
+        self.assertEqual(after.revision, 2)
+        self.assertEqual(
+            VersionContext.load(project).view_version(after.current_version_id).snapshot[RUNTIME_KEY]["phase"],
+            "v2",
+        )
+
     def test_new_route_approval_restores_all_manuscript_bytes_when_context_publish_fails(self) -> None:
         review_root, project, draft, approved = self._project()
         manuscript_root = project / "04_manuscript"

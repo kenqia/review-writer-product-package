@@ -8668,20 +8668,25 @@ def _new_route_runtime_for_approval(
     candidate = runtime.get("candidate") if isinstance(runtime, dict) else None
     runtime_input = runtime.get("input") if isinstance(runtime, dict) else None
     expected_body_sha256 = hashlib.sha256(str(row.get("body") or "").encode("utf-8")).hexdigest()
+    phase = runtime.get("phase") if isinstance(runtime, dict) else None
+    candidate_version = candidate.get("version") if isinstance(candidate, dict) else None
     if (
         not isinstance(runtime, dict)
         or runtime.get("schema_version") != RUNTIME_SCHEMA
-        or runtime.get("phase") != "v1"
+        or phase not in {"v1", "v2"}
         or not isinstance(runtime.get("session_id"), str)
         or not runtime["session_id"]
         or not isinstance(runtime.get("audit"), list)
         or not isinstance(runtime_input, dict)
         or runtime_input.get("section_id") != row.get("section_id")
         or not isinstance(candidate, dict)
-        or candidate.get("version") != "v1"
+        or candidate_version != phase
         or candidate.get("section_id") != row.get("section_id")
         or candidate.get("draft_digest") != row.get("draft_digest")
-        or candidate.get("body_sha256") != expected_body_sha256
+        or (
+            phase == "v1"
+            and candidate.get("body_sha256") != expected_body_sha256
+        )
     ):
         raise WorkspaceStaleError("WORKSPACE_STALE")
     return context, state, current, copy.deepcopy(runtime)
