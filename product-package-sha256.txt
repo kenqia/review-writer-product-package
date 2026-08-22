@@ -2,12 +2,13 @@
 8ed2e797755e221aa9080e3dd592e8fc3140f550811f5e00aa026102f0006a06  ./.agents/skills/review-orchestrator/agents/openai.yaml
 0ff66bd719b33cb69c0680b423a7718cc7056daef685b8588ce17084ed026d71  ./.env.example
 6b9d4055ef69909a990c1a0dbd6d35ffd79ea649f485e1e69618b25342b8a8bd  ./.gitignore
-1a4708b4a24d463b78cd645277ac33f59fd0602f0daf1f26ae49d225c67216c8  ./README.md
+38a8c11fe1dd0b7161e6f1b18f64cde325ff52a70a081fcc7e151a7311882902  ./README.md
 c1ca58c2e3d6ac02db92f4913098193eaf5cbbbcbe95d30ac6ebfc50f469cb97  ./docs-qoderwork-cn.md
 2aabfbe28c053d41cef8cad3338d7a5d76540b8b6690e2a3773dee0fa2cc1844  ./docs/PRODUCT_CONTRACT.md
-c823f9863eda8d0c1f0edf255b46689117d705d5aec4ee59af78b9025b3bc69f  ./docs/PRODUCT_TRACEABILITY.md
+029978ba1ec78794a481e2c9f1e171517222f7709a6a2228d4dd8ac7c0deb5f3  ./docs/PRODUCT_FLOW.md
+01822f27ef0a60726593a7ab6739757ec369d913104c850a1e398115a29ce90b  ./docs/PRODUCT_TRACEABILITY.md
 19c4b47e7d2f51b9dd56a0c4ac7cd137f703943f79584e8b814a483dc85834a6  ./docs/THIRD_PARTY_NOTICES.md
-65ea3c6bef6aad7c27e1e08e602b8272963031cb6703fbf616fe7fd7aee120c1  ./product-package-manifest.md
+41aac5f4f8c7a6af92112b3b106f464edc7cb8db2f2d110c88bd09d724f540dd  ./product-package-manifest.md
 6bca45a2881bf7ac5bf959aa8501dfad9548ab4287351c8f63fc55eb3bb9f329  ./qoderwork/plugins/review-writer-cn/.qoder-plugin/plugin.json
 ff56a421679087dacdbe08d9f8c88ec86c0780fd55620167d0ef3be9fbc203c7  ./qoderwork/plugins/review-writer-cn/README.md
 fc83ce09f368504adc943bb3c6bd06b03fda64de22ae31ca21ee548eb49a4afd  ./qoderwork/plugins/review-writer-cn/qoderwork.md

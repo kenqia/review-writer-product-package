@@ -13,7 +13,7 @@
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`.env.example`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/windows/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/`、`skills/mineru-precise-parse-review-writer/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`.env.example`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_FLOW.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/windows/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/`、`skills/mineru-precise-parse-review-writer/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
@@ -29,6 +29,7 @@
 - `scripts/build_qoderwork_plugin_zip.py`：构建并检查不含凭据/本机状态的确定性插件 ZIP。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
 - 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
+- `docs/PRODUCT_FLOW.md`：面向用户和评审的公开流程图、人工闸门、状态解释和三分钟演示路径。
 - `.env.example`：仅记录实际支持的 parser 路径、MinerU CA bundle 变量和 QoderWork 凭据边界，不含任何值。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
 

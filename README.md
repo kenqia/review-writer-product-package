@@ -13,6 +13,37 @@
 README 只负责用户入口和运行说明。当前公开验证仍应分别报告 Engineering、Product Use、
 `PUBLIC_E2E`、`HUMAN_ACCEPTANCE` 和 scientific validity，不因静态文档或 focused test 自动升级。
 
+## 一页看懂产品
+
+```mermaid
+flowchart TD
+    I[topic + explicit project root + authorized PDF folder]
+    S[Source mapping<br/>MAIN / SI / 排除]
+    Q[Parse Quality<br/>MinerU 或真实 fallback]
+    E[Paper Evidence<br/>页码 + 原文 quote + source digest]
+    C[Comparison Protocol<br/>共识 / 差异 / 冲突 / GAP]
+    Y[Synthesis + Section Contract]
+    M[Manuscript v1<br/>研究者编辑批准后形成 v2]
+    F[Figure Decision<br/>真实来源图件 / rights / 正文绑定]
+    O[Markdown + DOCX release<br/>同一 VersionContext]
+    H{研究者人工闸门}
+
+    I --> S --> H
+    H --> Q --> H
+    H --> E --> H
+    H --> C --> H
+    H --> Y --> H
+    H --> M --> H
+    H --> F --> H
+    H --> O
+    H -.拒绝、缺来源、过期、缺 rights.-> H
+```
+
+完整的流程、角色分工和状态说明见 [`docs/PRODUCT_FLOW.md`](docs/PRODUCT_FLOW.md)。
+
+产品演示时最重要的一句话是：Review Writer 不替研究者批准科学判断；它把每个结论、图件和
+发布文件绑定到可审计来源，并在证据不足时明确停在 `GAP` 或 `HUMAN_ACTION_REQUIRED`。
+
 ## 你需要提供什么
 
 每次创建综述只需要：
@@ -213,6 +244,7 @@ focused test 或模型回复隐式升级为最终科学结论。
 
 ## 相关文档
 
+- [产品流程图与演示指南](docs/PRODUCT_FLOW.md)
 - [产品包清单](product-package-manifest.md)
 - [公开产品合同](docs/PRODUCT_CONTRACT.md)
 - [FR 追踪表](docs/PRODUCT_TRACEABILITY.md)

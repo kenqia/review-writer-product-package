@@ -245,6 +245,19 @@ real review project is changed. The focused/static evidence is Engineering evide
 QoderWork UI, Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2`
 remain `HOLD`. Rollback is one Git revert; no project data or PDFs are modified.
 
+## CR-019 traceability — public product flow and submission presentation
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Public product flow | `README.md`; `docs/PRODUCT_FLOW.md` | Markdown inspection; `git diff --check`; package hash verification | `DOCUMENTED / ENGINEERING_VERIFIED` | Adds a reviewer-facing Mermaid flow, role split, human gates, status glossary and a three-minute demonstration path. It changes no runtime code, project data, scientific claims or approval state. |
+
+The CR-019 write set is limited to `README.md`, `docs/PRODUCT_FLOW.md`,
+`product-package-manifest.md`, this traceability row and `product-package-sha256.txt`. The new
+documentation makes the product easier to demonstrate without hiding `GAP`, `HOLD`, parser fallback,
+figure rights or HUMAN_ACCEPTANCE boundaries. Rollback is one Git revert; no review project or PDF is
+modified. This documentation slice does not promote Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`,
+scientific validity or `PROMOTE/B2`.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh
