@@ -576,6 +576,93 @@ def test_resume_with_existing_parse_artifact_does_not_repeat_parse(
     assert {path: _fingerprint(path) for path in tracked} == before
 
 
+def test_resume_reparses_existing_artifacts_when_parse_quality_requires_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, authorized, _ = _resume_project(tmp_path)
+    _complete_source_mapping(project, authorized)
+    artifact = project / "01_evidence/mineru/manifest.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("{}\n", encoding="utf-8")
+    snapshot = copy.deepcopy(
+        dict(
+            VersionContext.load(project)
+            .view_version(VersionContext.load(project).state().current_version_id)
+            .snapshot
+        )
+    )
+    snapshot["agent_parse"] = {
+        "status": fresh_bootstrap.HUMAN_ACTION_REQUIRED,
+        "reason_code": "PARSE_QUALITY_HUMAN_ACTION_REQUIRED",
+        "session_id": "generator-session-existing",
+        "tool_trace": [],
+        "next_action": {
+            "project_id": project.name,
+            "route": "/review",
+            "type": fresh_bootstrap.HUMAN_ACTION_REQUIRED,
+        },
+    }
+    _replace_current_snapshot(project, snapshot)
+    state = VersionContext.load(project).state()
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(public_entry, "_dashboard_is_healthy", lambda _value: True)
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "parse_quality_state",
+        lambda _project, _study_id: {
+            "objects": [{"decision": {"action": "reparse_required"}}]
+        },
+    )
+
+    def fake_reparse(
+        explicit_project_root: Path,
+        *,
+        session_id: str | None = None,
+        expected_revision: int | None = None,
+        expected_head_id: str | None = None,
+    ) -> dict[str, object]:
+        observed.update(
+            project=explicit_project_root,
+            session_id=session_id,
+            expected_revision=expected_revision,
+            expected_head_id=expected_head_id,
+        )
+        return {
+            "status": fresh_bootstrap.HUMAN_ACTION_REQUIRED,
+            "reason_code": "PARSE_QUALITY_HUMAN_ACTION_REQUIRED",
+            "project_id": project.name,
+            "current": {
+                "version_id": "agent-reparse-test",
+                "revision": state.revision + 1,
+                "snapshot_digest": "c" * 64,
+            },
+            "trace": {"event_count": 4},
+        }
+
+    monkeypatch.setattr(
+        local_pdf_parse,
+        "reparse_project_sources",
+        fake_reparse,
+        raising=False,
+    )
+
+    result = start_or_resume_review("Resume topic", project, authorized)
+
+    assert observed == {
+        "project": project,
+        "session_id": "generator-session-existing",
+        "expected_revision": state.revision,
+        "expected_head_id": state.active_head_id,
+    }
+    assert result["result"] == "RESUMED"
+    assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    assert result["reason_code"] == "PARSE_QUALITY_HUMAN_ACTION_REQUIRED"
+    assert result["current"]["project_id"] == project.name
+    assert result["revision"] == state.revision + 1
+    assert result["write_mode"] == "VERSION_CONTEXT"
+
+
 def test_invalid_root_is_zero_write() -> None:
     with pytest.raises(public_entry.PublicReviewEntryError) as error:
         start_or_resume_review("Topic", "relative/project", "/tmp/authorized")

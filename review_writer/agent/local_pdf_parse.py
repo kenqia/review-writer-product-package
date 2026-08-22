@@ -984,16 +984,40 @@ def _write_mineru_parse_output(
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def _publish_components(project: Path, staged_project: Path) -> None:
+def _publish_components(
+    project: Path,
+    staged_project: Path,
+    *,
+    replace_existing: bool = False,
+) -> None:
     source_evidence = staged_project / "01_evidence"
     destination_evidence = project / "01_evidence"
+    backup_root: Path | None = None
     moved: list[str] = []
+    backed_up: list[str] = []
     try:
+        if replace_existing:
+            backup_root = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{project.name}.parse-replace.",
+                    dir=project.parent,
+                )
+            )
         for component in _EVIDENCE_COMPONENTS:
             source = source_evidence / component
             destination = destination_evidence / component
-            if not source.is_dir() or source.is_symlink() or os.path.lexists(destination):
+            if not source.is_dir() or source.is_symlink():
                 raise LocalPdfParseError("PARSE_PUBLISH_CONFLICT")
+            if os.path.lexists(destination):
+                if (
+                    not replace_existing
+                    or backup_root is None
+                    or destination.is_symlink()
+                    or not destination.is_dir()
+                ):
+                    raise LocalPdfParseError("PARSE_PUBLISH_CONFLICT")
+                os.rename(destination, backup_root / component)
+                backed_up.append(component)
             os.rename(source, destination)
             moved.append(component)
     except BaseException:
@@ -1002,10 +1026,25 @@ def _publish_components(project: Path, staged_project: Path) -> None:
             destination = destination_evidence / component
             try:
                 if not os.path.lexists(source) and destination.is_dir() and not destination.is_symlink():
-                    os.rename(destination, source)
+                    if replace_existing:
+                        shutil.rmtree(destination)
+                    else:
+                        os.rename(destination, source)
             except OSError:
                 pass
+        if backup_root is not None:
+            for component in reversed(backed_up):
+                backup = backup_root / component
+                destination = destination_evidence / component
+                try:
+                    if backup.is_dir() and not backup.is_symlink() and not os.path.lexists(destination):
+                        os.rename(backup, destination)
+                except OSError:
+                    pass
         raise
+    finally:
+        if backup_root is not None:
+            shutil.rmtree(backup_root, ignore_errors=True)
 
 
 def _figure_candidate_input(row: dict[str, Any]) -> dict[str, Any]:
@@ -2225,12 +2264,15 @@ def prepare_pdf_only_synthesis_workspace(
     }
 
 
-def parse_project_sources(
+def _parse_project_sources(
     explicit_project_root: str | Path,
     *,
     session_id: str | None = None,
     expected_revision: int | None = None,
     expected_head_id: str | None = None,
+    replace_existing: bool = False,
+    reparse_completed: bool = False,
+    expected_gate_digests: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run the local parse tool and publish one Agent-traced parse handoff.
 
@@ -2247,18 +2289,40 @@ def parse_project_sources(
     if expected_head_id is not None and expected_head_id != state.active_head_id:
         raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
     evidence = project / "01_evidence"
-    if any(os.path.lexists(evidence / component) for component in _EVIDENCE_COMPONENTS):
+    if (
+        not replace_existing
+        and any(os.path.lexists(evidence / component) for component in _EVIDENCE_COMPONENTS)
+    ):
         raise LocalPdfParseError("PARSE_ALREADY_EXISTS")
+    if replace_existing:
+        if evidence.is_symlink() or not evidence.is_dir():
+            raise LocalPdfParseError("PARSE_PUBLISH_CONFLICT")
+        for component in _EVIDENCE_COMPONENTS:
+            existing = evidence / component
+            if os.path.lexists(existing) and (
+                existing.is_symlink() or not existing.is_dir()
+            ):
+                raise LocalPdfParseError("PARSE_PUBLISH_CONFLICT")
     rows, receipt_sha256 = _receipt_sources(project)
     staging_parent = Path(tempfile.mkdtemp(prefix=f".{project.name}.local-parse.", dir=project.parent))
     staged_project = staging_parent / project.name
     run_id = _new_id("generator-parse-run")
-    published = False
     try:
         shutil.copytree(project, staged_project, copy_function=shutil.copy2)
         staged_rows, staged_receipt_sha256 = _receipt_sources(staged_project)
         if staged_rows != rows or staged_receipt_sha256 != receipt_sha256:
             raise LocalPdfParseError("SOURCE_PDF_STALE")
+        if replace_existing:
+            # Parser output is rebuilt in the staging tree.  Keep
+            # ``source_truth`` intact so the quality-gate writer can migrate
+            # the previous reparse decision into history, then publish the
+            # rebuilt parse components as one replacement set.
+            for component in ("mineru", "parses", "text_layers"):
+                existing = staged_project / "01_evidence" / component
+                if os.path.lexists(existing):
+                    if existing.is_symlink() or not existing.is_dir():
+                        raise LocalPdfParseError("PARSE_PUBLISH_CONFLICT")
+                    shutil.rmtree(existing)
         try:
             mineru_rows, parser_sources = _write_mineru_parse_output(
                 staged_project / "01_evidence", staged_rows
@@ -2304,7 +2368,17 @@ def parse_project_sources(
         main_rows = [row for row in rows if row["document_role"] == "MAIN"]
         main_study_ids = {row["study_id"] for row in main_rows}
         bundles = [write_source_truth_bundle(staged_project, row["study_id"]) for row in main_rows]
-        gates = [write_parse_quality_gate(staged_project, row["study_id"]) for row in main_rows]
+        if reparse_completed:
+            gates = [
+                write_parse_quality_gate(
+                    staged_project,
+                    row["study_id"],
+                    reparse_completed=True,
+                )
+                for row in main_rows
+            ]
+        else:
+            gates = [write_parse_quality_gate(staged_project, row["study_id"]) for row in main_rows]
         if len(bundles) != len(main_study_ids) or len(gates) != len(bundles):
             raise LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
         figure_sources: list[dict[str, Any]] = []
@@ -2332,7 +2406,21 @@ def parse_project_sources(
                 or _sha256_file(project / _RECEIPT) != receipt_sha256
             ):
                 raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
-            _publish_components(project, staged_project)
+            if expected_gate_digests is not None:
+                for study_id, expected_digest in expected_gate_digests.items():
+                    try:
+                        latest_quality = parse_quality_state(project, study_id)
+                    except ParseQualityError as exc:
+                        raise LocalPdfParseError(exc.code) from exc
+                    if (
+                        latest_quality.get("status") == "stale"
+                        or latest_quality.get("gate_digest") != expected_digest
+                    ):
+                        raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
+            if replace_existing:
+                _publish_components(project, staged_project, replace_existing=True)
+            else:
+                _publish_components(project, staged_project)
             next_action = {
                 "project_id": project.name,
                 "route": "/review",
@@ -2398,7 +2486,6 @@ def parse_project_sources(
                 expected_revision=latest_state.revision,
                 version_id=version_id,
             )
-            published = True
         return {
             "status": _HUMAN_ACTION_REQUIRED,
             "reason_code": "PARSE_QUALITY_HUMAN_ACTION_REQUIRED",
@@ -2435,3 +2522,106 @@ def parse_project_sources(
     finally:
         # The staging tree is owned by this invocation and is never a project authority.
         shutil.rmtree(staging_parent, ignore_errors=True)
+
+
+def parse_project_sources(
+    explicit_project_root: str | Path,
+    *,
+    session_id: str | None = None,
+    expected_revision: int | None = None,
+    expected_head_id: str | None = None,
+) -> dict[str, Any]:
+    """Run the first local parse for a project with no parse components."""
+
+    return _parse_project_sources(
+        explicit_project_root,
+        session_id=session_id,
+        expected_revision=expected_revision,
+        expected_head_id=expected_head_id,
+    )
+
+
+_REPARSE_QUALITY_HOLD_CODES = frozenset(
+    {
+        "PARSE_QUALITY_MISSING",
+        "PARSE_QUALITY_REVIEW_REQUIRED",
+        "PARSE_QUALITY_STALE",
+        "PARSE_PDF_LOCATOR_ONLY",
+        "SOURCE_TRUTH_MISSING",
+    }
+)
+
+
+def _reparse_gate_digests(
+    project: Path,
+    rows: list[dict[str, str]],
+) -> dict[str, str] | None:
+    expected: dict[str, str] = {}
+    requested = False
+    pending = False
+    study_ids = sorted(
+        {
+            row["study_id"]
+            for row in rows
+            if row.get("document_role") == "MAIN"
+        }
+    )
+    for study_id in study_ids:
+        try:
+            quality = parse_quality_state(project, study_id)
+        except ParseQualityError as exc:
+            if exc.code in _REPARSE_QUALITY_HOLD_CODES:
+                return None
+            raise LocalPdfParseError(exc.code) from exc
+        if quality.get("status") == "stale":
+            return None
+        gate_digest = quality.get("gate_digest")
+        if not isinstance(gate_digest, str) or len(gate_digest) != 64:
+            raise LocalPdfParseError("PARSE_QUALITY_INVALID")
+        expected[study_id] = gate_digest
+        for row in quality.get("objects", []):
+            if not isinstance(row, dict):
+                continue
+            decision = row.get("decision")
+            if isinstance(decision, dict) and decision.get("action") == "reparse_required":
+                requested = True
+            elif row.get("review_state") in {"needs_review", "needs_re_review"}:
+                pending = True
+    return expected if requested and not pending else None
+
+
+def reparse_project_sources(
+    explicit_project_root: str | Path,
+    *,
+    session_id: str | None = None,
+    expected_revision: int | None = None,
+    expected_head_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Re-run the existing local parser after a Parse Quality reparse decision.
+
+    The parser replaces only the existing canonical parse components in one
+    staged publication.  ``write_parse_quality_gate`` preserves prior
+    decisions as history and turns completed ``reparse_required`` decisions
+    into fresh human review, so no second repair state is introduced.
+    """
+
+    project = _registered_project(explicit_project_root)
+    _context, state, _current = _load_current(project)
+    if (
+        (expected_revision is not None and expected_revision != state.revision)
+        or (expected_head_id is not None and expected_head_id != state.active_head_id)
+    ):
+        raise LocalPdfParseError("GENERATOR_VERSION_CONFLICT")
+    rows, _receipt_digest = _receipt_sources(project)
+    expected_gate_digests = _reparse_gate_digests(project, rows)
+    if expected_gate_digests is None:
+        return None
+    return _parse_project_sources(
+        project,
+        session_id=session_id,
+        expected_revision=expected_revision,
+        expected_head_id=expected_head_id,
+        replace_existing=True,
+        reparse_completed=True,
+        expected_gate_digests=expected_gate_digests,
+    )

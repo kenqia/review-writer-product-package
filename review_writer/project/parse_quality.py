@@ -555,7 +555,12 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def write_parse_quality_gate(project: Path, study_id: str) -> dict[str, object]:
+def write_parse_quality_gate(
+    project: Path,
+    study_id: str,
+    *,
+    reparse_completed: bool = False,
+) -> dict[str, object]:
     project = project.resolve(strict=True)
     try:
         bundle = load_source_truth_bundle(project, study_id)
@@ -568,9 +573,15 @@ def write_parse_quality_gate(project: Path, study_id: str) -> dict[str, object]:
         if not isinstance(previous, dict):
             raise ParseQualityError("PARSE_QUALITY_INVALID")
         _validate_gate(previous, allow_legacy_object_digest=True)
-        gate_changed = previous["gate_digest"] != gate["gate_digest"]
+        gate_changed = (
+            previous["gate_digest"] != gate["gate_digest"] or reparse_completed
+        )
         prior_gate_digests = list(previous.get("prior_gate_digests", []))
-        if gate_changed and previous["gate_digest"] not in prior_gate_digests:
+        if (
+            gate_changed
+            and previous["gate_digest"] != gate["gate_digest"]
+            and previous["gate_digest"] not in prior_gate_digests
+        ):
             prior_gate_digests.append(previous["gate_digest"])
         gate["prior_gate_digests"] = prior_gate_digests
         previous_by_id = {row["object_id"]: row for row in previous["objects"]}

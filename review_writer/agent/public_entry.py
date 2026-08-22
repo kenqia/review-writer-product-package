@@ -58,6 +58,7 @@ _PDF_EVIDENCE_BRIDGE_HOLD_CODES = frozenset(
         "PARSE_QUALITY_REVIEW_REQUIRED",
         "PARSE_QUALITY_STALE",
         "PARSE_PDF_LOCATOR_ONLY",
+        "PARSE_REPARSE_REQUIRED",
     }
 )
 
@@ -572,6 +573,35 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
         }
     parse_owner = snapshot.get("agent_parse")
     session_id = parse_owner.get("session_id") if isinstance(parse_owner, dict) else None
+    if _source_mapping_complete(project, snapshot) and _parse_artifacts_exist(project):
+        reparsed = local_pdf_parse.reparse_project_sources(
+            project,
+            session_id=session_id if isinstance(session_id, str) and session_id else None,
+            expected_revision=state.revision,
+            expected_head_id=state.active_head_id,
+        )
+        if reparsed is not None:
+            reparsed_current = reparsed.get("current") if isinstance(reparsed, dict) else None
+            if (
+                not isinstance(reparsed_current, dict)
+                or not {"version_id", "revision", "snapshot_digest"}.issubset(
+                    reparsed_current
+                )
+            ):
+                raise _error("PARSE_RESULT_INVALID", category="PRECONDITION_FAILED")
+            reparsed_current = copy.deepcopy(reparsed_current)
+            reparsed_current.setdefault("project_id", project.name)
+            result = copy.deepcopy(reparsed)
+            result.update(
+                {
+                    "result": "RESUMED",
+                    "current": reparsed_current,
+                    "revision": reparsed_current["revision"],
+                    "write_mode": "VERSION_CONTEXT",
+                    **dashboard_fields,
+                }
+            )
+            return result
     if _parse_artifacts_exist(project) and isinstance(session_id, str) and session_id:
         evidence = paper_evidence_state(project)
         if isinstance(evidence, dict) and evidence.get("workflow_can_continue") is True:
