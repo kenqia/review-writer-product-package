@@ -27,6 +27,9 @@ from review_writer.project.source_truth import (
     load_source_truth_bundle,
     source_truth_asset,
 )
+# Retain the module attribute for downstream test/host compatibility; route
+# activation itself is intentionally driven by the explicit argument below.
+from review_writer.project.source_truth import study_source_tier  # noqa: F401
 from review_writer.project.dual_source import DualSourceError, require_dual_source_ready
 from review_writer.project.chemical_completion import (
     ChemicalCompletionError,
@@ -36,7 +39,6 @@ from review_writer.project.parse_reconciliation import (
     ParseReconciliationError,
     require_reconciliation_ready,
 )
-from review_writer.project.source_truth import study_source_tier
 from review_writer.project.verification_decision import (
     VerificationDecisionError,
     verification_decision,
@@ -1064,7 +1066,7 @@ def require_dual_evidence_ready(
 ) -> dict[str, str | None]:
     """Fail closed on every current dual-parse dependency before Evidence writes."""
     try:
-        chemical_required = study_source_tier(project, study_id) == "core" or requires_chemical
+        chemical_required = requires_chemical
         bindings: dict[str, str | None] = {
             "dual_source_binding_digest": require_dual_source_ready(
                 project, study_id, requires_chemical=chemical_required

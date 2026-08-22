@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +31,85 @@ from review_writer.project.source_truth import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = REPO_ROOT / "schemas/evidence/dual_source_binding.v1.schema.json"
 ROOT = Path("01_evidence/dual_source")
+_CHEMICAL_FIELD_DEPENDENCIES = frozenset(
+    {
+        "molecule",
+        "smiles",
+        "molblock",
+        "reaction structure",
+        "reaction-structure",
+        "reaction_structure",
+        "chemical_structure",
+    }
+)
 
 
 class DualSourceError(ValueError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+def _chemical_route_requested(project: Path, study_ids: list[str]) -> bool:
+    """Return whether the project has explicitly activated the Chemical route."""
+
+    for study_id in study_ids:
+        path = project / "01_evidence" / study_id / "paper_evidence_candidates.json"
+        if not path.is_symlink() and path.is_file():
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                value = None
+            rows = value.get("candidates") if isinstance(value, dict) else value
+            if isinstance(rows, list) and any(
+                isinstance(row, dict)
+                and isinstance(row.get("field_dependencies"), list)
+                and _CHEMICAL_FIELD_DEPENDENCIES.intersection(
+                    item for item in row["field_dependencies"] if isinstance(item, str)
+                )
+                for row in rows
+            ):
+                return True
+        binding_path = project / ROOT / study_id / "binding.json"
+        if binding_path.is_file() and not binding_path.is_symlink():
+            try:
+                binding = json.loads(binding_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                binding = None
+            if isinstance(binding, dict) and isinstance(binding.get("chemical"), dict):
+                return True
+
+        chemical_state = project / "01_evidence" / "chemical_paper" / study_id / "state.json"
+        if chemical_state.is_file() and not chemical_state.is_symlink():
+            return True
+
+    staging = project / ".dual-parse-staging" / "chemical-paper"
+    if staging.is_dir() and not staging.is_symlink():
+        try:
+            for manifest_path in staging.glob("*.json"):
+                if manifest_path.is_symlink() or not manifest_path.is_file():
+                    continue
+                archive = staging / f"{manifest_path.stem}.zip"
+                if archive.is_symlink() or not archive.is_file():
+                    continue
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    continue
+                if (
+                    isinstance(manifest, dict)
+                    and manifest.get("schema_version") == "chemical-paper-preflight-stage.v1"
+                    and manifest.get("status") == "ready"
+                    and manifest.get("token_sha256") == manifest_path.stem
+                    and isinstance(manifest.get("study_id"), str)
+                    and isinstance(manifest.get("expires_at_epoch"), (int, float))
+                    and not isinstance(manifest.get("expires_at_epoch"), bool)
+                    and time.time() <= float(manifest["expires_at_epoch"])
+                ):
+                    return True
+        except OSError:
+            pass
+    return False
 
 
 def _path(project: Path, study_id: str) -> Path:
@@ -100,8 +174,6 @@ def build_dual_source_binding(project: Path, study_id: str) -> dict[str, object]
             chemical = None
         else:
             raise DualSourceError(exc.code) from exc
-    if tier == "core" and chemical is None:
-        raise DualSourceError("CORE_CHEMICAL_IMPORT_REQUIRED")
     if chemical is not None and (
         chemical["source_pdf_sha256"] != generic["source_pdf_sha256"]
         or chemical["source_truth_bundle_digest"] != generic["source_truth_bundle_digest"]
@@ -197,6 +269,7 @@ def project_dual_source_state(project: Path) -> dict[str, object]:
         study_ids = declared_study_ids(root)
     except SourceTruthError as exc:
         raise DualSourceError(exc.code) from exc
+    chemical_route_requested = _chemical_route_requested(root, study_ids)
     rows: list[dict[str, object]] = []
     for study_id in study_ids:
         row: dict[str, object] = {
@@ -210,7 +283,7 @@ def project_dual_source_state(project: Path) -> dict[str, object]:
             continue
         row.update({
             "source_tier": tier,
-            "requires_chemical": tier == "core",
+            "requires_chemical": chemical_route_requested,
             "generic": {"status": row["generic_parse_status"]},
         })
         if (
@@ -232,14 +305,16 @@ def project_dual_source_state(project: Path) -> dict[str, object]:
             continue
         try:
             binding = load_dual_source_binding(root, study_id)
-            require_dual_source_ready(root, study_id, requires_chemical=binding["source_tier"] == "core")
+            require_dual_source_ready(
+                root, study_id, requires_chemical=chemical_route_requested
+            )
             generic = binding["generic"]
             chemical = binding["chemical"]
             rows.append({
                 **row,
                 "status": binding["status"],
                 "source_tier": binding["source_tier"],
-                "requires_chemical": binding["source_tier"] == "core",
+                "requires_chemical": chemical_route_requested,
                 "binding_digest": binding["binding_digest"],
                 "generic_parse_status": "current",
                 "generic": {

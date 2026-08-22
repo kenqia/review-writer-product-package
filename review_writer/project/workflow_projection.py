@@ -17,14 +17,22 @@ from review_writer.project.source_truth import (
     SourceTruthError,
     canonical_digest,
     declared_study_ids,
-    study_source_tier,
 )
-from review_writer.project.dual_source import project_dual_source_state
+from review_writer.project.dual_source import (
+    _chemical_route_requested as _dual_source_chemical_route_requested,
+    project_dual_source_state,
+)
 from review_writer.project.chemical_completion import project_chemical_completion_state
 from review_writer.project.parse_reconciliation import project_reconciliation_state
 
 
 NEW_ROUTE = "evidence-to-release.v1"
+
+
+def _chemical_route_requested(project: Path, declared: list[str]) -> bool:
+    """Return whether canonical Evidence candidates request chemical fields."""
+
+    return _dual_source_chemical_route_requested(project, declared)
 
 # The new route has one stage presentation authority.  Dashboard projections
 # may add safe, route-specific facts, but must not invent a second stage list.
@@ -223,7 +231,6 @@ def _validated_precomputed_dual_state(
             not isinstance(study_id, str)
             or tier not in {"core", "background"}
             or not isinstance(requires_chemical, bool)
-            or requires_chemical is not (tier == "core")
             or pdf_status not in allowed_pdf
             or generic_status not in allowed_generic
             or status not in allowed_status
@@ -241,12 +248,11 @@ def _validated_precomputed_dual_state(
             or generic_status != "current"
             or not isinstance(row.get("binding_digest"), str)
             or not isinstance(generic.get("binding_digest"), str)
-            or (status == "current_generic_only" and tier != "background")
         ):
             return None
         chemical = row.get("chemical")
         if status == "current_generic_only":
-            if chemical is not None:
+            if requires_chemical or chemical is not None:
                 return None
         elif (
             not isinstance(chemical, dict)
@@ -308,18 +314,13 @@ def _new_route_state(
     tiered_dual_route = False
     if source_ready and declared:
         try:
-            tiered_dual_route = all(
-                study_source_tier(project, study_id) in {"core", "background"}
-                for study_id in declared
-            )
-            if tiered_dual_route and _non_exact_candidate_only(project, declared):
-                tiered_dual_route = False
-        except SourceTruthError:
+            tiered_dual_route = _chemical_route_requested(project, declared)
+        except (OSError, UnicodeError, ValueError, TypeError):
             tiered_dual_route = False
-    dual_route = tiered_dual_route or (
-        (project / "01_evidence/dual_source").is_dir()
-        or (project / "01_evidence/chemical_paper").is_dir()
-    )
+    # A Generic-only binding directory is a persisted output, not an opt-in to
+    # the Chemical stages.  The route helper separately preserves explicit
+    # Chemical candidates, a valid preflight, and actual Chemical artifacts.
+    dual_route = tiered_dual_route
     dual_source_ready = not dual_route
     chemical_completion_ready = not dual_route
     reconciliation_ready = not dual_route

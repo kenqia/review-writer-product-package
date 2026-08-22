@@ -105,3 +105,18 @@ POSIX mode/owner 与 `fchmod` 检查只在 POSIX 上执行。该切片不新增�
 project write set；`tests/test_source_truth_windows_security.py` 在 WSL focused run 为
 `4 passed`，Windows native、QoderWork、Product Use、`PUBLIC_E2E` 和 `HUMAN_ACCEPTANCE` 仍为
 `HOLD`，回滚边界为一次 Git revert。
+
+## CR-015 Optional Chemical Paper enhancement route
+
+本维护切片仅更新 `review_writer/project/workflow_projection.py`、
+`review_writer/project/dual_source.py`、`review_writer/project/paper_evidence.py`、
+`review_writer/delivery/dual_parse_release.py`、`view/serve_review_dashboard.py`、对应 focused
+regression test、traceability 和 package hash。
+Core study 默认保持 Generic-only；只有 canonical Paper Evidence candidate 的
+`field_dependencies` 明确包含 `molecule`、`smiles` 或 `molblock`（以及兼容的结构别名）时，或
+存在有效 Chemical preflight/实际 Chemical artifact 时，才激活 Chemical route。
+`current_generic_only` 是合法的 core binding 状态，显式的 `requires_chemical=True` 仍会
+fail-closed 地要求 Chemical binding/completion/reconciliation。Generic-only authority 不读取
+Chemical Completion/Reconciliation；默认 Dashboard 阶段列表过滤掉 `chemical_import`、
+`chemical_completion`、`reconciliation`，直到 Chemical route 激活。不修改 `local_pdf_parse`、
+VersionContext、Dashboard authority 或项目数据；回滚边界为一次 Git revert。

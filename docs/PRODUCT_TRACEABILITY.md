@@ -185,6 +185,21 @@ not rewrite existing project metadata, and does not expand the project write set
 run is Engineering evidence only; Windows-native execution, QoderWork, Product Use, `PUBLIC_E2E`,
 `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. Rollback is one Git revert.
 
+## CR-015 traceability — Optional Chemical Paper enhancement route
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Optional Chemical Paper route | `review_writer/project/workflow_projection.py::_chemical_route_requested`; `review_writer/project/dual_source.py::build_dual_source_binding`; `::project_dual_source_state`; `review_writer/project/paper_evidence.py::require_dual_evidence_ready`; `review_writer/delivery/dual_parse_release.py::dual_parse_release_state`; `view/serve_review_dashboard.py::_new_route_stage_definitions` | `tests/test_chemical_paper_optional_route.py` (`10 passed`); related synthesis/release/dashboard regression group (`75 passed`) | `ADAPTED / ENGINEERING_VERIFIED` | Core studies remain Generic-only by default. The Chemical route activates only when canonical Paper Evidence candidates declare Chemical dependencies (canonical `molecule`/`smiles`/`molblock`, plus defensive structure aliases), a valid Chemical preflight or actual Chemical artifact; explicit `requires_chemical=True` still gates the Chemical completion/reconciliation bindings. Generic-only authority does not read Chemical Completion/Reconciliation. Dashboard stage presentation filters optional Chemical stages until activation. No `local_pdf_parse` behavior or authority is changed. |
+
+The CR-015 write set is limited to the five project runtime seams (`workflow_projection.py`,
+`dual_source.py`, `paper_evidence.py`, `dual_parse_release.py`, and
+`serve_review_dashboard.py`), the focused optional-route regression test, this traceability row,
+the product-package manifest and the package hash file. It adds no dependency, does not rewrite
+project data, and preserves the existing Generic-only binding status (`current_generic_only`).
+Focused WSL tests are Engineering evidence only; Product Use,
+`PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. Rollback is
+one Git revert.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

@@ -4804,9 +4804,7 @@ def project_cockpit_payload(review_root: Path, project_id: str) -> dict[str, Any
         blockers = blockers if isinstance(blockers, list) else []
         progress = project_progress_payload(review_root, project_id)
         dual_parse_status = "not_applicable"
-        if workflow.get("dual_route") is True or (
-            project / "01_evidence/dual_source"
-        ).is_dir():
+        if workflow.get("dual_route") is True:
             try:
                 from review_writer.project.chemical_completion import (
                     project_chemical_completion_state,
@@ -7705,6 +7703,56 @@ def write_project_workspace_decision(review_root: Path, project_id: str, kind: s
     raise ValueError("unknown workspace")
 
 
+def _new_route_stage_definitions(
+    authoritative_workflow: dict[str, Any],
+    *,
+    sources_complete: bool,
+    parsing_complete: bool,
+    evidence_complete: bool,
+    draft_complete: bool,
+    final_complete: bool,
+) -> list[tuple[str, str, bool]]:
+    """Expose Chemical stages only after the optional route is activated."""
+
+    stage_definitions = [
+        ("sources", STAGE_PRESENTATION["sources"]["label"], sources_complete),
+        ("parsing", STAGE_PRESENTATION["parsing"]["label"], parsing_complete),
+    ]
+    if authoritative_workflow.get("dual_route") is True:
+        stage_definitions.extend(
+            [
+                (
+                    "chemical_import",
+                    STAGE_PRESENTATION["chemical_import"]["label"],
+                    bool(authoritative_workflow.get("dual_source_ready")),
+                ),
+                (
+                    "chemical_completion",
+                    STAGE_PRESENTATION["chemical_completion"]["label"],
+                    bool(authoritative_workflow.get("chemical_completion_ready")),
+                ),
+                (
+                    "reconciliation",
+                    STAGE_PRESENTATION["reconciliation"]["label"],
+                    bool(authoritative_workflow.get("reconciliation_ready")),
+                ),
+            ]
+        )
+    stage_definitions.extend(
+        [
+            ("evidence", STAGE_PRESENTATION["evidence"]["label"], evidence_complete),
+            (
+                "synthesis",
+                STAGE_PRESENTATION["synthesis"]["label"],
+                bool(authoritative_workflow.get("synthesis_ready")),
+            ),
+            ("drafting", STAGE_PRESENTATION["drafting"]["label"], draft_complete),
+            ("final", STAGE_PRESENTATION["final"]["label"], final_complete),
+        ]
+    )
+    return stage_definitions
+
+
 def project_progress_payload(review_root: Path, project_id: str) -> dict[str, Any]:
     project = project_dir(review_root, project_id)
     authoritative_workflow = workflow_state(project)
@@ -7875,17 +7923,19 @@ def project_progress_payload(review_root: Path, project_id: str) -> dict[str, An
     archive_received = project_regular_file_exists(project, SOURCE_ARCHIVE_RELATIVE)
     if new_route:
         active_stage = visible_text(authoritative_workflow.get("active_stage"))
-        if active_stage not in {
+        allowed_active_stages = {
             "sources",
             "parsing",
-            "chemical_import",
-            "chemical_completion",
-            "reconciliation",
             "evidence",
             "synthesis",
             "drafting",
             "final",
-        }:
+        }
+        if authoritative_workflow.get("dual_route") is True:
+            allowed_active_stages.update(
+                {"chemical_import", "chemical_completion", "reconciliation"}
+            )
+        if active_stage not in allowed_active_stages:
             active_stage = "sources"
     elif not sources_complete:
         active_stage = "sources"
@@ -7901,33 +7951,14 @@ def project_progress_payload(review_root: Path, project_id: str) -> dict[str, An
         active_stage = "final"
 
     if new_route:
-        stage_definitions = [
-            ("sources", STAGE_PRESENTATION["sources"]["label"], sources_complete),
-            ("parsing", STAGE_PRESENTATION["parsing"]["label"], parsing_complete),
-            (
-                "chemical_import",
-                STAGE_PRESENTATION["chemical_import"]["label"],
-                bool(authoritative_workflow.get("dual_source_ready")),
-            ),
-            (
-                "chemical_completion",
-                STAGE_PRESENTATION["chemical_completion"]["label"],
-                bool(authoritative_workflow.get("chemical_completion_ready")),
-            ),
-            (
-                "reconciliation",
-                STAGE_PRESENTATION["reconciliation"]["label"],
-                bool(authoritative_workflow.get("reconciliation_ready")),
-            ),
-            ("evidence", STAGE_PRESENTATION["evidence"]["label"], evidence_complete),
-            (
-                "synthesis",
-                STAGE_PRESENTATION["synthesis"]["label"],
-                bool(authoritative_workflow.get("synthesis_ready")),
-            ),
-            ("drafting", STAGE_PRESENTATION["drafting"]["label"], draft_complete),
-            ("final", STAGE_PRESENTATION["final"]["label"], final_complete),
-        ]
+        stage_definitions = _new_route_stage_definitions(
+            authoritative_workflow,
+            sources_complete=sources_complete,
+            parsing_complete=parsing_complete,
+            evidence_complete=evidence_complete,
+            draft_complete=draft_complete,
+            final_complete=final_complete,
+        )
     else:
         stage_definitions = [
             ("sources", "整理文献来源", sources_complete),

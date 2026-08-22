@@ -1390,8 +1390,6 @@ def _normalize_binding(row: object) -> dict[str, Any]:
     requires_chemical = row.get("requires_chemical")
     if source_tier not in {"core", "background"} or not isinstance(requires_chemical, bool):
         raise DualParseReleaseError("DUAL_PARSE_BINDING_INVALID")
-    if source_tier == "core" and not requires_chemical:
-        raise DualParseReleaseError("DUAL_PARSE_BINDING_INVALID")
     chemical_version = _digest(
         row.get("chemical_version"),
         "DUAL_PARSE_BINDING_INVALID",
@@ -1429,7 +1427,7 @@ def _normalize_binding(row: object) -> dict[str, Any]:
 
 def _binding_from_authority(row: dict[str, Any]) -> dict[str, Any]:
     tier = row.get("source_tier")
-    requires_chemical = bool(tier == "core" or row.get("requires_chemical") is True)
+    requires_chemical = row.get("requires_chemical") is True
     return _normalize_binding(
         {
             "study_id": row.get("study_id"),
@@ -1484,16 +1482,74 @@ def _current_authority_rows(project: Path) -> list[dict[str, Any]]:
         from review_writer.project.chemical_completion import (
             project_chemical_completion_state,
         )
-        from review_writer.project.dual_source import project_dual_source_state
+        from review_writer.project.dual_source import (
+            _chemical_route_requested,
+            project_dual_source_state,
+        )
         from review_writer.project.parse_reconciliation import (
             project_reconciliation_state,
         )
     except ImportError as exc:
         raise DualParseReleaseError("DUAL_PARSE_AUTHORITY_UNAVAILABLE") from exc
     dual = project_dual_source_state(project)
+    dual_studies = dual.get("studies") if isinstance(dual, dict) else None
+    study_ids = [
+        row["study_id"]
+        for row in dual_studies or []
+        if isinstance(row, dict) and isinstance(row.get("study_id"), str)
+    ]
+    route_active = _chemical_route_requested(project, study_ids)
+    if not route_active:
+        return _generic_authority_rows(dual)
     completion = project_chemical_completion_state(project)
     reconciliation = project_reconciliation_state(project)
     return authority_rows_from_projections(dual, completion, reconciliation)
+
+
+def _generic_authority_rows(dual: object) -> list[dict[str, Any]]:
+    """Normalize Generic-only dual bindings without reading Chemical state."""
+
+    if not isinstance(dual, dict) or not isinstance(dual.get("studies"), list):
+        raise DualParseReleaseError("DUAL_PARSE_AUTHORITY_INVALID")
+    rows: list[dict[str, Any]] = []
+    for source in dual["studies"]:
+        if not isinstance(source, dict):
+            raise DualParseReleaseError("DUAL_PARSE_AUTHORITY_INVALID")
+        generic = source.get("generic")
+        generic = generic if isinstance(generic, dict) else {}
+        generic_version = next(
+            (
+                generic.get(key)
+                for key in ("binding_digest", "parse_gate_digest", "version_digest")
+                if generic.get(key) is not None
+            ),
+            None,
+        )
+        rows.append(
+            {
+                "study_id": source.get("study_id"),
+                "source_tier": source.get("source_tier"),
+                "requires_chemical": False,
+                "dual_source_binding_digest": source.get("binding_digest"),
+                "generic_status": source.get("generic_parse_status", generic.get("status")),
+                "generic_version": generic_version,
+                "chemical_status": None,
+                "chemical_version": None,
+                "chemical_completion_digest": None,
+                "chemical_completion_status": None,
+                "reconciliation_digest": None,
+                "reconciliation_status": None,
+                "content_result_status": "current",
+                "missing_name_count": 0,
+                "missing_resolved_smiles_count": 0,
+                "ai_authored_smiles_count": 0,
+                "reaction_data_status": source.get(
+                    "reaction_data_status", REACTION_UNAVAILABLE
+                ),
+                "unreviewed_element_molecule_count": 0,
+            }
+        )
+    return rows
 
 
 def _first_value(row: dict[str, Any], *keys: str) -> Any:
