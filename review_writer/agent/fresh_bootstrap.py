@@ -356,12 +356,17 @@ def _start_dashboard(review_root: Path) -> tuple[str, int]:
     port = _open_port()
     with tempfile.NamedTemporaryFile(
         mode="wb",
-        dir="/tmp",
+        dir=tempfile.gettempdir(),
         prefix="review-writer-dashboard-",
         suffix=".log",
         delete=False,
     ) as diagnostic_log:
         diagnostic_path = Path(diagnostic_log.name)
+        process_options: dict[str, Any] = {}
+        if os.name == "nt":
+            process_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            process_options["start_new_session"] = True
         try:
             process = subprocess.Popen(
                 [
@@ -379,7 +384,7 @@ def _start_dashboard(review_root: Path) -> tuple[str, int]:
                 stdin=subprocess.DEVNULL,
                 stdout=diagnostic_log,
                 stderr=subprocess.STDOUT,
-                start_new_session=True,
+                **process_options,
             )
         except PermissionError as exc:
             raise FreshAgentBootstrapError(

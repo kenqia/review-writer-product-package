@@ -8,6 +8,7 @@ import json
 import shutil
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import URLError
 
 import pytest
@@ -233,6 +234,119 @@ def test_dashboard_start_probe_uses_static_health_when_projects_is_slow(
         assert calls == [(f"{dashboard_url}/api/health", 0.2)]
     finally:
         fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(dashboard_pid)
+
+
+def test_dashboard_start_uses_host_temp_directory_on_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    windows_temp = tmp_path / "windows-temp"
+    windows_temp.mkdir()
+    observed: dict[str, object] = {}
+
+    class _DiagnosticLog:
+        name = str(windows_temp / "dashboard.log")
+
+        def __enter__(self) -> "_DiagnosticLog":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class _Process:
+        pid = 43101
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            observed["terminated"] = True
+
+        def wait(self, *, timeout: float) -> None:
+            del timeout
+
+    process = _Process()
+
+    def fake_named_tempfile(*, dir: str, **_kwargs: object) -> _DiagnosticLog:
+        observed["temp_dir"] = dir
+        assert Path(dir) == windows_temp
+        return _DiagnosticLog()
+
+    monkeypatch.setattr(fresh_bootstrap.tempfile, "gettempdir", lambda: str(windows_temp))
+    monkeypatch.setattr(fresh_bootstrap.tempfile, "NamedTemporaryFile", fake_named_tempfile)
+    monkeypatch.setattr(fresh_bootstrap.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(fresh_bootstrap, "_open_port", lambda: 43101)
+    monkeypatch.setattr(fresh_bootstrap, "urlopen", lambda *_args, **_kwargs: _FastHealthResponse())
+
+    dashboard_url, dashboard_pid = fresh_bootstrap._start_dashboard(tmp_path)
+    try:
+        assert dashboard_url == "http://127.0.0.1:43101"
+        assert dashboard_pid == process.pid
+        assert observed["temp_dir"] == str(windows_temp)
+    finally:
+        fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(dashboard_pid)
+    assert observed["terminated"] is True
+
+
+def test_dashboard_start_uses_windows_process_group_not_posix_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _DiagnosticLog:
+        name = str(tmp_path / "dashboard.log")
+
+        def __enter__(self) -> "_DiagnosticLog":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class _Process:
+        pid = 43102
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            observed["terminated"] = True
+
+        def wait(self, *, timeout: float) -> None:
+            del timeout
+
+    process = _Process()
+    windows_creation_flags = 0x00000200
+
+    def fake_popen(*_args: object, **kwargs: object) -> _Process:
+        observed["popen_kwargs"] = kwargs
+        return process
+
+    monkeypatch.setattr(fresh_bootstrap, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        fresh_bootstrap.subprocess,
+        "CREATE_NEW_PROCESS_GROUP",
+        windows_creation_flags,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        fresh_bootstrap.tempfile,
+        "NamedTemporaryFile",
+        lambda **_kwargs: _DiagnosticLog(),
+    )
+    monkeypatch.setattr(fresh_bootstrap.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(fresh_bootstrap, "_open_port", lambda: 43102)
+    monkeypatch.setattr(fresh_bootstrap, "urlopen", lambda *_args, **_kwargs: _FastHealthResponse())
+
+    _dashboard_url, dashboard_pid = fresh_bootstrap._start_dashboard(tmp_path)
+    try:
+        popen_kwargs = observed["popen_kwargs"]
+        assert isinstance(popen_kwargs, dict)
+        assert popen_kwargs["creationflags"] == windows_creation_flags
+        assert "start_new_session" not in popen_kwargs
+    finally:
+        fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(dashboard_pid)
+    assert observed["terminated"] is True
 
 
 def test_public_entry_is_discoverable_and_maps_human_action_required(
