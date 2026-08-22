@@ -84,6 +84,14 @@ proof exist, but human acceptance and real model/provider product use do not; th
 the FR-027 row remains `AGENT_E2E_HOLD`. Existing Engineering, focused API, or ChemVellum
 adapter evidence cannot promote it.
 
+## Fresh clean-checkout verification
+
+At clean checkout `origin/main@91e189f`, the complete repository test suite passed
+`137 passed in 22.11s`; the public-entry import smoke also confirmed a callable
+`review_writer.agent.start_or_resume_review` and nine Dashboard assets. This is fresh
+Engineering evidence for the package and does not promote any row to Product Use,
+`PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or `PROMOTE/B2`.
+
 ## Evidence-layer boundary
 
 The table is Engineering/static traceability only. `PARTIAL`, `HOLD` and `NOT_VERIFIED`
