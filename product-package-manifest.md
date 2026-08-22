@@ -151,3 +151,20 @@ schema、正文绑定和真实 release provenance 复用既有 authority；不�
 或 release writer。Focused figure/release/adapter tests、ruff、compile 与 diff 检查属于
 Engineering evidence，不升级 Product Use、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity
 或 `PROMOTE/B2`；回滚边界为一次 Git revert，不修改真实 project data。
+
+## CR-018 QoderWork CN planned research-packet contract
+
+This maintenance slice updates only the QoderWork CN Skill/host contract documents,
+`README.md`/`docs-qoderwork-cn.md`, one focused static contract test, traceability and the package
+hash. The Agent accepts only `topic`, explicit project root and authorized PDF folder; after every
+public adapter `start`/`resume`, it consumes the system-planned public `next_action` and the canonical
+source-bound research packet. The packet preserves parse provenance, page/section/exact quote,
+source and parse-object digests, Evidence/comparison/synthesis/section/figure candidates, GAP and
+rights. The host surface is limited to public Agent/Skill and Dashboard; repository scanning, internal
+workflow discovery, CLI/curl/pytest/generator execution, internal JSON/VersionContext access and
+unsourced claim/figure generation are prohibited. Every `HUMAN_ACTION_REQUIRED` is a hard stop.
+
+No runtime code, producer, schema, real project root or project data is changed. `tests/` remains an
+excluded development-only directory and is not included in `product-package-sha256.txt`. Focused
+static evidence is Engineering-only; real QoderWork UI, Product Use, `PUBLIC_E2E`,
+`HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. Rollback is one Git revert.

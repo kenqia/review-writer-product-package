@@ -6,9 +6,9 @@
 - 明确的 project root；
 - 获授权的本地 PDF folder。
 
-用户不运行 CLI、curl、pytest、内部 generator 或手工编辑 JSON。你可以在当前产品包工作区内
-调用 `python -m review_writer.agent.qoderwork_adapter`，但只能把它作为宿主适配入口；不得
-直接改写 `.review-writer/version_context` 或任何项目内部状态文件。
+用户不运行 CLI、curl、pytest、内部 generator 或手工编辑 JSON。宿主 Agent 只能调用已注册的
+公开 Agent/Skill（public Agent/public Skill）adapter 与 Dashboard；不得扫描仓库、寻找内部流程或
+探索实现代码。
 
 产品 authority 只有用户给出的 project root。Sources、Source Truth、Evidence、Synthesis、
 manuscript、figures、release 和 VersionContext 都必须由 Review Writer 既有 producer 写入。
@@ -16,24 +16,29 @@ Dashboard 是唯一的人类阅读、编辑和批准入口。遇到 `HUMAN_ACTIO
 返回 Dashboard URL，不能替研究者批准 MAIN/SI、解析质量、Evidence、Protocol、Synthesis、
 Section Contract、正文或图件。
 
-新项目启动时，宿主 Agent 内部调用：
+## Public `next_action` 与 research packet
 
-```text
-python -m review_writer.agent.qoderwork_adapter start \
-  --topic "<topic>" \
-  --project-root "<explicit project root>" \
-  --authorized-pdf-folder "<authorized PDF folder>"
-```
+新项目使用公开 adapter `start`，继续同一 project root 使用公开 adapter `resume`。每次 adapter
+返回后，宿主 Agent 必须按返回的 public `next_action` 执行，不得从仓库、聊天历史或内部流程推断
+下一步。`next_action` 是系统规划的唯一流程指令；QoderWork 不自行发明 stage、工具调用或批准
+状态。
 
-恢复同一个项目时，宿主 Agent 内部调用：
+宿主 Agent 消费 canonical source-bound research packet 作为唯一研究输入。packet 至少保留：
 
-```text
-python -m review_writer.agent.qoderwork_adapter resume \
-  --project-root "<the same explicit project root>"
-```
+- parse provenance、source/study identity、page、section、exact quote、source PDF digest 和
+  bound parse-object digests；
+- Evidence candidates、comparison candidates、synthesis candidates、section candidates 和
+  figure candidates；
+- 每个候选项的 `GAP`、rights、locator、来源绑定和当前人工状态。
 
-命令输出只用于展示状态和 Dashboard URL。每次恢复都重新读取同一 project root 的 current
-VersionContext；不创建第二个工作区，不复制论文，不生成无来源 claim 或图件。
+Agent 只能把 packet 中已有的 source-bound 候选项交给 Dashboard 或展示给用户，不能生成无来源
+claim/图、补猜 quote/page/digest/rights、把 GAP 填成事实，或把 candidate 当成 approved。每次
+`next_action.code=HUMAN_ACTION_REQUIRED` 都必须原样停止；返回 Dashboard URL 和可操作说明，
+等待用户完成该人工闸门后再 resume；这是 hard stop，不得继续调用。
+
+Hard stop rules: do not scan the repository; do not search for internal workflow; do not run CLI,
+curl, pytest or generator; do not read or write internal JSON/VersionContext; do not emit an unsourced
+claim or unsourced figure.
 
 Dashboard 流程依次覆盖：source mapping → parse-quality review → Paper Evidence → Comparison
 Protocol → Synthesis → Section Contract → v1/v2 manuscript → figure decision → Markdown/DOCX

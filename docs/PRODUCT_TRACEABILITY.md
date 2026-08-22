@@ -231,6 +231,20 @@ human decisions and release policy. Focused tests and static checks are Engineer
 Product Use, Independent Quality, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and
 `PROMOTE/B2` remain `HOLD`. Rollback is one Git revert; no real project data or PDFs are modified.
 
+## CR-018 traceability — QoderWork planned research-packet contract
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Public host input and execution plan | `qoderwork/plugins/review-writer-cn/skills/review-writer/SKILL.md`; `qoderwork/plugins/review-writer-cn/qoderwork.md` | `tests/test_qoderwork_packet_contract.py` | `ADAPTED / ENGINEERING_VERIFIED` | The QoderWork CN Agent accepts only `topic`, explicit project root and authorized PDF folder; after every public adapter `start`/`resume` it follows the returned `next_action` and stops on `HUMAN_ACTION_REQUIRED`. |
+| Canonical research packet consumption | same Skill/host docs; `docs-qoderwork-cn.md`; `README.md` | focused static contract assertions plus existing QoderWork/plugin and Windows documentation tests | `DOCUMENTED / UI_HOLD` | The Agent consumes only the canonical source-bound research packet: parse provenance, page/section/quote, source and parse-object digests, Evidence/comparison/synthesis/section/figure candidates, GAP and rights. It may call only public Agent/Skill and Dashboard; it cannot scan the repository, discover internal workflow, run CLI/curl/pytest/generator, read/write internal JSON or VersionContext, or emit unsourced claims/figures. |
+
+The CR-018 write set is limited to the two plugin contract documents, the user-facing QoderWork
+documentation, one focused static test, this traceability row, `product-package-manifest.md` and
+`product-package-sha256.txt`. No runtime code, internal producer, VersionContext implementation or
+real review project is changed. The focused/static evidence is Engineering evidence only; real
+QoderWork UI, Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2`
+remain `HOLD`. Rollback is one Git revert; no project data or PDFs are modified.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

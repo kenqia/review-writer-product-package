@@ -54,8 +54,10 @@ Extensions → Expert Kits
 获授权 PDF 文件夹：/home/researcher/authorized-pdfs/nickel-coupling
 ```
 
-宿主 Agent 会调用产品的 source-bound bootstrap，返回真实的本机 Dashboard URL，并在需要
-研究者判断时停止。用户不需要运行 CLI、curl、pytest、内部 generator 或手工编辑 JSON。
+宿主 Agent 会调用公开的 source-bound bootstrap，随后只按系统规划的 public `next_action` 消费
+canonical research packet，并返回真实的本机 Dashboard URL；在需要研究者判断时停止。用户不
+需要运行 CLI、curl、pytest、内部 generator 或手工编辑 JSON。Agent 不扫描仓库、不寻找内部流程，
+也不生成无来源 claim 或图。
 
 ## 一次性安装依赖
 

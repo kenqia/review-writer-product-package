@@ -77,3 +77,16 @@ Credits 状态不能替代 `HUMAN_ACCEPTANCE`。
 用户只提供：topic、explicit project root、authorized PDF folder。每个人工闸门均由 Dashboard
 完成，QoderWork 不替研究者批准，也不允许直接编辑项目内部 JSON。真实 QoderWork CN UI 登录、
 Credits、目录授权和最终 HUMAN_ACCEPTANCE 仍需在客户端中单独验收。
+
+## Agent 的 planned research packet 合同
+
+QoderWork CN Agent 不负责探索仓库或寻找内部工作流。每次公开 adapter `start` / `resume` 返回
+后，Agent 只按系统规划的 public `next_action` 继续，并只消费 canonical source-bound research
+packet。packet 保留 parse provenance、page/section、exact quote、source 与 parse-object
+digests、Evidence/comparison/synthesis/section/figure candidates，以及每项的 GAP、rights 和
+人工状态。Agent 只能调用公开 Agent/Skill 与 Dashboard；不得扫描仓库、运行 CLI/curl/pytest/
+generator、读写内部 JSON 或 VersionContext。
+
+任何 `HUMAN_ACTION_REQUIRED` 都是 fail-closed 停止点：Agent 原样返回 Dashboard URL/说明并停止
+后续调用，等待研究者处理。没有 source locator、quote、digest 或 rights 的 claim/figure 不得由
+Agent 生成，也不能用模型图、placeholder 或网络可见性补齐。
