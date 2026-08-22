@@ -120,3 +120,20 @@ fail-closed 地要求 Chemical binding/completion/reconciliation。Generic-only 
 Chemical Completion/Reconciliation；默认 Dashboard 阶段列表过滤掉 `chemical_import`、
 `chemical_completion`、`reconciliation`，直到 Chemical route 激活。不修改 `local_pdf_parse`、
 VersionContext、Dashboard authority 或项目数据；回滚边界为一次 Git revert。
+
+## CR-016 Source-bound multi-candidate Evidence packet
+
+本维护切片更新 `review_writer/agent/local_pdf_parse.py`、一个 focused source-packet test、现有
+N=3 public-caller test assertions、traceability 与 package hash。解析层从已验证 reading layer、
+parsed Markdown page markers、section headings 及存在的文本/content-list figure-table locator
+提取 capped（每 source 最多 12 条）candidate-only Evidence；每条绑定 study/source、具体 page
+或 section、`exact_quote`、`bound_parse_object_digests` 与 `source_pdf_sha256`。未知 chemical
+fields 仍为 `GAP`，不会猜 SMILES/molecule/molblock；文本 figure/table locator 不等于 figure
+asset，也不会触发 figure slice。
+
+公共 `register_pdf_only_evidence_for_approved_parse` 与 `register_pdf_only_evidence` 继续复用
+既有 `register_paper_evidence_candidates`/Paper Evidence store；每 study 批量一次写入 candidate
+set，避免每条候选重复锁和 VersionContext 写入。所有 candidate 仍通过既有 Dashboard Paper
+Evidence 人工 gate 批准；public synthesis/v1 消费多条 bound Evidence 的 page/section/quote
+上下文，不再固定 page-1 模板。新增候选仅在 parse-quality 已批准后写入，stale/hash/version/
+schema 失败保持 zero-write；回滚边界为一次 Git revert，不修改真实 project data。

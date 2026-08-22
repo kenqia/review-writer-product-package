@@ -974,11 +974,20 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert resumed["reason_code"] == "PAPER_EVIDENCE_HUMAN_ACTION_REQUIRED"
         evidence = local_pdf_parse.paper_evidence_state(project_root)
         assert evidence["total_count"] == 3
+        assert resumed["evidence"]["candidate_count"] == 3
+        assert resumed["evidence"]["registered_count"] == 3
         assert evidence["workflow_can_continue"] is False
         assert all(
             row["locator"]["source_mode"] == "parsed_candidate"
             for row in evidence["rows"]
         )
+        assert {row["study_id"] for row in evidence["rows"]} == {
+            member["study_id"] for member in rows
+        }
+        assert all(row["locator"]["page"] >= 1 for row in evidence["rows"])
+        assert all(row["locator"]["exact_quote"] for row in evidence["rows"])
+        assert all(row["bound_parse_object_digests"] for row in evidence["rows"])
+        assert all(len(row["source_pdf_sha256"]) == 64 for row in evidence["rows"])
 
         # A second resume after materialization is a true idempotent no-write.
         candidate_bytes = {
@@ -1348,7 +1357,8 @@ def test_local_parse_counts_main_studies_when_receipt_has_si_rows(
     main = _write_pdf(source_root, "main.pdf", b"main")
     si = _write_pdf(source_root, "si.pdf", b"supplement")
     si_only = _write_pdf(source_root, "si-only.pdf", b"supplement-only")
-    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
     receipt = {
         "schema_version": "acquisition-final-receipt.v1",
         "studies": [

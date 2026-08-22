@@ -1322,20 +1322,320 @@ def _verified_text_descriptor(project: Path, descriptor: object) -> str:
         raise LocalPdfParseError("SOURCE_ASSET_INVALID") from exc
 
 
-def _first_source_quote(*texts: str) -> str:
-    for text in texts:
-        for line in text.splitlines():
-            candidate = " ".join(line.strip().split())
-            if candidate and not candidate.startswith("<!--"):
-                return candidate[:2000]
-    raise LocalPdfParseError("SOURCE_TEXT_EMPTY")
+_SOURCE_PAGE_MARKER = re.compile(r"<!--\s*source\s+page\s+(\d+)\s*-->", re.IGNORECASE)
+_SOURCE_SEMANTIC_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "source_reported_finding",
+        re.compile(
+            r"\b(?:found|observation|reported|product|reaction|coupling|yield|conversion|"
+            r"selectiv|activity|prepared|synthesi|produced|obtained)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "conditions",
+        re.compile(
+            r"\b(?:condition|base|catalyst|solvent|temperature|under|using|hours?|minutes?|"
+            r"equiv(?:alent)?|mol%|°\s*c|\d+\s*(?:°\s*)?c)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "mechanism",
+        re.compile(
+            r"\b(?:mechanism|pathway|reductive\s+elimination|oxidative\s+addition|"
+            r"transmetalation|propose|proposed|suggest|suggested)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "scope_or_limitation",
+        re.compile(
+            r"\b(?:scope|limit(?:ed|ation)?|challenge|failed|failure|not\s+applicable|"
+            r"without|lack(?:ed|ing)?)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+_FIGURE_TABLE_LOCATOR = re.compile(
+    r"\b(?:fig(?:ure)?|table)\s+[0-9]+[A-Za-z]?(?:\s*[-–]\s*[0-9]+)?\b",
+    re.IGNORECASE,
+)
+_MAX_PDF_ONLY_CANDIDATES_PER_SOURCE = 12
+_PDF_ONLY_CANDIDATE_CAP_GAP = (
+    "PDF-only Evidence candidate cap applied; additional source-bound observations remain GAP."
+)
+
+
+def _compact_source_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.strip().split())
+
+
+def _source_page_segments(
+    reading_text: str,
+    markdown_text: str,
+    *,
+    page_count: int,
+) -> list[tuple[int, str, str]]:
+    """Return verified page text with the Markdown section boundary attached."""
+
+    reading_pages = reading_text.split("\f")
+    if reading_pages and not reading_pages[-1].strip():
+        reading_pages.pop()
+    markdown_pages: dict[int, str] = {}
+    markers = list(_SOURCE_PAGE_MARKER.finditer(markdown_text))
+    for index, marker in enumerate(markers):
+        try:
+            page = int(marker.group(1))
+        except (TypeError, ValueError):
+            continue
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(markdown_text)
+        markdown_pages[page] = markdown_text[marker.end() : end]
+
+    total = max(page_count, len(reading_pages), max(markdown_pages, default=0))
+    segments: list[tuple[int, str, str]] = []
+    section = ""
+    for page in range(1, total + 1):
+        markdown_page = markdown_pages.get(page, "")
+        reading_page = reading_pages[page - 1] if page <= len(reading_pages) else ""
+        page_text = markdown_page.strip() or reading_page.strip()
+        if not page_text:
+            continue
+        headings = [
+            _compact_source_text(line.lstrip("#").strip())
+            for line in page_text.splitlines()
+            if re.match(r"^\s*#{1,6}\s+\S", line)
+        ]
+        if headings:
+            section = headings[-1]
+        segments.append((page, section or f"source page {page}", page_text))
+    if not segments:
+        raise LocalPdfParseError("SOURCE_TEXT_EMPTY")
+    return segments
+
+
+def _source_quote(text: str, pattern: re.Pattern[str] | None = None) -> str:
+    lines = [
+        _compact_source_text(line)
+        for line in text.splitlines()
+        if _compact_source_text(line) and not line.strip().startswith("<!--")
+    ]
+    lines = [line for line in lines if not line.startswith("#")]
+    if not lines:
+        raise LocalPdfParseError("SOURCE_TEXT_EMPTY")
+    sentences = [
+        _compact_source_text(part)
+        for line in lines
+        for part in re.split(r"(?<=[.!?。！？])\s+", line)
+        if _compact_source_text(part)
+    ]
+    for candidate in sentences:
+        if pattern is None or pattern.search(candidate):
+            return candidate[:2000]
+    return sentences[0][:2000]
+
+
+def _content_locators(content: object) -> dict[int, list[str]]:
+    locators: dict[int, list[str]] = {}
+    if not isinstance(content, list):
+        return locators
+    for row in content:
+        if not isinstance(row, dict):
+            continue
+        page = row.get("page_idx")
+        if not isinstance(page, int) or page < 0:
+            continue
+        item_type = str(row.get("type") or "").casefold()
+        if item_type not in {"image", "figure", "chart", "table", "table_body"}:
+            continue
+        label = None
+        for key in ("image_caption", "chart_caption", "table_caption", "caption", "name", "id"):
+            value = _compact_source_text(row.get(key))
+            if value:
+                label = value
+                break
+        if label is None:
+            label = "Figure/Table locator"
+        locators.setdefault(page + 1, []).append(label[:2000])
+    return locators
+
+
+def _build_source_bound_candidates(
+    *,
+    study_id: str,
+    source_id: str,
+    source_pdf_sha256: str,
+    reading_text: str,
+    markdown_text: str,
+    page_count: int,
+    bound_digests: list[str],
+    content: object = None,
+) -> list[dict[str, Any]]:
+    """Extract conservative source-reported candidate rows without chemical completion."""
+
+    segments = _source_page_segments(
+        reading_text,
+        markdown_text,
+        page_count=page_count,
+    )
+    content_locators = _content_locators(content)
+    candidates: list[dict[str, Any]] = []
+    categories_by_id: dict[str, str] = {}
+    seen: set[tuple[str, int, str, str | None]] = set()
+
+    def add_candidate(
+        category: str,
+        page: int,
+        section: str,
+        quote: str,
+        *,
+        figure_or_table: str | None = None,
+        epistemic_type: str = "experimental_observation",
+        reported_conditions: list[str] | None = None,
+        limitations: list[str] | None = None,
+        mechanism_grade: str = "not_applicable",
+    ) -> None:
+        quote = _compact_source_text(quote)[:2000]
+        if not quote:
+            return
+        key = (category, page, quote, figure_or_table)
+        if key in seen:
+            return
+        seen.add(key)
+        evidence_id = f"pdf-only-{canonical_digest({
+            'study_id': study_id,
+            'source_id': source_id,
+            'page': page,
+            'section': section,
+            'category': category,
+            'quote': quote,
+            'figure_or_table': figure_or_table,
+        })[:24]}"
+        candidate_limitations = [_CHEMICAL_GAP_LIMITATION]
+        for value in limitations or []:
+            if value and value not in candidate_limitations:
+                candidate_limitations.append(value)
+        candidates.append(
+            {
+                "evidence_id": evidence_id,
+                "study_id": study_id,
+                "source_id": source_id,
+                "epistemic_type": epistemic_type,
+                "statement": quote,
+                "locator": {
+                    "source_mode": "parsed_candidate",
+                    "page": page,
+                    "section_or_item": section,
+                    "figure_or_table": figure_or_table,
+                    "exact_quote": quote,
+                },
+                "reported_conditions": list(reported_conditions or []),
+                "quantitative_results": [],
+                "limitations": candidate_limitations,
+                "mechanism_grade": mechanism_grade,
+                "risk_classes": ["GAP"],
+                "field_dependencies": [],
+                "bound_parse_object_digests": list(bound_digests),
+                "source_pdf_sha256": source_pdf_sha256,
+            }
+        )
+        categories_by_id[evidence_id] = category
+
+    for page, section, page_text in segments:
+        page_locators = list(content_locators.get(page, []))
+        page_locators.extend(
+            match.group(0) for match in _FIGURE_TABLE_LOCATOR.finditer(page_text)
+        )
+        unique_locators = list(dict.fromkeys(page_locators))
+        for category, pattern in _SOURCE_SEMANTIC_PATTERNS:
+            if not pattern.search(page_text):
+                continue
+            quote = _source_quote(page_text, pattern)
+            if category == "mechanism":
+                lowered = quote.casefold()
+                grade = "direct_support" if "demonstrat" in lowered else "proposal"
+                add_candidate(
+                    category,
+                    page,
+                    section,
+                    quote,
+                    epistemic_type="proposed_mechanism",
+                    mechanism_grade=grade,
+                )
+            elif category == "conditions":
+                add_candidate(
+                    category,
+                    page,
+                    section,
+                    quote,
+                    reported_conditions=[quote],
+                )
+            elif category == "scope_or_limitation":
+                add_candidate(
+                    category,
+                    page,
+                    section,
+                    quote,
+                    epistemic_type="author_interpretation",
+                    limitations=[quote],
+                )
+            else:
+                add_candidate(category, page, section, quote)
+        for locator in unique_locators:
+            quote = _source_quote(page_text, _FIGURE_TABLE_LOCATOR if _FIGURE_TABLE_LOCATOR.search(locator) else None)
+            add_candidate(
+                "figure_or_table_locator",
+                page,
+                section,
+                quote,
+                figure_or_table=locator,
+            )
+
+    if not candidates:
+        page, section, page_text = segments[0]
+        add_candidate("source_reported_observation", page, section, _source_quote(page_text))
+    if len(candidates) > _MAX_PDF_ONLY_CANDIDATES_PER_SOURCE:
+        priority = (
+            "source_reported_finding",
+            "conditions",
+            "mechanism",
+            "scope_or_limitation",
+            "figure_or_table_locator",
+            "source_reported_observation",
+        )
+        selected: list[dict[str, Any]] = []
+        selected_ids: set[str] = set()
+        for category in priority:
+            row = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if categories_by_id.get(candidate["evidence_id"]) == category
+                ),
+                None,
+            )
+            if row is not None:
+                selected.append(row)
+                selected_ids.add(row["evidence_id"])
+        for row in candidates:
+            if len(selected) >= _MAX_PDF_ONLY_CANDIDATES_PER_SOURCE:
+                break
+            if row["evidence_id"] not in selected_ids:
+                selected.append(row)
+                selected_ids.add(row["evidence_id"])
+        candidates = selected
+        if candidates and _PDF_ONLY_CANDIDATE_CAP_GAP not in candidates[-1]["limitations"]:
+            candidates[-1]["limitations"].append(_PDF_ONLY_CANDIDATE_CAP_GAP)
+    return candidates
 
 
 def _build_pdf_only_evidence_candidate(
     project: Path,
     study_id: str,
     quality: dict[str, object],
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     try:
         bundle = load_source_truth_bundle(project, study_id)
     except SourceTruthError as exc:
@@ -1371,7 +1671,6 @@ def _build_pdf_only_evidence_candidate(
         or set(source_pdf_sha256) - _SHA256
     ):
         raise LocalPdfParseError("SOURCE_PDF_HASH_INVALID")
-    quote = _first_source_quote(reading_text, canonical_text)
     objects = quality.get("objects")
     if not isinstance(objects, list) or not objects:
         raise LocalPdfParseError("PARSE_QUALITY_INVALID")
@@ -1384,32 +1683,23 @@ def _build_pdf_only_evidence_candidate(
         len(value) != 64 or set(value) - _SHA256 for value in bound_digests
     ):
         raise LocalPdfParseError("PARSE_OBJECT_DIGESTS_INVALID")
-    evidence_id = f"pdf-only-{canonical_digest({'study_id': study_id, 'source_id': source_id})[:24]}"
-    return {
-        "evidence_id": evidence_id,
-        "study_id": study_id,
-        "source_id": source_id,
-        "epistemic_type": "experimental_observation",
-        "statement": (
-            "The verified source-bound reading layer records a page-1 observation; "
-            "no chemical field is inferred."
-        ),
-        "locator": {
-            "source_mode": "parsed_candidate",
-            "page": 1,
-            "section_or_item": "page 1 source-bound reading layer",
-            "figure_or_table": None,
-            "exact_quote": quote,
-        },
-        "reported_conditions": [],
-        "quantitative_results": [],
-        "limitations": [_CHEMICAL_GAP_LIMITATION],
-        "mechanism_grade": "not_applicable",
-        "risk_classes": ["GAP"],
-        "field_dependencies": [],
-        "bound_parse_object_digests": bound_digests,
-        "source_pdf_sha256": source_pdf_sha256,
-    }
+    content = None
+    content_descriptor = source.get("content_list")
+    if isinstance(content_descriptor, dict):
+        try:
+            content = json.loads(_verified_text_descriptor(project, content_descriptor))
+        except json.JSONDecodeError as exc:
+            raise LocalPdfParseError("CONTENT_LIST_INVALID") from exc
+    return _build_source_bound_candidates(
+        study_id=study_id,
+        source_id=source_id,
+        source_pdf_sha256=source_pdf_sha256,
+        reading_text=reading_text,
+        markdown_text=canonical_text,
+        page_count=int(source.get("page_count") or 1),
+        bound_digests=bound_digests,
+        content=content,
+    )
 
 
 def register_pdf_only_evidence_for_approved_parse(
@@ -1419,7 +1709,7 @@ def register_pdf_only_evidence_for_approved_parse(
     expected_revision: int | None = None,
     expected_head_id: str | None = None,
 ) -> dict[str, Any]:
-    """Materialize one conservative candidate per approved MAIN parse.
+    """Materialize a conservative source-bound candidate set per approved MAIN parse.
 
     This is a bridge only: the existing Evidence producer owns candidate files,
     and the existing Dashboard decision route remains the sole approval path.
@@ -1465,34 +1755,39 @@ def register_pdf_only_evidence_for_approved_parse(
         evidence_before = paper_evidence_state(project)
     except PaperEvidenceError as exc:
         raise LocalPdfParseError(exc.code) from exc
-    existing_studies = {
-        row.get("study_id")
+    existing_evidence_ids = {
+        row.get("evidence_id")
         for row in evidence_before.get("rows", [])
-        if isinstance(row, dict) and isinstance(row.get("study_id"), str)
+        if isinstance(row, dict) and isinstance(row.get("evidence_id"), str)
     }
     candidates = {
         study_id: _build_pdf_only_evidence_candidate(project, study_id, qualities[study_id])
         for study_id in study_ids
-        if study_id not in existing_studies
     }
 
     registered_count = 0
     latest_trace: dict[str, Any] | None = None
     for study_id in study_ids:
-        candidate = candidates.get(study_id)
-        if candidate is None:
-            continue
-        _, write_state, _write_current = _load_current(project)
-        produced = register_pdf_only_evidence(
-            project,
-            session_id=session,
-            study_id=study_id,
-            candidate=candidate,
-            expected_revision=write_state.revision,
-            expected_head_id=write_state.active_head_id,
-        )
-        registered_count += 1
-        latest_trace = produced.get("agent_trace")
+        pending_candidates = [
+            candidate
+            for candidate in candidates.get(study_id, [])
+            if candidate.get("evidence_id") not in existing_evidence_ids
+        ]
+        if pending_candidates:
+            _, write_state, _write_current = _load_current(project)
+            produced = register_pdf_only_evidence(
+                project,
+                session_id=session,
+                study_id=study_id,
+                candidate={"candidates": pending_candidates},
+                expected_revision=write_state.revision,
+                expected_head_id=write_state.active_head_id,
+            )
+            registered_count += len(pending_candidates)
+            existing_evidence_ids.update(
+                str(candidate.get("evidence_id")) for candidate in pending_candidates
+            )
+            latest_trace = produced.get("agent_trace")
 
     _latest_context, final_state, final_current = _load_current(project)
     try:
@@ -1525,6 +1820,15 @@ def register_pdf_only_evidence_for_approved_parse(
             "status": evidence_after.get("status"),
             "project_status": evidence_after.get("status"),
             "study_count": evidence_after.get("study_count", len(study_ids)),
+            "candidate_cap": _MAX_PDF_ONLY_CANDIDATES_PER_SOURCE,
+            "cap_gap": _PDF_ONLY_CANDIDATE_CAP_GAP
+            if any(
+                isinstance(candidate, dict)
+                and _PDF_ONLY_CANDIDATE_CAP_GAP in candidate.get("limitations", [])
+                for rows in candidates.values()
+                for candidate in rows
+            )
+            else None,
         },
         "next_action": next_action,
         "agent_trace": latest_trace,
@@ -1555,10 +1859,31 @@ def register_pdf_only_evidence(
     study = _identifier(study_id, "STUDY_ID_INVALID")
     if not isinstance(candidate, dict):
         raise LocalPdfParseError("PDF_ONLY_EVIDENCE_INVALID")
-    normalized = copy.deepcopy(candidate)
-    dependencies = normalized.get("field_dependencies")
-    if dependencies is not None and dependencies != []:
-        raise LocalPdfParseError("CHEMICAL_FIELDS_REQUIRE_IMPORT")
+    raw_candidates = (
+        candidate.get("candidates")
+        if set(candidate) == {"candidates"}
+        else [candidate]
+    )
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        raise LocalPdfParseError("PDF_ONLY_EVIDENCE_INVALID")
+    normalized_candidates: list[dict[str, Any]] = []
+    for raw_candidate in raw_candidates:
+        if not isinstance(raw_candidate, dict):
+            raise LocalPdfParseError("PDF_ONLY_EVIDENCE_INVALID")
+        normalized = copy.deepcopy(raw_candidate)
+        dependencies = normalized.get("field_dependencies")
+        if dependencies is not None and dependencies != []:
+            raise LocalPdfParseError("CHEMICAL_FIELDS_REQUIRE_IMPORT")
+        risks = normalized.get("risk_classes", [])
+        limitations = normalized.get("limitations", [])
+        if not isinstance(risks, list) or not isinstance(limitations, list):
+            raise LocalPdfParseError("PDF_ONLY_EVIDENCE_INVALID")
+        normalized["field_dependencies"] = []
+        if "GAP" not in risks:
+            normalized["risk_classes"] = [*risks, "GAP"]
+        if _CHEMICAL_GAP_LIMITATION not in limitations:
+            normalized["limitations"] = [*limitations, _CHEMICAL_GAP_LIMITATION]
+        normalized_candidates.append(normalized)
     try:
         chemical_paper_current_binding(project, study)
     except ChemicalPaperError as exc:
@@ -1566,16 +1891,6 @@ def register_pdf_only_evidence(
             raise LocalPdfParseError(exc.code) from exc
     else:
         raise LocalPdfParseError("CHEMICAL_GAP_ROUTE_NOT_APPLICABLE")
-
-    risks = normalized.get("risk_classes", [])
-    limitations = normalized.get("limitations", [])
-    if not isinstance(risks, list) or not isinstance(limitations, list):
-        raise LocalPdfParseError("PDF_ONLY_EVIDENCE_INVALID")
-    normalized["field_dependencies"] = []
-    if "GAP" not in risks:
-        normalized["risk_classes"] = [*risks, "GAP"]
-    if _CHEMICAL_GAP_LIMITATION not in limitations:
-        normalized["limitations"] = [*limitations, _CHEMICAL_GAP_LIMITATION]
 
     next_action = {
         "project_id": project.name,
@@ -1605,21 +1920,29 @@ def register_pdf_only_evidence(
     }
     try:
         if quality.get("automatic_extraction_allowed"):
-            evidence = register_paper_evidence_candidates(project, study, normalized)
+            evidence = register_paper_evidence_candidates(
+                project,
+                study,
+                {"candidates": normalized_candidates}
+                if len(normalized_candidates) > 1
+                else normalized_candidates[0],
+            )
             producer = "register_paper_evidence_candidates"
         elif quality.get("workflow_can_continue") and "pdf_locator_only" in actions:
-            locator = normalized.get("locator")
-            if isinstance(locator, dict):
-                normalized["locator"] = {**locator, "source_mode": "original_pdf_manual"}
-            normalized.setdefault("study_id", study)
-            row = register_manual_pdf_evidence(project, normalized)
+            rows = []
+            for normalized in normalized_candidates:
+                locator = normalized.get("locator")
+                if isinstance(locator, dict):
+                    normalized["locator"] = {**locator, "source_mode": "original_pdf_manual"}
+                normalized.setdefault("study_id", study)
+                rows.append(register_manual_pdf_evidence(project, normalized))
             evidence_state = paper_evidence_state(project)
             evidence = {
-                "candidate_count": 1,
-                "registered_count": 1,
+                "candidate_count": len(rows),
+                "registered_count": len(rows),
                 "status": "needs_review",
                 "study_id": study,
-                "candidates": [row],
+                "candidates": rows,
                 "project_status": evidence_state["status"],
             }
             producer = "register_manual_pdf_evidence"
@@ -1974,6 +2297,26 @@ def build_pdf_only_v1_request(
             raise LocalPdfParseError("PDF_ONLY_SYNTHESIS_EVIDENCE_INVALID")
         evidence_id = str(row["evidence_id"])
         normalized_statement = " ".join(statement.split())
+        locator_suffix = ""
+        locator = row.get("locator")
+        if isinstance(locator, dict):
+            page = locator.get("page")
+            section = locator.get("section_or_item")
+            exact_quote = locator.get("exact_quote")
+            if (
+                isinstance(page, int)
+                and page > 0
+                and isinstance(section, str)
+                and section.strip()
+            ):
+                locator_suffix = f" [page:{page}; section:{section.strip()}"
+                if (
+                    isinstance(exact_quote, str)
+                    and exact_quote.strip()
+                    and not any(field in exact_quote.casefold() for field in forbidden_fields)
+                ):
+                    locator_suffix += f"; quote:{' '.join(exact_quote.split())}"
+                locator_suffix += "]"
         if any(field in normalized_statement.casefold() for field in forbidden_fields):
             evidence_sentence = (
                 (
@@ -1991,7 +2334,9 @@ def build_pdf_only_v1_request(
             )
         else:
             evidence_sentence = f"The approved source-bound Evidence reports: {normalized_statement}"
-        evidence_sentences.append(f"{evidence_sentence} [evidence:{evidence_id}]")
+        evidence_sentences.append(
+            f"{evidence_sentence}{locator_suffix} [evidence:{evidence_id}]"
+        )
     scope_sentence = (
         "Multi-study source-bound comparison only: each observation remains bound to its "
         "study/source; mismatched conditions remain NOT_COMPARABLE or GAP, with no "

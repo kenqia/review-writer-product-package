@@ -200,6 +200,24 @@ Focused WSL tests are Engineering evidence only; Product Use,
 `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. Rollback is
 one Git revert.
 
+## CR-016 traceability — source-bound multi-candidate Evidence packet
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Source-bound Evidence packet extraction and public bridge | `review_writer/agent/local_pdf_parse.py::_build_source_bound_candidates`; `_build_pdf_only_evidence_candidate`; `register_pdf_only_evidence_for_approved_parse`; `register_pdf_only_evidence`; existing `review_writer/project/paper_evidence.py::register_paper_evidence_candidates`; existing `review_writer/agent/public_entry.py::_resume` | `tests/test_source_bound_evidence_packet.py::test_pdf_only_candidate_builder_keeps_multiple_source_bound_observations`; `tests/test_fresh_bootstrap_source_set.py::test_public_n3_mapping_resume_reaches_parse_quality_gate` (candidate-count/binding assertions) | `ADAPTED / PUBLIC_CALLER_CONNECTED / PARTIAL` | Verified reading-layer pages, parsed-Markdown `<!-- source page N -->` markers, headings, and available textual/content-list figure-table locators produce multiple candidate-only rows. Each row preserves `study_id`, `source_id`, page/section, `exact_quote`, parse-object digests and current `source_pdf_sha256`; missing chemical fields remain `GAP` with `field_dependencies=[]`. Candidate extraction is capped deterministically at 12 per source and records a cap GAP; textual figure/table locators never materialize or redraw figure assets. The public Agent bridge batches one study's rows through the existing Paper Evidence writer, and the Dashboard Paper Evidence decision remains the sole approval gate. Synthesis request generation carries each row's page/section/quote context rather than a page-1 template. No new Source/Evidence/VersionContext/figure authority is introduced. |
+
+The CR-016 write set is limited to `review_writer/agent/local_pdf_parse.py`, the focused source-packet
+test, existing N=3 public-caller assertions, this traceability row, the product-package manifest and
+the package hash file. Candidate-only writes are staged behind the existing parse-quality gate;
+malformed/stale source, parse digest, version, or candidate validation fails before canonical
+candidate persistence (zero-write). Per-study batching reduces the write set to one existing Evidence
+candidate-set mutation and one existing VersionContext trace update per study; the batch is not an
+approval and leaves the Paper Evidence human gate intact. Rollback is one Git revert; no real project
+data or PDFs are modified. The later Dashboard approval request timed out in the local environment's
+pre-existing process-heavy test setup and is not treated as a pass. Focused evidence remains
+Engineering/public-caller evidence only; Product Use, Independent Quality, `PUBLIC_E2E`,
+`HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh
