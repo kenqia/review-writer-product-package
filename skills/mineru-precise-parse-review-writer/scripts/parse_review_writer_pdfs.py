@@ -15,12 +15,21 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
+
+if sys.platform == "win32":
+    try:
+        import truststore
+    except ImportError:  # pragma: no cover - the Windows package pins truststore
+        truststore = None
+    else:
+        truststore.inject_into_ssl()
 
 import requests
 
@@ -30,10 +39,32 @@ SUCCESS_STATES = {"done", "success", "finished", "completed"}
 FAILURE_STATES = {"failed", "error"}
 _TOKEN_ENV = "MINERU_API_TOKEN"
 _TOKEN_FILE_ENV = "REVIEW_WRITER_MINERU_TOKEN_FILE"
+_CA_BUNDLE_ENV = "REVIEW_WRITER_MINERU_CA_BUNDLE"
+_REQUESTS_CA_BUNDLE_ENV = "REQUESTS_CA_BUNDLE"
 
 
 class MinerUAdapterError(RuntimeError):
     """A safe, non-secret failure returned to the local parser caller."""
+
+
+def _ca_bundle_from_environment() -> Path | None:
+    for variable in (_CA_BUNDLE_ENV, _REQUESTS_CA_BUNDLE_ENV):
+        configured = os.environ.get(variable, "").strip()
+        if not configured:
+            continue
+        try:
+            candidate = Path(configured).expanduser()
+            if not candidate.is_file() or not os.access(candidate, os.R_OK):
+                raise OSError
+        except (OSError, RuntimeError, ValueError):
+            raise MinerUAdapterError("MINERU_CA_BUNDLE_INVALID") from None
+        return candidate
+    return None
+
+
+def _configure_session(session: requests.Session, ca_bundle: Path | None) -> None:
+    if ca_bundle is not None:
+        session.verify = str(ca_bundle)
 
 
 def _sha256(path: Path) -> str:
@@ -94,7 +125,6 @@ def _json_response(response: requests.Response, endpoint: str) -> dict[str, Any]
     except (requests.RequestException, ValueError) as exc:
         raise MinerUAdapterError(f"MINERU_HTTP_FAILED: {endpoint}") from exc
     if not isinstance(payload, dict) or payload.get("code") not in (0, None):
-        message = payload.get("msg") if isinstance(payload, dict) else "invalid JSON"
         raise MinerUAdapterError(f"MINERU_API_FAILED: {endpoint}")
     return payload
 
@@ -118,6 +148,7 @@ def _request_upload(
     enable_formula: bool,
     enable_table: bool,
     ocr: bool,
+    verify: str | None,
 ) -> tuple[str, str]:
     payload = {
         "files": [{"name": pdf.name, "data_id": data_id, "is_ocr": ocr}],
@@ -131,6 +162,7 @@ def _request_upload(
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json=payload,
         timeout=60,
+        verify=verify,
     )
     body = _json_response(response, "file-urls/batch")
     data = body.get("data") if isinstance(body.get("data"), dict) else {}
@@ -140,7 +172,7 @@ def _request_upload(
         raise MinerUAdapterError("MINERU_UPLOAD_URL_INVALID")
     upload_url = _https_url(urls[0], "MINERU_UPLOAD_URL_INVALID")
     try:
-        upload = session.put(upload_url, data=pdf.read_bytes(), timeout=300)
+        upload = session.put(upload_url, data=pdf.read_bytes(), timeout=300, verify=verify)
         upload.raise_for_status()
     except (OSError, requests.RequestException) as exc:
         raise MinerUAdapterError("MINERU_UPLOAD_FAILED") from exc
@@ -155,6 +187,7 @@ def _poll_result(
     *,
     timeout_minutes: int,
     poll_interval: int,
+    verify: str | None,
 ) -> str:
     deadline = time.monotonic() + max(1, timeout_minutes) * 60
     while time.monotonic() < deadline:
@@ -162,6 +195,7 @@ def _poll_result(
             f"{API_BASE_URL}/extract-results/batch/{batch_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=60,
+            verify=verify,
         )
         body = _json_response(response, "extract-results/batch")
         data = body.get("data") if isinstance(body.get("data"), dict) else {}
@@ -214,6 +248,8 @@ def _materialize(
     pdf: Path,
     zip_url: str,
     *,
+    session: requests.Session,
+    verify: str | None = None,
     data_id: str,
     relative_pdf_path: str,
     model_version: str,
@@ -228,12 +264,18 @@ def _materialize(
         raw_zip = temporary / "raw_zips" / f"{slug}.zip"
         raw_zip.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with requests.get(zip_url, stream=True, timeout=300) as response:
+            with session.get(zip_url, stream=True, timeout=300, verify=verify) as response:
                 response.raise_for_status()
                 with raw_zip.open("wb") as handle:
                     for chunk in response.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             handle.write(chunk)
+        except requests.exceptions.SSLError as exc:
+            raise MinerUAdapterError(
+                "MINERU_RESULT_DOWNLOAD_TLS_HOLD: TLS certificate verification failed; "
+                "configure REVIEW_WRITER_MINERU_CA_BUNDLE or REQUESTS_CA_BUNDLE with an "
+                "existing CA bundle, or install the Windows truststore dependency"
+            ) from exc
         except (OSError, requests.RequestException) as exc:
             raise MinerUAdapterError("MINERU_RESULT_DOWNLOAD_FAILED") from exc
 
@@ -356,9 +398,11 @@ def main(argv: list[str] | None = None) -> int:
         relative_pdf_path = pdf.relative_to(input_dir).as_posix()
     except ValueError as exc:
         raise MinerUAdapterError("MINERU_INPUT_OUTSIDE_DIR") from exc
+    ca_bundle = _ca_bundle_from_environment()
     token = resolve_token()
     data_id = f"rw-{_sha256(pdf)[:24]}"
     with requests.Session() as session:
+        _configure_session(session, ca_bundle)
         batch_id, returned_id = _request_upload(
             session,
             token,
@@ -369,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             enable_formula=not args.disable_formula,
             enable_table=not args.disable_table,
             ocr=args.ocr,
+            verify=str(ca_bundle) if ca_bundle is not None else None,
         )
         zip_url = _poll_result(
             session,
@@ -377,15 +422,18 @@ def main(argv: list[str] | None = None) -> int:
             returned_id,
             timeout_minutes=args.timeout_minutes,
             poll_interval=args.poll_interval,
+            verify=str(ca_bundle) if ca_bundle is not None else None,
         )
-    _materialize(
-        output_dir,
-        pdf,
-        zip_url,
-        data_id=data_id,
-        relative_pdf_path=relative_pdf_path,
-        model_version=args.model_version,
-    )
+        _materialize(
+            output_dir,
+            pdf,
+            zip_url,
+            session=session,
+            verify=str(ca_bundle) if ca_bundle is not None else None,
+            data_id=data_id,
+            relative_pdf_path=relative_pdf_path,
+            model_version=args.model_version,
+        )
     print(json.dumps({"status": "done", "output_dir": str(output_dir)}, ensure_ascii=False))
     return 0
 

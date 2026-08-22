@@ -29,7 +29,7 @@
 - `scripts/build_qoderwork_plugin_zip.py`：构建并检查不含凭据/本机状态的确定性插件 ZIP。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
 - 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
-- `.env.example`：仅记录实际支持的 parser 路径变量和 QoderWork 凭据边界，不含任何值。
+- `.env.example`：仅记录实际支持的 parser 路径、MinerU CA bundle 变量和 QoderWork 凭据边界，不含任何值。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
 
 ## CR-011 Windows/QoderWork CN environment preparation
@@ -68,7 +68,7 @@ current_pointer: .review-writer/version_context/current.json
 
 ## 安装依赖依据
 
-实际 import 审计确认：`jsonschema` 用于 schema 校验，`Pillow` 用于图件策略与比较图，`python-docx` 用于 DOCX helper，`requests` 用于 MinerU v4 API adapter。`latex2word` 仅在存在时启用数学 OMML 排版，因此没有列为硬依赖。`pdftotext` 是本地 PDF fallback 所需的系统命令；Agent 会在需要时 fail-closed，不会联网下载或猜测来源。
+实际 import 审计确认：`jsonschema` 用于 schema 校验，`Pillow` 用于图件策略与比较图，`python-docx` 用于 DOCX helper，`requests` 用于 MinerU v4 API adapter，`truststore` 在 Windows 上接入系统 CA。`latex2word` 仅在存在时启用数学 OMML 排版，因此没有列为硬依赖。`pdftotext` 是本地 PDF fallback 所需的系统命令；Agent 会在需要时 fail-closed，不会联网下载或猜测来源。
 
 ## 质量边界
 

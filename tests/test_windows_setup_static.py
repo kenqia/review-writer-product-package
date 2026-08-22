@@ -26,7 +26,7 @@ def test_windows_setup_files_and_example_are_present() -> None:
 def test_env_example_documents_only_the_optional_parser_path() -> None:
     text = _read(ENV_EXAMPLE)
     assignments = [line for line in text.splitlines() if line and not line.lstrip().startswith("#")]
-    assert assignments == ["REVIEW_WRITER_MINERU_PARSER="]
+    assert assignments == ["REVIEW_WRITER_MINERU_PARSER=", "REVIEW_WRITER_MINERU_CA_BUNDLE="]
     assert "DASHSCOPE" not in text
     assert "API_KEY=" not in text
     assert not re.search(r"(?i)(sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{12,})", text)
@@ -55,6 +55,8 @@ def test_environment_test_checks_only_the_documented_parser_variable() -> None:
     assert "Python 3.11" in text
     assert "pdftotext" in text
     assert "REVIEW_WRITER_MINERU_PARSER" in text
+    assert "requests" in text
+    assert "truststore" in text
     assert "Get-ChildItem Env:" not in text
     assert "Get-Item Env:" not in text
     assert "DASHSCOPE" not in text

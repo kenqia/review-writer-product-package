@@ -34,10 +34,10 @@ Add-Check "Python 3.11+" $pythonOk $(if ($pythonOk) { "available (value not echo
 
 $importsOk = $false
 if ($pythonOk) {
-    & $python -c "import jsonschema, PIL, docx" 2>$null
+    & $python -c "import jsonschema, PIL, docx, requests, truststore" 2>$null
     $importsOk = ($LASTEXITCODE -eq 0)
 }
-Add-Check "Python dependencies" $importsOk $(if ($importsOk) { "jsonschema, Pillow, python-docx import successfully" } else { "run Install-ReviewWriter.ps1" })
+Add-Check "Python dependencies" $importsOk $(if ($importsOk) { "jsonschema, Pillow, python-docx, requests, truststore import successfully" } else { "run Install-ReviewWriter.ps1" })
 
 $pdfTool = Get-Command pdftotext -ErrorAction SilentlyContinue
 Add-Check "pdftotext" ($null -ne $pdfTool) $(if ($pdfTool) { "available on PATH" } else { "missing; install trusted Poppler for Windows and add its bin directory to PATH" })

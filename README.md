@@ -59,9 +59,10 @@ Extensions → Expert Kits
 
 ## 一次性安装依赖
 
-需要 Python 3.11+、`jsonschema`、`Pillow`、`python-docx` 和 `requests`。系统还需要本地
-`pdftotext`，用于 PDF 解析 fallback；产品包现在包含官方 MinerU v4 API adapter，MinerU
-是否可用由 Agent 在运行时检查并如实记录。`latex2word` 只是可选的
+需要 Python 3.11+、`jsonschema`、`Pillow`、`python-docx`、`requests` 和 `truststore`。其中
+`truststore` 让 Windows 上的 MinerU HTTPS 请求优先使用系统 CA。系统还需要本地 `pdftotext`，
+用于 PDF 解析 fallback；产品包现在包含官方 MinerU v4 API adapter，MinerU 是否可用由 Agent
+在运行时检查并如实记录。`latex2word` 只是可选的
 DOCX 数学排版增强。
 
 WSL/Linux 示例：
@@ -95,14 +96,19 @@ Windows `PATH`，然后重新运行诊断：
 ```
 
 诊断只报告 `READY/HOLD/NOTICE` 和“配置存在/缺失”，不会回显任何密钥。也可以只读查看
-`.env.example`；它只记录实际支持的 `REVIEW_WRITER_MINERU_PARSER` 路径变量，产品不会自动
-加载 `.env` 文件。
+`.env.example`；它只记录实际支持的 `REVIEW_WRITER_MINERU_PARSER` 和可选 CA bundle 路径变量，
+产品不会自动加载 `.env` 文件。
 
 产品包自带 MinerU adapter，默认走 MinerU 官方 v4 API（`vlm` 模型），不再要求你额外
 clone 一个解析器。它需要 MinerU token；token 只从当前进程的 `MINERU_API_TOKEN` 或包外
 的用户文件读取：Windows 为 `%APPDATA%\ReviewWriter\mineru_api_token`，Linux/WSL 为
-`~/.config/review-writer/mineru_api_token`。诊断只显示凭据是否存在，不显示值。凭据不可用
-或网络失败时，Agent 会记录真实原因并回退到 `pdftotext`，不会把 fallback 标成 MinerU。
+`~/.config/review-writer/mineru_api_token`。Windows adapter 会优先使用已安装 `truststore`
+提供的系统 CA（仅使用已经安装到 Windows 信任库的根证书，不会自动信任未知代理根）；如果组织代理使用私有 CA，可在当前进程配置已存在且可读的 PEM bundle 路径：
+`REVIEW_WRITER_MINERU_CA_BUNDLE`（专用设置优先）或 `REQUESTS_CA_BUNDLE`。路径无效时会在
+任何 parser output 写入前 fail-closed；TLS 校验失败会给出 `MINERU_RESULT_DOWNLOAD_TLS_HOLD`
+及 CA 配置诊断。产品默认始终校验证书，不提供静默 `verify=False`。诊断只显示凭据是否存在，
+不显示值。凭据不可用或网络失败时，Agent 会记录真实原因并回退到 `pdftotext`，不会把
+fallback 标成 MinerU。
 
 接着从 [qoderwork.cn/download](https://qoderwork.cn/download) 安装 QoderWork CN Windows
 客户端，登录后把上面生成的 ZIP 在 `Extensions → Expert Kits` 中导入。QoderWork 的账号、

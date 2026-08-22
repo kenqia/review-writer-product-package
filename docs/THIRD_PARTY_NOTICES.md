@@ -11,6 +11,16 @@
 - user-provided written authorization reference：`USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`
 - 本文件不记录授权书私人原文、授权人身份、token、cookie 或其他私密信息。
 
+## Runtime dependency notice — truststore
+
+The product package declares `truststore>=0.10,<1.0` for the bundled MinerU adapter. It is
+an external MIT-licensed dependency (upstream: <https://github.com/sethmlarson/truststore>),
+used only on Windows to let Python HTTPS requests consult the Windows native trust store.
+The package does not copy or vendor truststore, and this integration does not silently trust
+unknown enterprise proxy roots: the root must already be installed by the organization, or
+the user must provide an existing readable CA bundle through the documented environment
+variables. Certificate verification remains enabled by default.
+
 截至上述 commit，upstream `main` 没有 `LICENSE` 文件，也没有公开 SPDX/OSI license
 声明。书面授权是本次复用记录的依据，但不是开源许可证；每项复用仍须遵守该授权
 范围和相应的 attribution/rights review，未知权利不得进入 release。

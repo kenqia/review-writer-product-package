@@ -36,7 +36,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\windows\Install-ReviewWriter.ps1
 ```
 
-脚本创建或复用产品包 `.venv`、安装 Python 依赖、检查 `pdftotext` 并生成 Expert Kit ZIP；
+脚本创建或复用产品包 `.venv`、安装 Python 依赖（包括 `requests` 与 Windows 系统 CA bridge
+`truststore`）、检查 `pdftotext` 并生成 Expert Kit ZIP；
 失败时不删除已有环境。安装后可随时运行只读诊断：
 
 ```powershell
@@ -44,13 +45,21 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 产品包已经包含 `skills/mineru-precise-parse-review-writer/scripts/parse_review_writer_pdfs.py`
-作为 MinerU 官方 v4 API adapter；`pdftotext` 是它失败时的真实 fallback。脚本不会从未知来源
+作为 MinerU 官方 v4 API adapter；它复用同一个 HTTPS session 完成 API 与结果 ZIP 下载，
+`pdftotext` 是它失败时的真实 fallback。Windows 上仅当组织 CA 已安装到 Windows 原生信任库时，
+`truststore` 才能使用它；它不会自动信任未知或未安装的企业代理根证书。脚本不会从未知来源
 下载 Poppler；请使用可信/组织批准的 Windows Poppler 构建并把 `bin` 目录加入 PATH。产品只
 检查 parser 路径和 MinerU 凭据是否存在（见 [`.env.example`](.env.example)），不读取或输出
 token。`.env.example` 不会被自动加载，也不应提交真实凭据。
 
 如果需要指定额外的兼容 parser 路径，可使用 `REVIEW_WRITER_MINERU_PARSER`；通常无需设置，
 因为本包已经包含官方 API adapter。
+
+如果 MinerU 结果 CDN 的证书由组织私有 CA 签发，可在 QoderWork 当前 Windows 进程配置一个
+已存在且可读的 PEM bundle：优先使用 `REVIEW_WRITER_MINERU_CA_BUNDLE`，也兼容
+`REQUESTS_CA_BUNDLE`。专用变量优先；路径无效时 parser 会在写出任何结果前返回
+`MINERU_CA_BUNDLE_INVALID`，TLS 校验失败时返回 `MINERU_RESULT_DOWNLOAD_TLS_HOLD` 及可操作的
+CA 诊断。证书校验默认开启，产品不会静默使用 `verify=False`。
 
 WSL/Linux 的 `~/.zshrc` 不会被 Windows QoderWork 客户端继承。若 MinerU 只在 WSL shell 中配置，
 Windows 诊断会明确显示未配置 `NOTICE`，实际流程会回退到 `pdftotext`；请根据外部解析器的

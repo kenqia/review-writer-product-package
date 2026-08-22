@@ -59,6 +59,10 @@ class _Session:
     def __init__(self, data_id: str):
         self.data_id = data_id
         self.uploaded = False
+        self.downloaded = False
+        self.verify = None
+        self.download_verify = None
+        self.request_verifies = []
 
     def __enter__(self):
         return self
@@ -67,13 +71,20 @@ class _Session:
         return False
 
     def post(self, *_args, **_kwargs):
+        self.request_verifies.append(_kwargs.get("verify"))
         return _Response({"code": 0, "data": {"batch_id": "batch-1", "file_urls": ["https://upload"]}})
 
     def put(self, *_args, **_kwargs):
+        self.request_verifies.append(_kwargs.get("verify"))
         self.uploaded = True
         return _Response({"code": 0})
 
-    def get(self, *_args, **_kwargs):
+    def get(self, url, *_args, **_kwargs):
+        self.request_verifies.append(_kwargs.get("verify"))
+        if url == "https://download":
+            self.downloaded = True
+            self.download_verify = self.verify
+            return _Response(content=_archive_bytes())
         return _Response(
             {
                 "code": 0,
@@ -100,7 +111,7 @@ def test_mineru_api_adapter_materializes_local_parser_contract(monkeypatch: pyte
     session = _Session(f"rw-{module._sha256(pdf)[:24]}")
     monkeypatch.setenv("MINERU_API_TOKEN", "test-token-not-real")
     monkeypatch.setattr(module.requests, "Session", lambda: session)
-    monkeypatch.setattr(module.requests, "get", lambda *_args, **_kwargs: _Response(content=_archive_bytes()))
+    monkeypatch.setattr(module.requests, "get", lambda *_args, **_kwargs: pytest.fail("download must reuse the API session"))
 
     assert module.main(
         [
@@ -112,6 +123,7 @@ def test_mineru_api_adapter_materializes_local_parser_contract(monkeypatch: pyte
         ]
     ) == 0
     assert session.uploaded
+    assert session.downloaded
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     row = manifest["completed"][0]
     assert row["state"] == "done"
@@ -121,6 +133,111 @@ def test_mineru_api_adapter_materializes_local_parser_contract(monkeypatch: pyte
     assert (extracted / "layout.json").is_file()
     assert (extracted / f"{row['slug']}_content_list_v2.json").is_file()
     assert (extracted / "images/figure.png").read_bytes() == b"PNG"
+
+
+def test_mineru_ca_bundle_is_applied_to_reused_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    module = _module()
+    pdf_dir = tmp_path / "authorized"
+    pdf_dir.mkdir()
+    pdf = pdf_dir / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfixture")
+    output = tmp_path / "parser-output"
+    ca_bundle = tmp_path / "approved-ca.pem"
+    ca_bundle.write_text("not-a-real-cert-for-test", encoding="utf-8")
+    session = _Session(f"rw-{module._sha256(pdf)[:24]}")
+    monkeypatch.setenv("MINERU_API_TOKEN", "test-token-not-real")
+    monkeypatch.setenv("REVIEW_WRITER_MINERU_CA_BUNDLE", str(ca_bundle))
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "ignored-by-dedicated-setting.pem"))
+    monkeypatch.setattr(module.requests, "Session", lambda: session)
+
+    assert module.main(
+        [
+            "--pdf", str(pdf),
+            "--input-dir", str(pdf_dir),
+            "--output-dir", str(output),
+            "--poll-interval", "1",
+            "--timeout-minutes", "1",
+        ]
+    ) == 0
+    assert session.verify == str(ca_bundle)
+    assert session.download_verify == str(ca_bundle)
+    assert session.request_verifies == [str(ca_bundle)] * 4
+
+
+def test_requests_ca_bundle_is_supported_when_dedicated_setting_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    module = _module()
+    pdf_dir = tmp_path / "authorized"
+    pdf_dir.mkdir()
+    pdf = pdf_dir / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfixture")
+    output = tmp_path / "parser-output"
+    ca_bundle = tmp_path / "requests-ca.pem"
+    ca_bundle.write_text("not-a-real-cert-for-test", encoding="utf-8")
+    session = _Session(f"rw-{module._sha256(pdf)[:24]}")
+    monkeypatch.setenv("MINERU_API_TOKEN", "test-token-not-real")
+    monkeypatch.delenv("REVIEW_WRITER_MINERU_CA_BUNDLE", raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(ca_bundle))
+    monkeypatch.setattr(module.requests, "Session", lambda: session)
+
+    assert module.main(
+        [
+            "--pdf", str(pdf),
+            "--input-dir", str(pdf_dir),
+            "--output-dir", str(output),
+            "--poll-interval", "1",
+            "--timeout-minutes", "1",
+        ]
+    ) == 0
+    assert session.verify == str(ca_bundle)
+
+
+def test_invalid_mineru_ca_bundle_is_zero_write(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    module = _module()
+    pdf_dir = tmp_path / "authorized"
+    pdf_dir.mkdir()
+    pdf = pdf_dir / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfixture")
+    output = tmp_path / "parser-output"
+    monkeypatch.setenv("MINERU_API_TOKEN", "test-token-not-real")
+    monkeypatch.setenv("REVIEW_WRITER_MINERU_CA_BUNDLE", str(tmp_path / "missing-ca.pem"))
+
+    with pytest.raises(module.MinerUAdapterError, match="MINERU_CA_BUNDLE_INVALID"):
+        module.main(["--pdf", str(pdf), "--input-dir", str(pdf_dir), "--output-dir", str(output)])
+    assert not output.exists()
+    assert not list(tmp_path.glob(f".{output.name}.*"))
+
+
+def test_mineru_tls_failure_is_actionable_and_zero_write(tmp_path: Path):
+    module = _module()
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nfixture")
+    output = tmp_path / "parser-output"
+
+    class _TlsFailureSession:
+        verify = None
+
+        def get(self, *_args, **_kwargs):
+            raise module.requests.exceptions.SSLError("certificate verify failed")
+
+    with pytest.raises(module.MinerUAdapterError, match="MINERU_RESULT_DOWNLOAD_TLS_HOLD") as error:
+        module._materialize(
+            output,
+            pdf,
+            "https://download",
+            session=_TlsFailureSession(),
+            data_id="rw-test",
+            relative_pdf_path="paper.pdf",
+            model_version="vlm",
+        )
+    assert "CA bundle" in str(error.value)
+    assert not output.exists()
+    assert not list(tmp_path.glob(f".{output.name}.*"))
 
 
 def test_missing_mineru_token_is_zero_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
