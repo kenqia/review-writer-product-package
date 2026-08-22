@@ -218,6 +218,19 @@ pre-existing process-heavy test setup and is not treated as a pass. Focused evid
 Engineering/public-caller evidence only; Product Use, Independent Quality, `PUBLIC_E2E`,
 `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`.
 
+## CR-017 traceability — source-figure candidate bridge and release provenance
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Source-figure candidate bridge | `review_writer/agent/local_pdf_parse.py::_build_staged_figure_candidates`; `review_writer/project/review_figures.py::project_source_figure_candidates`; `view/serve_review_dashboard.py::project_review_figures_workspace_payload`; `::handle_project_source_figure_get` | `tests/test_agent_figure_candidate_bridge.py`; `tests/test_release_source_figure_provenance.py`; figure/release/adapter focused group | `ADAPTED / PUBLIC_CALLER_CONNECTED / ENGINEERING_VERIFIED` | Agent-produced source-figure candidates remain candidate-only and `HOLD` until the existing human rights/selection/binding gates. Dashboard candidate previews are emitted only when the candidate has a non-empty safe `asset_path`, the file exists under the project root, and its observed SHA-256 matches the candidate hash; metadata-only candidates expose no `image_url`. Missing or invalid assets fail closed and do not mutate the registry. Source attribution is preserved through the schema, candidate projection, Dashboard payload and release provenance checks. |
+
+The CR-017 write set is limited to the nine runtime/schema/UI/test files listed in the delivery
+packet, this traceability row, `product-package-manifest.md` and `product-package-sha256.txt`.
+Candidate previews are read-only; registry materialization and publication remain behind the existing
+human decisions and release policy. Focused tests and static checks are Engineering evidence only;
+Product Use, Independent Quality, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and
+`PROMOTE/B2` remain `HOLD`. Rollback is one Git revert; no real project data or PDFs are modified.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

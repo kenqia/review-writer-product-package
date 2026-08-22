@@ -63,6 +63,7 @@ _HASH_CHUNK_BYTES = 1024 * 1024
 _MAX_IMAGE_BYTES = 32 * 1024 * 1024
 _MAX_IMAGE_PIXELS = 40_000_000
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MARKER_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
 class FigurePolicyError(ValueError):
@@ -144,6 +145,21 @@ def _required_sha256(row: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
         raise FigurePolicyError("FIGURE_POLICY_INVALID", f"figure {key} must be a SHA-256 digest")
     return value
+
+
+def _visible_marker_count(markdown: str, marker: str) -> int:
+    """Count one bound source/evidence marker outside fenced code blocks."""
+    count = 0
+    fence: str | None = None
+    for line in markdown.splitlines():
+        fence_match = _MARKER_FENCE_RE.match(line)
+        if fence_match:
+            token = fence_match.group(1)[0]
+            fence = None if fence == token else token
+            continue
+        if fence is None:
+            count += line.count(marker)
+    return count
 
 
 def _optional_rights_text(row: dict[str, Any], key: str) -> str | None:
@@ -544,6 +560,13 @@ def validate_new_route_figure_policy(
                     "FIGURE_ATTRIBUTION_MISSING",
                     "source figure target binding is missing or stale",
                 ) from exc
+            if _visible_marker_count(
+                manuscript_markdown, validated_target_binding["marker"]
+            ) != 1:
+                raise FigurePolicyError(
+                    "FIGURE_MARKER_NOT_UNIQUE",
+                    "each selected source figure must bind to exactly one visible body marker",
+                )
             if attribution not in manuscript_markdown:
                 # The explicit source/evidence marker is the visible attribution
                 # anchor for repaired legacy text; no free-text attribution is

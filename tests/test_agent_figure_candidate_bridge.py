@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 from review_writer.agent import local_pdf_parse
 from review_writer.product_foundation import VersionContext
@@ -86,6 +89,11 @@ def test_staging_figure_bridge_reuses_registry_projection_without_selection(
     assert result["status"] == "candidate"
     assert result["figures"][0]["selection_status"] == "available"
     assert result["figures"][0]["release_status"] == "HOLD"
+    assert result["figures"][0]["rights_status"] == "unknown"
+    assert result["figures"][0]["attribution"] == (
+        "Source Figure Attribution: study-1:source-1:figure-1 | "
+        "source-1 | page 2 | Figure 1"
+    )
     assert result["figures"][0]["source_pdf_sha256"] == source_pdf_sha256
     assert result["figures"][0]["asset_sha256"] == asset_sha256
     assert result["figures"][0]["fragments"][0]["asset_path"].endswith(
@@ -139,7 +147,7 @@ def test_fallback_figure_bridge_reports_truthful_gap_when_no_images_exist(
     assert result["figures"] == []
     assert result["gaps"] == [
         {
-            "code": "FIGURE_ASSET_UNAVAILABLE",
+            "code": "FIGURE_GAP",
             "reason": (
                 "fallback parser produced no extracted image assets; "
                 "source figure candidates remain unavailable until a visual parser run."
@@ -153,6 +161,69 @@ def test_fallback_figure_bridge_reports_truthful_gap_when_no_images_exist(
             ],
         }
     ]
+
+
+def test_public_dashboard_serves_candidate_image_before_human_decision(
+    tmp_path: Path,
+) -> None:
+    review_root = tmp_path / "reviews"
+    project = review_root / "review-project"
+    asset = project / "01_evidence/figure-1.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"candidate image bytes")
+    figure_id = "study-1:source-1:figure-1"
+    candidate = {
+        "figure_id": figure_id,
+        "study_id": "study-1",
+        "source_id": "source-1",
+        "page": 2,
+        "figure_label": "Figure 1",
+        "caption": "Reaction overview.",
+        "asset_path": "01_evidence/figure-1.png",
+        "asset_sha256": _sha256(asset),
+        "source_pdf_sha256": "a" * 64,
+        "selection_status": "available",
+        "rights_status": "unknown",
+        "attribution": "Source Figure Attribution: study-1:source-1:figure-1",
+        "fragments": [],
+    }
+    VersionContext.create(
+        {
+            "agent_parse": {
+                "figure_candidates": {
+                    "schema_version": "review-writer.agent-figure-candidates.v1",
+                    "project_id": project.name,
+                    "status": "candidate",
+                    "figures": [candidate],
+                    "gaps": [],
+                }
+            }
+        },
+        project_id=project.name,
+        project_root=project,
+    )
+    dashboard.configure_runtime(review_root)
+    server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = http.client.HTTPConnection(*server.server_address, timeout=10)
+    try:
+        connection.request(
+            "GET",
+            f"/api/project/{quote(project.name, safe='')}/source-figure"
+            f"?figure_id={quote(figure_id, safe='')}",
+        )
+        response = connection.getresponse()
+        body = response.read()
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+    assert response.status == 200
+    assert response.getheader("Content-Type") == "image/png"
+    assert body == b"candidate image bytes"
 
 
 def test_dashboard_projects_agent_candidates_when_registry_is_missing(
@@ -223,6 +294,7 @@ def test_dashboard_projects_agent_candidates_when_registry_is_missing(
         {
             "study_id": "",
             "page": None,
+            "code": "FIGURE_RIGHTS_UNKNOWN",
             "reason": "source figure rights require human confirmation",
         }
     ]

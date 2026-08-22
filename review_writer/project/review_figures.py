@@ -1175,11 +1175,25 @@ def project_source_figure_candidates(
             "fragments": fragments,
         }
         _validate(base, SOURCE_FIGURE_SCHEMA, "FIGURE_CANDIDATE_INVALID")
+        # Keep the candidate self-describing before the researcher opens the
+        # Dashboard.  Rights remain unknown and therefore non-releaseable, but
+        # the real asset still carries the same stable attribution that the
+        # release policy will require after human approval.
+        candidate_attribution = (
+            f"Source Figure Attribution: {figure_id} | {source_id} | "
+            f"page {page} | {figure_label}"
+        )
         candidate = {
             **base,
             "status": "candidate",
             "locator": locator,
+            "rights_status": "unknown",
         }
+        # Unknown rights can still carry a deterministic attribution preview.
+        # A cleared claim must provide the researcher's explicit attribution;
+        # do not synthesize it or bypass the rights gate in that case.
+        if raw.get("rights_status") != "cleared":
+            candidate["attribution"] = candidate_attribution
         for field in (
             "attribution",
             "license_or_rights_basis",
@@ -1291,6 +1305,7 @@ def materialize_source_figure_registry(
             "rights_status",
             "rights_license",
             "rights_evidence_reference",
+            "attribution",
         }
         normalized = {key: copy.deepcopy(candidate[key]) for key in allowed if key in candidate}
         normalized["rights_status"] = rights_status

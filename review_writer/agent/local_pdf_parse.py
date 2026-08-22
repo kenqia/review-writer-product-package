@@ -1099,7 +1099,7 @@ def _fallback_figure_gap(
     reason: str,
 ) -> dict[str, Any]:
     return {
-        "code": "FIGURE_ASSET_UNAVAILABLE",
+        "code": "FIGURE_GAP",
         "reason": reason,
         "sources": [
             {

@@ -322,7 +322,8 @@
     const figurePanel = section("原论文图片");
     (figures.locator_gaps || []).forEach(item => {
       const page = item.page ? `第 ${item.page} 页 · ` : "";
-      figurePanel.append(text("p", `定位缺口：${page}${label(item.reason, "原论文图定位需要重建")}`, "workspace-error"));
+      const code = item.code ? `${item.code}：` : "";
+      figurePanel.append(text("p", `定位缺口：${code}${page}${label(item.reason, "原论文图定位需要重建")}`, "workspace-error"));
     });
     (figures.source_figures || []).forEach(item => {
       const row = document.createElement("div"); row.className = "figure-source-row";

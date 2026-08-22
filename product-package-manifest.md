@@ -137,3 +137,17 @@ set，避免每条候选重复锁和 VersionContext 写入。所有 candidate �
 Evidence 人工 gate 批准；public synthesis/v1 消费多条 bound Evidence 的 page/section/quote
 上下文，不再固定 page-1 模板。新增候选仅在 parse-quality 已批准后写入，stale/hash/version/
 schema 失败保持 zero-write；回滚边界为一次 Git revert，不修改真实 project data。
+
+## CR-017 Source-figure candidate bridge and release provenance
+
+本维护切片更新 `review_writer/agent/local_pdf_parse.py`、`review_writer/delivery/figure_policy.py`、
+`review_writer/project/review_figures.py`、`schemas/figures/source_figure.v1.schema.json`、
+`view/serve_review_dashboard.py`、`view/assets/dashboard/figures.html`、
+`view/assets/dashboard/review-synthesis.js` 及对应 focused tests、traceability 与 package hash。
+Agent 的 source-figure candidate 继续是 candidate-only/HOLD；Dashboard 只有在 candidate 的
+`asset_path` 非空、位于 project root 内、实际存在且 SHA-256 与 candidate 的
+`asset_sha256` 一致时才提供只读 preview URL，否则保持 `image_url=null`。来源署名、权利状态、
+schema、正文绑定和真实 release provenance 复用既有 authority；不创建第二套 registry、current
+或 release writer。Focused figure/release/adapter tests、ruff、compile 与 diff 检查属于
+Engineering evidence，不升级 Product Use、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity
+或 `PROMOTE/B2`；回滚边界为一次 Git revert，不修改真实 project data。

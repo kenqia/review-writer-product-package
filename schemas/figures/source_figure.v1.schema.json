@@ -54,6 +54,7 @@
       }
     },
     "selection_reason": {"type": "string", "minLength": 1},
+    "attribution": {"type": "string", "minLength": 1},
     "rights_status": {"enum": ["unknown", "cleared"]},
     "rights_license": {"type": "string", "minLength": 1},
     "rights_evidence_reference": {"type": "string", "minLength": 1}

@@ -113,3 +113,35 @@ def test_release_projection_rejects_missing_source_provenance_zero_write(
 
     assert error.value.code == "FIGURE_POLICY_INVALID"
     assert _tree_fingerprint(project) == before
+
+
+def test_release_rejects_duplicate_body_marker_for_selected_source_figure(
+    tmp_path: Path,
+) -> None:
+    project, registry, row, _markdown = _figure_fixture(tmp_path)
+    markdown = (
+        "# Results\n\n"
+        "[source:source-1]\n\n"
+        "[source:source-1]\n\n"
+        "![Figure 1](../01_evidence/figure-1.png)\n"
+    )
+    row["target_binding"] = {
+        "figure_id": row["figure_id"],
+        "asset_sha256": row["asset_sha256"],
+        "manuscript_sha256": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+        "section_id": "results",
+        "marker": "[source:source-1]",
+        "occurrence": 1,
+    }
+
+    with pytest.raises(FigurePolicyError) as error:
+        validate_new_route_figure_policy(
+            project,
+            source_registry=registry,
+            placeholders=[],
+            manuscript_markdown=markdown,
+            manuscript_image_paths=["../01_evidence/figure-1.png"],
+            release_level="SELF_REVIEWED_DRAFT",
+        )
+
+    assert error.value.code == "FIGURE_MARKER_NOT_UNIQUE"

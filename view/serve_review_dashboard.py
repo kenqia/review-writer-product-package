@@ -3449,7 +3449,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
     ) -> None:
         try:
             project = project_dir(self.review_root, project_id)
-            registry = load_source_figure_registry(project)
+            # Candidate-only figures are already real, source-bound image
+            # assets in the canonical project tree, but human selection has
+            # not yet materialized the registry.  Serve them as read-only
+            # previews from the current Agent snapshot; never create or
+            # mutate registry state on this GET path.
+            if os.path.lexists(project / "03_figures/source_figure_registry.json"):
+                registry = load_source_figure_registry(project)
+            else:
+                candidates = _agent_figure_candidate_projection(project)
+                if candidates is None:
+                    raise ValueError("figure candidate set unavailable")
+                registry = {"figures": candidates.get("figures", [])}
             rows = registry.get("figures", [])
             row = next((item for item in rows if isinstance(item, dict) and item.get("figure_id") == figure_id), None)
             if not isinstance(row, dict):
@@ -7139,7 +7150,7 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
     source_figures = []
     for row in registry.get("figures", []):
         if not isinstance(row, dict): continue
-        item = {key: row.get(key) for key in ("figure_id", "study_id", "source_id", "page", "figure_label", "caption", "evidence_ids", "selection_status", "asset_sha256", "source_pdf_sha256", "release_status", "target_binding")}
+        item = {key: row.get(key) for key in ("figure_id", "study_id", "source_id", "page", "figure_label", "caption", "evidence_ids", "selection_status", "asset_sha256", "source_pdf_sha256", "release_status", "target_binding", "rights_status", "rights_license", "rights_evidence_reference", "attribution")}
         item["candidate_only"] = candidate_only
         publication = publication_by_study.get(visible_text(row.get("study_id")), {})
         item["publication_identity"] = publication
@@ -7162,7 +7173,7 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         )
         if figure_locator:
             attribution_parts.append(figure_locator)
-        item["attribution"] = ". ".join(attribution_parts)
+        item["attribution"] = visible_text(row.get("attribution")) or ". ".join(attribution_parts)
         rights_status = row.get("rights_status")
         rights_status = rights_status if rights_status in {"unknown", "cleared"} else "unknown"
         item["rights_context"] = {
@@ -7188,7 +7199,28 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
                 if candidate_binding is not None
                 else None
             )
+            # Candidate assets are previewable before the human decision only
+            # when the snapshot includes a real, current asset binding.  The
+            # metadata-only fallback remains text-only and cannot claim an
+            # image that the public caller cannot serve.
             item["image_url"] = None
+            asset_path = row.get("asset_path")
+            asset_sha256 = row.get("asset_sha256")
+            if isinstance(asset_path, str) and asset_path.strip() and isinstance(asset_sha256, str):
+                try:
+                    candidate_asset = validate_project_file_path(
+                        project, Path(asset_path), "FIGURE_ASSET_INVALID"
+                    )
+                    current_asset_sha256 = hashlib.sha256(
+                        candidate_asset.read_bytes()
+                    ).hexdigest()
+                    if current_asset_sha256 == asset_sha256:
+                        item["image_url"] = (
+                            f"/api/project/{quote(project_id, safe='')}/source-figure"
+                            f"?figure_id={quote(str(row.get('figure_id')), safe='')}"
+                        )
+                except (OSError, ProjectReleaseError, ValueError):
+                    pass
         else:
             current_asset_sha256 = None
             if row.get("target_binding") is not None:
@@ -7273,6 +7305,7 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
         {
             "study_id": visible_text(row.get("study_id")),
             "page": row.get("page") if isinstance(row.get("page"), int) else None,
+            "code": visible_text(row.get("code")) or None,
             "reason": visible_text(row.get("reason")),
         }
         for row in registry.get("locator_gaps", [])
@@ -7295,6 +7328,11 @@ def project_review_figures_workspace_payload(review_root: Path, project_id: str)
                 if isinstance(row, dict)
             ),
             "locator_gap_count": len(locator_gaps),
+            "figure_gap_count": sum(
+                row.get("code") == "FIGURE_GAP"
+                for row in locator_gaps
+                if isinstance(row, dict)
+            ),
             "placeholder_count": len(placeholders),
         },
     }
