@@ -68,7 +68,7 @@ function flush() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-async function loadEvidenceWorkspace() {
+async function loadEvidenceWorkspace({paperEvidenceFails = false} = {}) {
   const root = new FakeElement("div");
   const shell = new FakeElement("section");
   const status = new FakeElement("p");
@@ -146,7 +146,11 @@ async function loadEvidenceWorkspace() {
     createProjectSurfaceCoordinator(options) {
       return {
         async refresh() {
-          options.render(await options.load(options.getProjectId()));
+          try {
+            options.render(await options.load(options.getProjectId()));
+          } catch (error) {
+            options.onLoadError?.(error);
+          }
         },
         async mutate(run, settings) {
           try {
@@ -167,6 +171,9 @@ async function loadEvidenceWorkspace() {
     document: window.document,
     fetch: async (url, options) => {
       calls.push(url);
+      if (paperEvidenceFails && url.endsWith("/paper-evidence")) {
+        return {ok: false, status: 503, json: async () => ({error: "Paper Evidence unavailable"})};
+      }
       if (url.endsWith("/decision-bundle")) return {ok: true, json: async () => decisionBundle};
       if (options?.method === "PUT") {
         requests.push({url, body: JSON.parse(options.body)});
@@ -177,7 +184,7 @@ async function loadEvidenceWorkspace() {
   });
   vm.runInContext(await readFile(sourcePath, "utf8"), context, {filename: sourcePath.pathname});
   await flush();
-  return {root, requests, calls, decisionBundleRoot, decisionBundleStatus};
+  return {root, requests, calls, decisionBundleRoot, decisionBundleStatus, decisionBundleMessage, evidenceStatus:status, evidenceMessage:message};
 }
 
 function byText(root, text) {
@@ -263,5 +270,16 @@ test("Decision Bundle is consumed through the public route and stays read-only",
   assert.match(rendered, /revision：7/);
   assert.match(rendered, /确认 MAIN\/SI 来源身份/);
   assert.match(rendered, /parse_quality/);
+  assert.equal(descendants(loaded.decisionBundleRoot, node => node.tagName === "BUTTON").length, 0);
+});
+
+test("Decision Bundle remains visible when Paper Evidence is unavailable", async () => {
+  const loaded = await loadEvidenceWorkspace({paperEvidenceFails: true});
+  assert.equal(loaded.calls.filter(url => url.endsWith("/paper-evidence")).length, 1);
+  assert.equal(loaded.calls.filter(url => url.endsWith("/decision-bundle")).length, 1);
+  assert.match(loaded.evidenceStatus.textContent, /暂不可用/);
+  assert.match(loaded.evidenceMessage.textContent, /Paper Evidence unavailable/);
+  assert.equal(loaded.decisionBundleStatus.textContent, "等待研究者决策");
+  assert.match(loaded.decisionBundleMessage.textContent, /HUMAN_ACTION_REQUIRED/);
   assert.equal(descendants(loaded.decisionBundleRoot, node => node.tagName === "BUTTON").length, 0);
 });

@@ -192,13 +192,18 @@
     getProjectId: () => projectSelection.getProjectId(projectSelect.value),
     getProjectLabel: () => projectSelection.getVisibleLabel(projectSelect.value),
     load: async id => {
-      const evidence = await api(id, "paper-evidence");
-      let decisionBundle;
-      try {
-        decisionBundle = await api(id, "decision-bundle");
-      } catch (error) {
-        decisionBundle = decisionBundleFailure(error);
+      const [evidenceResult, decisionBundleResult] = await Promise.allSettled([
+        api(id, "paper-evidence"),
+        api(id, "decision-bundle"),
+      ]);
+      const decisionBundle = decisionBundleResult.status === "fulfilled"
+        ? decisionBundleResult.value
+        : decisionBundleFailure(decisionBundleResult.reason);
+      if (evidenceResult.status === "rejected") {
+        evidenceResult.reason.decisionBundle = decisionBundle;
+        throw evidenceResult.reason;
       }
+      const evidence = evidenceResult.value;
       return {evidence, decisionBundle};
     },
     render: payload => {
@@ -210,7 +215,10 @@
       showEvidenceState("正在读取当前项目的 Paper Evidence…", "workspace-empty");
       renderDecisionBundle({status:"PRECONDITION_FAILED", reason_code:"DECISION_BUNDLE_LOADING", write_mode:"zero_write", current_unchanged:true});
     },
-    onLoadError: error => showEvidenceState(error.message, "workspace-error"),
+    onLoadError: error => {
+      showEvidenceState(error.message, "workspace-error");
+      renderDecisionBundle(error?.decisionBundle || decisionBundleFailure(error));
+    },
   });
 
   function showEvidenceState(value, className, statusText, messageText) {
