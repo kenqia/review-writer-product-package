@@ -118,6 +118,46 @@ full Agent-first N=3 Product Use. A rights hint never clears rights, and this co
 not claim Product Use, complete `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or
 `PROMOTE/B2`。
 
+## CR-008 component implementation record — Asset insertion (`HOLD`)
+
+- upstream URL：<https://github.com/TengJiao33/ChemVellum>
+- pinned upstream repository commit：`c94ff72694cc838c19fc22359e3e0b648e2352d6`
+- exact upstream file：`skills/review-citation-assets/scripts/insert_assets.py`
+- file-content/introduced commit：`5aed49a0521bc2d92ff97e1ce3900b24c24c03fc`
+- later directory context：`524e5f2b8094aee1b236153501302025af5e9f4d`
+- authorization reference：`USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`
+- upstream license：GitHub `license=null`；书面授权不被推断为开源许可证。
+
+### HOLD rationale and authority boundary
+
+The upstream behavior is useful as a review reference: allowed asset kinds, unique
+`asset_id`, source-paper locator/attribution/reuse basis, exactly-one insertion marker,
+asset hash verification, mechanical error reporting, zero-write on validation failure,
+and temporary-file replacement. This package already has the canonical equivalent in
+`review_writer/delivery/figure_policy.py::validate_new_route_figure_policy`,
+`review_writer/project/review_figures.py::validate_source_figure_target_binding`, and
+`review_writer/delivery/project_release.py::build_project_release`. Those seams validate
+the current source-figure registry, target binding, asset hash, attribution, rights and
+same-version Markdown/DOCX release. They are consumed by the real Dashboard/release
+caller and own the only project write set.
+
+No independent `insert_assets` adapter is added because it would introduce a second
+asset manifest, insertion writer, or release authority. The component therefore remains
+`HOLD`, not `ADAPTED`, `PUBLIC_CALLER_CONNECTED`, `REAL_RELEASE_CONSUMED`, or `VERIFIED`.
+The current equivalent seams have focused evidence in
+`tests/test_release_source_figure_provenance.py`,
+`tests/test_project_release_version_binding.py`, and the figure inventory/bridge suites;
+that evidence is not attributed to the upstream component and does not promote this
+component. No upstream code, template, image or script was copied.
+
+### Write set and rollback boundary
+
+This HOLD record writes only this notice and its traceability row. It writes no project
+files, registry, manuscript, release artifact or VersionContext. Reverting this one
+documentation commit removes the record and changes no review project. Any future
+adapter would first need a new change request proving a distinct canonical seam,
+zero-write/atomic rollback behavior, focused test, and a real Dashboard/release consumer.
+
 ## Verification status and limits
 
 初始 inventory 记录是 upstream URL、`main` commit、路径和 commit history 的只读静态检查。
