@@ -7,18 +7,21 @@
 | 层 | 包内路径 | 用途 | 状态边界 |
 | --- | --- | --- | --- |
 | 1. 本地运行时层 | `requirements.txt`、`review_writer/` | Python 运行时、source/Evidence、VersionContext、GeneratorSession、draft、figure、release 与 DOCX 完整性 helper | 只提供能力，不保存某篇综述的 current |
-| 2. Agent 合同层 | `.agents/skills/review-orchestrator/`、`scripts/evidence/` | Codex 可发现的 source-bound Skill 与被 runtime 导入的确定性 evidence helpers | Agent 必须接收 topic、显式 project root、authorized PDF folder；不能自动猜 MAIN/SI |
+| 2. Agent 合同层 | `.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/`、`review_writer/agent/qoderwork_adapter.py`、`scripts/evidence/` | Codex 兼容 Skill、QoderWork CN Expert Kit/Skill、宿主 adapter 与确定性 evidence helpers | 宿主必须接收 topic、显式 project root、authorized PDF folder；不能自动猜 MAIN/SI |
 | 3. Schema/项目权威层 | `schemas/` | Evidence、project、synthesis、figure、quality、delivery 的 JSON Schema | 每篇综述的真实数据由用户自己的 project root 持有，不随包发布 |
 | 4. Dashboard/发布层 | `view/serve_review_dashboard.py`、`view/assets/dashboard/`、`skills/review-export-docx/scripts/md2docx.py`、`skills/review-export-docx/review_template.docx` | 本地 Dashboard、人工决策/编辑/History、同版本 Markdown/DOCX 导出 | DOCX 模板是唯一随包二进制例外；`latex2word` 仍是可选增强 |
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`README.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`.agents/skills/review-orchestrator/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
 - `scripts/evidence/` 的全部 runtime-imported helper。
 - project-local `.agents/skills/review-orchestrator/SKILL.md` 与 `agents/openai.yaml`。
+- QoderWork CN Expert Kit：`qoderwork/plugins/review-writer-cn/.qoder-plugin/plugin.json`、`qoderwork.md`、`skills/review-writer/SKILL.md` 与插件 README。
+- `review_writer/agent/qoderwork_adapter.py`：只调用现有 `FreshAgentBootstrap` 与 `VersionContext`，不创建第二套 authority。
+- `scripts/build_qoderwork_plugin_zip.py`：构建并检查不含凭据/本机状态的确定性插件 ZIP。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
 - 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
@@ -38,10 +41,10 @@ current_pointer: .review-writer/version_context/current.json
 - `tests/`、`.worktrees/`、`.playwright-mcp/`、`.gstack/`、`.codex/`、`.ai/`、`.superpowers/`、`.agent-orchestration-runs/`。
 - `projects/`、`review-projects/`、`chem_papers/` 以及任何 review data、source archive、PDF、截图、DOCX 结果、日志或临时 evidence。
 - `docs/superpowers/`、`docs/handoff/`、`AGENTS.md`、`Makefile`、内部 CLI 文档和演示页面。
-- 旧 global skills、MinerU token/config 与外部 parser；本包只保留 project-local `review-orchestrator` 和必要 DOCX helper。缺少外部 MinerU 时沿用本地 `pdftotext` fallback。
+- 旧 global skills、MinerU token/config 与外部 parser；本包保留 Codex 兼容的 project-local `review-orchestrator`、QoderWork CN Expert Kit 和必要 DOCX helper。缺少外部 MinerU 时沿用本地 `pdftotext` fallback。
 - `.env`、`.env.production`、auth/token/cookie/session、私钥、真实 URL 或任何未脱敏的本地路径。
 
-源树已按下列精确目录排除而非“复制后清理”：`tests/`、`.worktrees/`、`.playwright-mcp/`、`.gstack/`、`.codex/`、`.ai/`、`.superpowers/`、`.agent-orchestration-runs/`、`projects/`、`review-projects/`、`chem_papers/`、`docs/superpowers/`、`docs/handoff/`、旧 `skills/` 子目录和 `view/assets/demo/`。源根的 `AGENTS.md`、`Makefile`、内部 CLI 入口 `scripts/run_vertical_review.py`、原始 README、控制台/网络/会话记录均未复制。
+源树已按下列精确目录排除而非“复制后清理”：`tests/`、`.worktrees/`、`.playwright-mcp/`、`.gstack/`、`.codex/`、`.ai/`、`.superpowers/`、`.agent-orchestration-runs/`、`projects/`、`review-projects/`、`chem_papers/`、`docs/superpowers/`、`docs/handoff/`、旧 `skills/` 子目录和 `view/assets/demo/`。源根的 `AGENTS.md`、`Makefile`、内部 CLI 入口 `scripts/run_vertical_review.py`、控制台/网络/会话记录均未复制；QoderWork CN 的用户插件与 adapter 是本产品包的显式用户入口，不属于开发控制面。
 
 ## 安装依赖依据
 

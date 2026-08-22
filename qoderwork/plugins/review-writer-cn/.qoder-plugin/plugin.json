@@ -1,0 +1,15 @@
+{
+  "name": "review-writer-cn",
+  "displayName": "Review Writer 化学综述工作台",
+  "version": "0.1.0",
+  "description": "Run a source-bound chemistry review through the local Review Writer Dashboard in QoderWork CN.",
+  "descriptionZh": "在 QoderWork CN 中通过本地 Review Writer Dashboard 完成可追溯、有人审闸门的化学综述。",
+  "author": {
+    "name": "kenqia",
+    "url": "https://github.com/kenqia/review-writer-product-package"
+  },
+  "keywords": ["chemistry", "literature review", "evidence", "综述", "证据审计"],
+  "homepage": "https://github.com/kenqia/review-writer-product-package",
+  "repository": "https://github.com/kenqia/review-writer-product-package",
+  "skills": ["./skills/review-writer"]
+}
