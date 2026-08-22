@@ -143,12 +143,15 @@ commit `c94ff72694cc838c19fc22359e3e0b648e2352d6`，并使用书面授权引用
 
 ```text
 inventory_status: PM_PROVIDED_INVENTORY
-implementation_status: PENDING/PARTIAL
+implementation_status: PARTIAL
 ```
 
 这只是来源、复用方式、责任落点和限制的合同登记，不是代码复制、运行时依赖或
-权利批准。source-figure adapter 尚未验证；本次不声称 Product Use、`PUBLIC_E2E`、
-`HUMAN_ACCEPTANCE`、scientific validity 或 `PROMOTE/B2`。CR-008 不缩减最终产品
+权利批准。Paper figure inventory adapter 已达到 bounded
+`ADAPTED → PUBLIC_CALLER_CONNECTED → REAL_RELEASE_CONSUMED → VERIFIED`，但仍不
+代表完整 Product Use、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity 或
+`PROMOTE/B2`。`insert_assets.py` 明确保持 `HOLD`，因为现有 figure/release
+authority 已覆盖其规则，不能引入第二套 writer/manifest。CR-008 不缩减最终产品
 scope；每项实现仍须在现有 source/Evidence、人工决策、release 和 promotion 边界
 内单独验证，未知权利保持阻断。
 
@@ -193,9 +196,12 @@ N=1/3/10/20 分层 Agent E2E；另测 cold-process resume、stale release、错�
 研究者决策后恢复、持续使用 canonical authority、生成同版本 Markdown/DOCX，并在
 项目重新启动后恢复。
 
-本合同切片只登记要求，当前状态为 `PLANNED/HOLD`：尚无完整 Agent E2E harness、
-真实 N=3 receipt、cold-resume receipt 或 `HUMAN_ACCEPTANCE` 证据，因此不宣称
-`AGENT_E2E_PASS`，也不把现有 Engineering/focused 测试升级为产品验收。
+本合同切片当前状态为 `PARTIAL/HOLD`：公开 Agent wrapper、AST bypass guard、
+clean-checkout synthetic N=3 public flow、cold-process receipt 和 stale/error/repeat
+focused evidence 已存在；但 receipt 仍是本地 deterministic wrapper + synthetic
+PDF，不是真实模型/provider 的完整产品使用，也没有 `HUMAN_ACCEPTANCE` 或 scientific
+validity。因此仍不宣称 `AGENT_E2E_PASS`，也不把 focused/Engineering 证据升级为
+最终产品验收。
 
 ## 交付与 N 边界
 
