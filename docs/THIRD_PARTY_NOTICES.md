@@ -219,3 +219,31 @@ zero-write/atomic rollback behavior, focused test, and a real Dashboard/release 
 本 inventory 不缩减 review-writer 的最终产品 scope（包括 FR-001..FR-026 及其他
 已批准合同）；组件复用只能在现有 source/Evidence、人工决策、release 和 promotion
 边界内逐项实现和验证。
+
+## CR-011 Windows host and QoderWork CN environment record
+
+This product package does not vendor a Windows installer, Python runtime, Poppler binary,
+MinerU token/configuration, QoderWork client, or QoderWork authentication data.
+
+- QoderWork CN Windows installation reference (retrieved 2026-08-22):
+  <https://docs.qoder.cn/qoderwork/installation-guide/windows-installation>
+- Qoder plugin/Expert Kit layout reference (retrieved 2026-08-22):
+  <https://docs.qoder.cn/qoder-plugins>
+- QoderWork extension release reference (retrieved 2026-08-22):
+  <https://docs.qoder.cn/qoderwork/user-guide/qoderwork-extension-release-guide-skill-plugin-connector>
+- `scripts/windows/Install-ReviewWriter.ps1` and
+  `scripts/windows/Test-ReviewWriterEnvironment.ps1` are original package setup/diagnostic
+  code. They only manage a package-local `.venv`/`build` output, inspect dependency availability,
+  and report configuration presence without revealing values; no secret is read or printed by
+  this setup slice.
+- `pdftotext` is an external system executable used by the existing truthful fallback; no binary
+  is copied into this repository. Users must obtain a trusted/organization-approved Poppler for
+  Windows build and place its `bin` directory on PATH.
+- `REVIEW_WRITER_MINERU_PARSER` is the only parser-path environment variable read by the package
+  itself. The external parser's own token/configuration is outside this package and must follow
+  that parser's official instructions. QoderWork login, model and Credits are client-owned and
+  are not Review Writer API credentials.
+
+No license is inferred from these documentation links, and no upstream executable or credential
+was copied. The package setup slice remains subject to the existing QoderWork UI, Product Use,
+`PUBLIC_E2E`, `HUMAN_ACCEPTANCE` and scientific-validity gates.

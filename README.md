@@ -74,6 +74,51 @@ python -m pip install -r requirements.txt
 Windows 可使用 Python Launcher 创建同等的 3.11+ 虚拟环境。依赖安装是一次性准备，不是日常
 综述操作；日常操作在 QoderWork CN 和 Dashboard 中完成。
 
+### Windows + QoderWork CN 一键准备
+
+QoderWork CN 是 Windows 图形化宿主；先在产品包根目录打开 PowerShell，执行一次：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\windows\Install-ReviewWriter.ps1
+```
+
+该脚本会幂等地创建或复用 `.venv`、安装 `requirements.txt`、检查 `pdftotext`，并构建
+`build\review-writer-cn.qoder-plugin.zip`。它不会删除已有环境、下载未知来源的 Poppler，也
+不会读取或打印 token。若 `pdftotext` 缺失，脚本会保留已完成的 Python 安装并以 `HOLD` 提醒；
+请使用组织批准或可信来源的 Poppler for Windows，将包含 `pdftotext.exe` 的 `bin` 目录加入
+Windows `PATH`，然后重新运行诊断：
+
+```powershell
+.\scripts\windows\Test-ReviewWriterEnvironment.ps1
+```
+
+诊断只报告 `READY/HOLD/NOTICE` 和“配置存在/缺失”，不会回显任何密钥。也可以只读查看
+`.env.example`；它只记录实际支持的 `REVIEW_WRITER_MINERU_PARSER` 路径变量，产品不会自动
+加载 `.env` 文件。
+
+接着从 [qoderwork.cn/download](https://qoderwork.cn/download) 安装 QoderWork CN Windows
+客户端，登录后把上面生成的 ZIP 在 `Extensions → Expert Kits` 中导入。QoderWork 的账号、
+模型选择和 Credits 由客户端管理；Review Writer 不需要单独的产品 API key。只有选择外部
+MinerU 解析器时，才需要按该解析器自己的官方说明配置其凭据；凭据不放进仓库、ZIP、`.env`
+或 project root。没有可用 MinerU 时，产品会如实记录 `pdftotext` fallback 及能力缺口。
+
+注意：Windows QoderWork 进程不会自动读取 WSL/Linux 的 `~/.zshrc`。如果你的 MinerU 配置只
+存在于 WSL shell，它不会因此出现在 Windows 客户端或 PowerShell 中；请按外部解析器的官方
+Windows 配置方式设置，并只在 PowerShell 中提供 parser 路径（例如当前会话的
+`$env:REVIEW_WRITER_MINERU_PARSER = 'C:\\approved\\parse_review_writer_pdfs.py'`）。诊断器会
+显示 MinerU `OK`、路径缺失 `HOLD` 或未配置 `NOTICE`，但永远不检查或回显 token 值。
+
+Windows 用户输入应使用 Windows 绝对路径，例如：
+
+```text
+主题：可见光驱动的镍催化偶联
+项目目录：C:\Users\your-name\review-projects\nickel-coupling-review
+获授权 PDF 文件夹：C:\Users\your-name\authorized-pdfs\nickel-coupling
+```
+
+项目目录仍是唯一 durable authority；不要把 PDF、`.env` 或凭据复制到产品包目录。
+
 ## Dashboard 中的流程
 
 产品会按公共链依次处理：

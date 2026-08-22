@@ -11,6 +11,10 @@ release 和 VersionContext 仍只保留在显式 project root。
 - [QoderWork CN 产品说明](https://docs.qoder.cn/qoderwork/product-overview/what-is-qoderwork-cn)：
   本地文件操作、目录授权和扩展能力。
 - [QoderWork CN Skills](https://docs.qoder.cn/user-guide/skills)：Skill 的 `SKILL.md` 组织方式。
+- [Windows 安装](https://docs.qoder.cn/qoderwork/installation-guide/windows-installation)：Windows 10
+  64-bit、登录、更新和客户端目录授权。
+- [QoderWork 扩展发布指南](https://docs.qoder.cn/qoderwork/user-guide/qoderwork-extension-release-guide-skill-plugin-connector)：
+  Skill、Plugin、Connector 与 Expert Kit 的边界。
 
 ## 安装
 
@@ -22,6 +26,38 @@ python scripts/build_qoderwork_plugin_zip.py
 
 再将 `build/review-writer-cn.qoder-plugin.zip` 上传到 QoderWork CN 的
 `Extensions → Expert Kits`。也可以把插件内的 `skills/review-writer/SKILL.md` 安装为独立 Skill。
+
+## Windows 环境准备
+
+在 PowerShell 中运行一次以下命令（`Scope Process` 只影响当前窗口，不覆盖系统策略）：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\windows\Install-ReviewWriter.ps1
+```
+
+脚本创建或复用产品包 `.venv`、安装 Python 依赖、检查 `pdftotext` 并生成 Expert Kit ZIP；
+失败时不删除已有环境。安装后可随时运行只读诊断：
+
+```powershell
+.\scripts\windows\Test-ReviewWriterEnvironment.ps1
+```
+
+`pdftotext` 是 fallback 的系统依赖。脚本不会从未知来源下载 Poppler；请使用可信/组织批准
+的 Windows Poppler 构建并把 `bin` 目录加入 PATH。MinerU 是可选的更高质量解析路径；产品只
+检查实际支持的 `REVIEW_WRITER_MINERU_PARSER`（见 [`.env.example`](.env.example)）是否存在，
+不读取或输出其 token。`.env.example` 不会被自动加载，也不应提交真实凭据。
+
+WSL/Linux 的 `~/.zshrc` 不会被 Windows QoderWork 客户端继承。若 MinerU 只在 WSL shell 中配置，
+Windows 诊断会明确显示未配置 `NOTICE`，实际流程会回退到 `pdftotext`；请根据外部解析器的
+官方 Windows 说明配置其凭据，并在 PowerShell 当前会话设置 parser 路径。Review Writer 不
+猜测或复制任何 `MINERU_TOKEN`/API key 变量。
+
+QoderWork CN 的登录、模型、账号和 Credits 属于 QoderWork Windows 客户端，不是 Review
+Writer 的 API 配置。客户端启动后，在 `Extensions → Expert Kits` 导入
+`build\review-writer-cn.qoder-plugin.zip`，然后只向 Agent 提供 topic、Windows 绝对 project
+root 和 authorized PDF folder。研究者仍在 Dashboard 完成每个人工闸门；客户端的登录或
+Credits 状态不能替代 `HUMAN_ACCEPTANCE`。
 
 ## 用户输入
 

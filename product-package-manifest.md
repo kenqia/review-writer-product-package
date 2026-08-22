@@ -13,18 +13,33 @@
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`.env.example`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/windows/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
 - `scripts/evidence/` 的全部 runtime-imported helper。
+- `scripts/windows/Install-ReviewWriter.ps1` 和 `Test-ReviewWriterEnvironment.ps1`：Windows
+  用户的一次性安装与只读诊断入口；它们不读取或打印凭据。
 - project-local `.agents/skills/review-orchestrator/SKILL.md` 与 `agents/openai.yaml`。
 - QoderWork CN Expert Kit：`qoderwork/plugins/review-writer-cn/.qoder-plugin/plugin.json`、`qoderwork.md`、`skills/review-writer/SKILL.md` 与插件 README。
 - `review_writer/agent/qoderwork_adapter.py`：只调用现有 `FreshAgentBootstrap` 与 `VersionContext`，不创建第二套 authority。
 - `scripts/build_qoderwork_plugin_zip.py`：构建并检查不含凭据/本机状态的确定性插件 ZIP。
 - 运行时直接解析的 DOCX helper：`md2docx.py` 和 `review_template.docx`。
 - 本说明、`README.md`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`requirements.txt` 和最终 `product-package-sha256.txt`。
+- `.env.example`：仅记录实际支持的 parser 路径变量和 QoderWork 凭据边界，不含任何值。
 - package-local `.gitignore`：忽略 venv、bytecode、`.env*`（显式保留 `.env.example`）、project/review data、PDF/DOCX/ZIP、日志、缓存与 OS/IDE 文件；运行必需的 `skills/review-export-docx/review_template.docx` 是唯一 DOCX 豁免。
+
+## CR-011 Windows/QoderWork CN environment preparation
+
+本切片的受控新增集合是 `.env.example`、`scripts/windows/Install-ReviewWriter.ps1`、
+`scripts/windows/Test-ReviewWriterEnvironment.ps1` 及对应 Windows/QoderWork 文档、
+traceability、third-party notice 和 focused static tests。安装器只创建或复用产品包本地
+`.venv`、安装 `requirements.txt` 并构建既有 Expert Kit ZIP；诊断器只读检查本地依赖、
+`pdftotext`、插件布局以及 `REVIEW_WRITER_MINERU_PARSER`，不读取或打印 secret。它们不写入
+用户 review project root、不自动下载 Poppler、不安装 QoderWork 客户端，也不替代
+Dashboard 的人工闸门。PowerShell 未在本 Linux/WSL 工具环境中执行，真实 QoderWork UI、
+Product Use、`PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity 和 `PROMOTE/B2` 仍为
+`HOLD`；回滚边界为一次 Git revert，或仅移除本次新建的 `.venv`/`build` 目录。
 
 示例（均为脱敏格式，不指向真实数据）：
 

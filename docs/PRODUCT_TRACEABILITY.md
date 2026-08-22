@@ -132,6 +132,22 @@ proof exist, but human acceptance and real model/provider product use do not; th
 the FR-027 row remains `AGENT_E2E_HOLD`. Existing Engineering, focused API, or ChemVellum
 adapter evidence cannot promote it.
 
+## CR-011 traceability — Windows/QoderWork CN environment preparation
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Windows install | `scripts/windows/Install-ReviewWriter.ps1`; `.env.example`; `README.md`; `docs-qoderwork-cn.md` | `tests/test_windows_setup_static.py`; PowerShell execution is not run on this Linux/WSL host | `ADAPTED / ENGINEERING_VERIFIED` | Creates or reuses `.venv`, installs package dependencies and builds the existing Expert Kit ZIP. It never deletes an existing environment, downloads unknown Poppler binaries, reads/prints secrets, or writes a review project root. |
+| Windows diagnostics | `scripts/windows/Test-ReviewWriterEnvironment.ps1` | `tests/test_windows_setup_static.py`; static secret/config checks | `ADAPTED / ENGINEERING_VERIFIED` | Reports Python/dependency, `pdftotext`, plugin layout and `REVIEW_WRITER_MINERU_PARSER` presence as `READY/HOLD/NOTICE`; configured values remain hidden. Missing MinerU is never presented as used, and the existing truthful fallback remains authoritative. |
+| QoderWork host boundary | official Windows/install and plugin docs linked from `docs-qoderwork-cn.md` | static documentation assertions; real QoderWork UI not available in this environment | `DOCUMENTED / UI_HOLD` | QoderWork login, model selection and Credits belong to the QoderWork CN client; Review Writer has no separate product API key. Real `QODERWORK_UI_E2E`, Product Use and `HUMAN_ACCEPTANCE` remain separate. |
+
+The CR-011 write set is limited to `.env.example`, `scripts/windows/`, the user setup docs,
+manifest/traceability/notices and the focused static test. Installation writes only the local
+package `.venv` and `build/` output; diagnostic mode is read-only. A failed install never removes
+the pre-existing `.venv` or user project (a dependency operation may have partially updated an
+existing environment, so the operator should recreate that environment manually if needed).
+Rollback is one Git revert for the package slice, or manual removal of only a `.venv`/`build/`
+directory created by this run; the script never automatically removes an existing environment.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh
