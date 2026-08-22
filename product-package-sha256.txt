@@ -3,7 +3,7 @@
 5f3f3b2faea8c5fbc764488eec93644c3be6a6bf31c3eff16e15f0195ee7b2f1  ./.gitignore
 5ab86c207a4a7baadd0913221cab93553a3bec84721075a89c1b226a31c45b1f  ./README.md
 2aabfbe28c053d41cef8cad3338d7a5d76540b8b6690e2a3773dee0fa2cc1844  ./docs/PRODUCT_CONTRACT.md
-fd110900851e6507a431458a00615c660523f24f5138d582ebea0e79ed9a7751  ./docs/PRODUCT_TRACEABILITY.md
+ab1693e49059f736f993b342517c97d753caf1478ab62782a55a3435119dab90  ./docs/PRODUCT_TRACEABILITY.md
 63daf4f0c07011266ae1dec8875011f8d6019c7b74760668c2c75b21fd729e7e  ./docs/THIRD_PARTY_NOTICES.md
 b03a5341353ec0c0c8d55c5bae1b25b1d71df6bac319e83765f6d49959b3c6c3  ./product-package-manifest.md
 c4acaf28adf7ff2b0ee4df3e7572870f9d93599d0c01b7133ef8cebde3e4fc53  ./requirements.txt
@@ -116,8 +116,8 @@ bde7f7cb07414588ac0efce5c025476fbb408b4d0640e9e6beb93779105d0b05  ./view/assets/
 49f8a9ee7b8b5464408d2961426e6cc64a7ba0452baf00401f93eb01f48fbf1f  ./view/assets/dashboard/review-chemical-paper.js
 755836dd45573818877b5265c9d814068f3ac48feed9784ce8b75586230c61d8  ./view/assets/dashboard/review-dual-parse.css
 d45ff79664a67167077d639cf069d84bf757ee2e29efee487aed0b40e965d4f7  ./view/assets/dashboard/review-dual-parse.js
-8b587d96d5eb4b9d802e3584abf4915d1f741da895d3fd257115c2f7ff6755ff  ./view/assets/dashboard/review-evidence.css
-67435681900a999dc201bf321396a8f5250fbaaeb9cb5ed7ab41e1f64645e1f8  ./view/assets/dashboard/review-evidence.js
+d1db36eb106795e187f4845a31f014712631ca547587547613a8449bdf84d1ed  ./view/assets/dashboard/review-evidence.css
+4c1d9ffdc25a82d1952df4343454fe848c9c7802aa761784f574c4ba97aff654  ./view/assets/dashboard/review-evidence.js
 80bcd253ab73f4dde1ec0939a9da61d40c69aec796fbad7b699da5fdc3978773  ./view/assets/dashboard/review-manuscript.css
 a51626ce5290f9469b302673b8f4d96b9a950e7b8b04dd04c16b7810e4db58bb  ./view/assets/dashboard/review-manuscript.js
 8e17bb27d03a17bd53669631df20ed1973e003f344705b8383be035275d8334c  ./view/assets/dashboard/review-release.css
@@ -125,7 +125,7 @@ a51626ce5290f9469b302673b8f4d96b9a950e7b8b04dd04c16b7810e4db58bb  ./view/assets/
 8f9f82a43123a51aa4a5c4e3bd2be770443e1a0822557a7e315e34723930f272  ./view/assets/dashboard/review-session.js
 ad347189952d7d77567a30159ed85ac75276ef872c95fed830a2fda6021faca7  ./view/assets/dashboard/review-synthesis.js
 d4c4ba4edfea77ce95d0e97999c6af8e9b0a9b3ec24a4f2f82555616ba69a865  ./view/assets/dashboard/review-ui.css
-9700cd158bd713540f817549d3357922a93173df40908e559ed71213b2f60d8a  ./view/assets/dashboard/review-ui.js
-f4b768c5a200e353f70b28174e6c2999022108fbb19a503192b6382725c48e67  ./view/assets/dashboard/review.html
+e950389619ec711a3e910f920957cfce6179a8cacf60f586f9eb37f5abe372d2  ./view/assets/dashboard/review-ui.js
+9dfa2fe01121c6639a4b0e242fe2608cc94d6a02485f21a6c4083c7c94883c40  ./view/assets/dashboard/review.html
 7d9fbb160460e55fa257a2105bc080e1ad8eb26cd57b245b29a165fa596ce080  ./view/assets/dashboard/sections.html
 cfd78fba6d56947cd276260b4b15d05ce7bf39de7e83c4da995efc17cea0d150  ./view/serve_review_dashboard.py

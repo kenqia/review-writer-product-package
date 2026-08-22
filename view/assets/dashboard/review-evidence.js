@@ -4,6 +4,10 @@
   const shell = document.getElementById("evidence-synthesis-workspace");
   const status = document.getElementById("evidence-workspace-status");
   const message = document.getElementById("evidence-workspace-message");
+  const decisionBundlePanel = document.getElementById("decision-bundle-panel");
+  const decisionBundleRoot = document.getElementById("decision-bundle-root");
+  const decisionBundleStatus = document.getElementById("decision-bundle-status");
+  const decisionBundleMessage = document.getElementById("decision-bundle-message");
   const projectSelect = document.getElementById("project");
   const projectSelection = window.reviewProjectSelection;
   if (!root || !shell || !projectSelect || !projectSelection) return;
@@ -44,20 +48,168 @@
       let details = null;
       try { details = await response.json(); } catch (_) { /* A plain HTTP error has no safe detail to show. */ }
       const detail = typeof details?.error === "string" ? details.error : details?.message;
-      throw new Error(response.status === 409
+      const error = new Error(response.status === 409
         ? "内容已更新，请刷新后重新核对。"
         : (typeof detail === "string" && detail.trim() ? detail.trim() : `决定未保存（${response.status}）。`));
+      error.httpStatus = response.status;
+      error.payload = details;
+      throw error;
     }
     return response.json();
   };
   let busy = false;
 
+  const decisionBundleStatusLabels = {
+    HUMAN_ACTION_REQUIRED: "等待研究者决策",
+    VERSION_CONFLICT: "当前版本冲突",
+    PRECONDITION_FAILED: "前置条件未满足",
+  };
+
+  function decisionBundleFailure(error) {
+    const payload = error?.payload;
+    if (payload && typeof payload === "object" && typeof payload.status === "string") return payload;
+    const reasonCode = error?.httpStatus === 409 ? "VERSION_CONFLICT" : "DECISION_BUNDLE_UNAVAILABLE";
+    return {
+      schema_version: "decision-bundle.v1",
+      status: error?.httpStatus === 409 ? "VERSION_CONFLICT" : "PRECONDITION_FAILED",
+      reason_code: reasonCode,
+      category: error?.httpStatus === 409 ? "VERSION_CONFLICT" : "PRECONDITION_FAILED",
+      current: null,
+      revision: null,
+      write_mode: "zero_write",
+      current_unchanged: true,
+      decision_options: [],
+      expected_write_set: [],
+      conflicts: [{component: "decision_bundle", code: reasonCode}],
+    };
+  }
+
+  function normalizeDecisionBundle(payload) {
+    if (!payload || typeof payload !== "object") return decisionBundleFailure();
+    const statusValue = typeof payload.status === "string" ? payload.status : "";
+    const current = payload.current && typeof payload.current === "object" ? payload.current : null;
+    const isHumanAction = statusValue === "HUMAN_ACTION_REQUIRED";
+    const currentRevision = current?.revision ?? payload.revision;
+    if (isHumanAction && (
+      payload.write_mode !== "NONE"
+      || payload.current_unchanged !== true
+      || !current
+      || !Number.isInteger(currentRevision)
+    )) {
+      return decisionBundleFailure({payload:{status:"PRECONDITION_FAILED", reason_code:"DECISION_BUNDLE_INVALID"}});
+    }
+    return {
+      ...payload,
+      status: statusValue || "PRECONDITION_FAILED",
+      current,
+      decision_options: Array.isArray(payload.decision_options) ? payload.decision_options : [],
+      expected_write_set: Array.isArray(payload.expected_write_set) ? payload.expected_write_set : [],
+      conflicts: Array.isArray(payload.conflicts) ? payload.conflicts : [],
+      write_mode: payload.write_mode || "zero_write",
+      current_unchanged: payload.current_unchanged === true,
+    };
+  }
+
+  function decisionBundleGaps(bundle) {
+    const rows = [];
+    const append = value => {
+      if (!value || typeof value !== "object") return;
+      const component = typeof value.component === "string" ? value.component : "decision_bundle";
+      const code = typeof value.code === "string" ? value.code : "DECISION_BUNDLE_REVIEW_REQUIRED";
+      const detail = typeof value.detail === "string" ? value.detail : "";
+      const key = `${component}|${code}|${detail}`;
+      if (rows.some(row => row.key === key)) return;
+      rows.push({key, text: [component, code, detail].filter(Boolean).join(" · ")});
+    };
+    (bundle.conflicts || []).forEach(append);
+    ["source_identity_projection", "parse_provenance", "evidence", "synthesis", "figures", "release_impacts"]
+      .forEach(component => (bundle[component]?.gaps || []).forEach(gap => append({...gap, component:gap.component || component})));
+    return rows;
+  }
+
+  function renderDecisionBundle(payload) {
+    if (!decisionBundlePanel || !decisionBundleRoot || !decisionBundleStatus || !decisionBundleMessage) return;
+    const bundle = normalizeDecisionBundle(payload);
+    decisionBundlePanel.hidden = false;
+    decisionBundleStatus.textContent = decisionBundleStatusLabels[bundle.status] || "状态待核对";
+    decisionBundleStatus.className = `state-badge ${bundle.status === "HUMAN_ACTION_REQUIRED" ? "decision-bundle-status-warn" : "decision-bundle-status-error"}`;
+    if (bundle.status === "HUMAN_ACTION_REQUIRED") {
+      decisionBundleMessage.textContent = "HUMAN_ACTION_REQUIRED：等待研究者决策；当前面板只读，不会自动批准或写入。";
+    } else if (bundle.status === "VERSION_CONFLICT") {
+      decisionBundleMessage.textContent = "当前版本已变化；Decision Bundle 已停止显示候选决定，本次保持 zero-write，请刷新后重新读取。";
+    } else {
+      decisionBundleMessage.textContent = `Decision Bundle 暂不可用（${bundle.reason_code || "PRECONDITION_FAILED"}）；当前状态保持不变。`;
+    }
+    decisionBundleRoot.replaceChildren();
+    const current = bundle.current || {};
+    const summary = document.createElement("p");
+    summary.className = "decision-bundle-summary";
+    summary.textContent = `当前版本：${current.version_id || "—"} · revision：${current.revision ?? bundle.revision ?? "—"} · 状态：${bundle.status} · 写入模式：${bundle.write_mode || "zero_write"} · 当前未改变：${bundle.current_unchanged === true ? "是" : "否"}`;
+    decisionBundleRoot.append(summary);
+
+    const appendList = (heading, values, empty) => {
+      const section = document.createElement("section");
+      section.className = "decision-bundle-section";
+      const title = document.createElement("h4");
+      title.textContent = heading;
+      section.append(title);
+      const listNode = document.createElement("ul");
+      if (values.length) {
+        values.forEach(value => {
+          const item = document.createElement("li");
+          item.textContent = String(value);
+          listNode.append(item);
+        });
+      } else {
+        const item = document.createElement("li");
+        item.textContent = empty;
+        listNode.append(item);
+      }
+      section.append(listNode);
+      decisionBundleRoot.append(section);
+    };
+
+    appendList(
+      "候选决策（均需研究者确认）",
+      bundle.status === "HUMAN_ACTION_REQUIRED"
+        ? bundle.decision_options.map(option => option?.label || option?.decision_id || "候选决策")
+        : [],
+      bundle.status === "HUMAN_ACTION_REQUIRED" ? "未提供候选决策。" : "当前版本冲突或前置条件失败；不显示候选决策。",
+    );
+    appendList(
+      "预期写集（只读说明）",
+      bundle.status === "HUMAN_ACTION_REQUIRED" ? bundle.expected_write_set : [],
+      bundle.status === "HUMAN_ACTION_REQUIRED" ? "未提供预期写集。" : "zero-write：本次没有可执行写集。",
+    );
+    appendList(
+      "明确缺口",
+      decisionBundleGaps(bundle).map(row => row.text),
+      "当前投影未提供额外缺口；仍需研究者完成上述人工决策。",
+    );
+  }
+
   const coordinator = window.ReviewSessionUI.createProjectSurfaceCoordinator({
     getProjectId: () => projectSelection.getProjectId(projectSelect.value),
     getProjectLabel: () => projectSelection.getVisibleLabel(projectSelect.value),
-    load: id => api(id, "paper-evidence"),
-    render,
-    onProjectChange: () => showEvidenceState("正在读取当前项目的 Paper Evidence…", "workspace-empty"),
+    load: async id => {
+      const evidence = await api(id, "paper-evidence");
+      let decisionBundle;
+      try {
+        decisionBundle = await api(id, "decision-bundle");
+      } catch (error) {
+        decisionBundle = decisionBundleFailure(error);
+      }
+      return {evidence, decisionBundle};
+    },
+    render: payload => {
+      const evidencePayload = payload?.evidence || payload;
+      render(evidencePayload);
+      renderDecisionBundle(payload?.decisionBundle || decisionBundleFailure());
+    },
+    onProjectChange: () => {
+      showEvidenceState("正在读取当前项目的 Paper Evidence…", "workspace-empty");
+      renderDecisionBundle({status:"PRECONDITION_FAILED", reason_code:"DECISION_BUNDLE_LOADING", write_mode:"zero_write", current_unchanged:true});
+    },
     onLoadError: error => showEvidenceState(error.message, "workspace-error"),
   });
 

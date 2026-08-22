@@ -367,6 +367,17 @@
               <span id="evidence-workspace-status" class="state-badge" role="status" aria-live="polite">读取中</span>
             </header>
             <p id="evidence-workspace-message" class="stage-task-lead" role="status" aria-live="polite">只显示当前 canonical 记录；当前性、支持 / 反驳 / 缺口 / 冲突 / 待核对均以真实状态为准。</p>
+            <section id="decision-bundle-panel" class="decision-bundle-panel" aria-labelledby="decision-bundle-heading">
+              <header class="decision-bundle-heading">
+                <div>
+                  <p class="section-label">Decision Bundle</p>
+                  <h3 id="decision-bundle-heading">研究者决策包（只读）</h3>
+                </div>
+                <span id="decision-bundle-status" class="state-badge" role="status" aria-live="polite">读取中</span>
+              </header>
+              <p id="decision-bundle-message" class="stage-task-lead" role="status" aria-live="polite">此处只显示当前版本、候选决策与明确缺口；不会替研究者批准或写入当前版本。</p>
+              <div id="decision-bundle-root"></div>
+            </section>
             <div id="canonical-evidence-records" aria-label="Canonical Evidence records">
               <div id="evidence-workspace-root"></div>
             </div>

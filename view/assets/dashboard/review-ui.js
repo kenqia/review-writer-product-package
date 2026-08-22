@@ -6,17 +6,20 @@
       id: "home",
       label: "首页",
       href: "/review",
-      matches: ({page, hash}) => page === "review" && hash !== "#evidence" && hash !== "#manuscript",
+      matches: ({page, hash}) => page === "review"
+        && !["#evidence", "#decision-bundle", "#manuscript"].includes(hash),
       children: [],
     },
     {
       id: "sources",
       label: "来源与证据",
       href: "/library",
-      matches: ({page, hash}) => page === "library" || page === "matrix" || (page === "review" && hash === "#evidence"),
+      matches: ({page, hash}) => page === "library" || page === "matrix"
+        || (page === "review" && ["#evidence", "#decision-bundle"].includes(hash)),
       children: [
         {id: "corpus", label: "Corpus", href: "/library", matches: ({page}) => page === "library"},
         {id: "evidence", label: "Evidence", href: "/review#evidence", matches: ({page, hash}) => page === "review" && hash === "#evidence"},
+        {id: "decision-bundle", label: "Decision Bundle", href: "/review#decision-bundle", matches: ({page, hash}) => page === "review" && hash === "#decision-bundle"},
         {id: "matrix", label: "Matrix", href: "/matrix", matches: ({page}) => page === "matrix"},
       ],
     },
@@ -363,7 +366,7 @@
   function syncReviewFocus() {
     if (!document.body || !document.body.classList.contains("page-review")) return;
     const hash = location.hash.toLowerCase();
-    const evidenceFocused = hash === "#evidence";
+    const evidenceFocused = hash === "#evidence" || hash === "#decision-bundle";
     const manuscriptFocused = hash === "#manuscript";
     document.body.classList.toggle("rw-overview-focus", !evidenceFocused && !manuscriptFocused);
     document.body.classList.toggle("rw-evidence-focus", evidenceFocused);
@@ -371,7 +374,8 @@
     document.body.dataset.reviewFocus = manuscriptFocused ? "manuscript" : evidenceFocused ? "evidence" : "overview";
     if (evidenceFocused) {
       window.requestAnimationFrame(() => {
-        document.getElementById("evidence-synthesis-workspace")?.scrollIntoView({block: "start"});
+        document.getElementById(hash === "#decision-bundle" ? "decision-bundle-panel" : "evidence-synthesis-workspace")
+          ?.scrollIntoView({block: "start"});
       });
     }
     if (manuscriptFocused) {

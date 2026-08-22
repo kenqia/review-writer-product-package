@@ -5,6 +5,15 @@ import vm from "node:vm";
 
 const sourcePath = new URL("../view/assets/dashboard/review-evidence.js", import.meta.url);
 
+test("Evidence page exposes the read-only Decision Bundle caller", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(source, /decision-bundle/);
+  assert.match(source, /decision-bundle-panel/);
+  assert.match(source, /expected_write_set/);
+  assert.match(source, /HUMAN_ACTION_REQUIRED/);
+});
+
 class FakeElement {
   constructor(tagName) {
     this.tagName = tagName.toUpperCase();
@@ -64,6 +73,10 @@ async function loadEvidenceWorkspace() {
   const shell = new FakeElement("section");
   const status = new FakeElement("p");
   const message = new FakeElement("p");
+  const decisionBundlePanel = new FakeElement("section");
+  const decisionBundleRoot = new FakeElement("div");
+  const decisionBundleStatus = new FakeElement("span");
+  const decisionBundleMessage = new FakeElement("p");
   const projectSelect = new FakeElement("select");
   projectSelect.value = "automated-qa-project";
   const elements = new Map([
@@ -71,9 +84,14 @@ async function loadEvidenceWorkspace() {
     ["evidence-synthesis-workspace", shell],
     ["evidence-workspace-status", status],
     ["evidence-workspace-message", message],
+    ["decision-bundle-panel", decisionBundlePanel],
+    ["decision-bundle-root", decisionBundleRoot],
+    ["decision-bundle-status", decisionBundleStatus],
+    ["decision-bundle-message", decisionBundleMessage],
     ["project", projectSelect],
   ]);
   const requests = [];
+  const calls = [];
   const payload = {
     route: "evidence-to-release.v1",
     status: "needs_review",
@@ -89,6 +107,18 @@ async function loadEvidenceWorkspace() {
       risk_classes: [],
       version_token: "version-token-1",
     }],
+  };
+  const decisionBundle = {
+    schema_version: "decision-bundle.v1",
+    status: "HUMAN_ACTION_REQUIRED",
+    reason_code: "SOURCE_ROLE_HUMAN_ACTION_REQUIRED",
+    current: {version_id: "v1", revision: 7},
+    revision: 7,
+    write_mode: "NONE",
+    current_unchanged: true,
+    decision_options: [{decision_id: "SOURCE_IDENTITY", label: "确认 MAIN/SI 来源身份", requires_human: true}],
+    expected_write_set: ["01_evidence/source_truth/*/parse_quality.json"],
+    conflicts: [{component: "source", code: "SOURCE_ROLE_HUMAN_ACTION_REQUIRED"}],
   };
   const window = {
     document: {
@@ -136,6 +166,8 @@ async function loadEvidenceWorkspace() {
     window,
     document: window.document,
     fetch: async (url, options) => {
+      calls.push(url);
+      if (url.endsWith("/decision-bundle")) return {ok: true, json: async () => decisionBundle};
       if (options?.method === "PUT") {
         requests.push({url, body: JSON.parse(options.body)});
       }
@@ -145,7 +177,7 @@ async function loadEvidenceWorkspace() {
   });
   vm.runInContext(await readFile(sourcePath, "utf8"), context, {filename: sourcePath.pathname});
   await flush();
-  return {root, requests};
+  return {root, requests, calls, decisionBundleRoot, decisionBundleStatus};
 }
 
 function byText(root, text) {
@@ -219,4 +251,17 @@ test("Evidence decisions use card controls and send only contract-valid payloads
     actor_type: "simulated_researcher_agent",
     actor_label: "automated-qa",
   });
+});
+
+test("Decision Bundle is consumed through the public route and stays read-only", async () => {
+  const loaded = await loadEvidenceWorkspace();
+  assert.equal(loaded.calls.filter(url => url.endsWith("/decision-bundle")).length, 1);
+  assert.equal(loaded.decisionBundleStatus.textContent, "等待研究者决策");
+  const rendered = descendants(loaded.decisionBundleRoot, node => node.textContent)
+    .map(node => node.textContent)
+    .join("\n");
+  assert.match(rendered, /revision：7/);
+  assert.match(rendered, /确认 MAIN\/SI 来源身份/);
+  assert.match(rendered, /parse_quality/);
+  assert.equal(descendants(loaded.decisionBundleRoot, node => node.tagName === "BUTTON").length, 0);
 });
