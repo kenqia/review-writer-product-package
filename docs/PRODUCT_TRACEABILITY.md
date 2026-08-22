@@ -161,6 +161,18 @@ temporary output, then atomically publishes one parser output directory consumed
 `local_pdf_parse`; failure removes only that temporary directory. Rollback is one Git revert.
 Real MinerU network/Windows/QoderWork execution and `HUMAN_ACCEPTANCE` remain unverified here.
 
+## CR-013 traceability — Windows portable source-relative paths
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Source-relative canonical boundary | `review_writer/project/source_truth.py::canonical_relative_path`, `_receipt_pdf`, `_unique_mineru_row`; `view/serve_review_dashboard.py::_acquisition_source_relative_path`, `::_source_manifest_relative_pdf_path` | `tests/test_windows_path_normalization.py` (`3 passed`); compile and diff checks | `ADAPTED / ENGINEERING_VERIFIED` | Normalizes Windows `\\` separators to canonical POSIX relative paths at the external metadata boundary, serializes Dashboard MinerU manifests with `.as_posix()`, and reuses existing `validate_relative_path` for absolute/traversal/reparse safety. Source Truth, VersionContext and Dashboard authority are unchanged; invalid input remains fail-closed and zero-write. |
+
+The CR-013 write set is limited to the two runtime callers, one focused regression test, this
+traceability row and the corresponding third-party notice. It adds no dependency, does not rewrite
+existing project metadata, and does not migrate or reinterpret source authority. Rollback is one Git
+revert. Windows-native execution and full Product Use remain unverified in this WSL environment;
+`PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

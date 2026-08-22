@@ -273,3 +273,14 @@ was copied. The package setup slice remains subject to the existing QoderWork UI
 - The adapter rejects unsafe ZIP paths/symlinks, malformed output and output-directory collisions
   before publication. It does not bypass SourceTruth, VersionContext, parse-quality or Dashboard
   human gates.
+
+## CR-013 Windows portable source-relative path boundary
+
+This is an internal portability maintenance slice; it adds no third-party code, service, asset,
+license or runtime dependency. `review_writer/project/source_truth.py` and
+`view/serve_review_dashboard.py` normalize only external relative-path separators and keep the
+existing `validate_relative_path` absolute/traversal/reparse checks authoritative. The Dashboard
+manifest caller now uses `.as_posix()` for persisted `relative_pdf_path`; malformed input is still
+rejected before any project write. The focused regression is
+`tests/test_windows_path_normalization.py`; no Windows-native or QoderWork UI run was available
+in this WSL environment. The exact rollback boundary is one Git revert of this slice.

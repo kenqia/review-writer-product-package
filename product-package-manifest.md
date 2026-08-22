@@ -84,3 +84,12 @@ current_pointer: .review-writer/version_context/current.json
 - `PUBLIC_E2E`、`HUMAN_ACCEPTANCE`、scientific validity、`PROMOTE/B2`：必须由独立真实流程和研究者决定；本包不自动宣称通过。
 
 发布包 hash 文件只覆盖包内普通文件（不把自身列入自身的 hash 输入）；重新复制或修改任一文件后应重新生成 hash 文件。
+
+## CR-013 Windows source-relative path portability
+
+本维护切片仅更新 `review_writer/project/source_truth.py`、
+`view/serve_review_dashboard.py`、对应 focused regression test、traceability 和 notice；不新增
+依赖、不改变 Source Truth/VersionContext/Dashboard authority，也不把 Windows 绝对路径变成可写入
+的 project-relative path。外部相对路径统一以 canonical POSIX 形式比较和序列化；绝对路径、遍历、
+reparse/link 安全边界继续 fail-closed。WSL focused evidence 不等同于 Windows native、QoderWork、
+Product Use、`PUBLIC_E2E` 或 `HUMAN_ACCEPTANCE`，回滚边界为一次 Git revert。

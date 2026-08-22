@@ -70,6 +70,24 @@ class SourceTruthAssetSnapshot:
     project_inode: int
 
 
+def canonical_relative_path(value: object) -> str | None:
+    """Return one safe external relative path in canonical POSIX syntax.
+
+    Review-project metadata can be produced on Windows, where ``str(Path)``
+    serializes separators as ``\\``.  Normalize only that representation
+    boundary; ``validate_relative_path`` remains the authority for rejecting
+    absolute, empty, dot, and traversal paths.
+    """
+
+    if not isinstance(value, str) or not value:
+        return None
+    portable = value.replace("\\", "/")
+    try:
+        return validate_relative_path(portable)
+    except PathSafetyError:
+        return None
+
+
 def canonical_digest(value: object) -> str:
     payload = json.dumps(
         value,
@@ -105,8 +123,11 @@ def _read_object(project: Path, relative: str, code: str) -> dict[str, Any]:
 
 
 def _safe_file(project: Path, relative: str, code: str = "SOURCE_ASSET_INVALID") -> Path:
+    canonical = canonical_relative_path(relative)
+    if canonical is None:
+        raise SourceTruthError(code)
     try:
-        return validate_source_file(project, relative)
+        return validate_source_file(project, canonical)
     except (OSError, PathSafetyError) as exc:
         raise SourceTruthError(code) from exc
 
@@ -125,10 +146,9 @@ def _secure_source_fd(
         or os.open not in os.supports_dir_fd
     ):
         raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
-    try:
-        canonical = validate_relative_path(relative)
-    except PathSafetyError as exc:
-        raise SourceTruthError("SOURCE_ASSET_INVALID") from exc
+    canonical = canonical_relative_path(relative)
+    if canonical is None:
+        raise SourceTruthError("SOURCE_ASSET_INVALID")
     directory_flags = (
         os.O_RDONLY
         | os.O_DIRECTORY
@@ -204,9 +224,12 @@ def _require_private_snapshot_path(path: Path, mode: int, *, directory: bool) ->
 
 
 def _file_descriptor(project: Path, relative: str) -> dict[str, Any]:
-    path = _safe_file(project, relative)
+    canonical = canonical_relative_path(relative)
+    if canonical is None:
+        raise SourceTruthError("SOURCE_ASSET_INVALID")
+    path = _safe_file(project, canonical)
     return {
-        "path": relative,
+        "path": canonical,
         "sha256": _sha256_file(path),
         "size_bytes": path.stat().st_size,
     }
@@ -301,9 +324,10 @@ def _receipt_sources(study: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 def _receipt_pdf(project: Path, descriptor: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
     value = descriptor.get("path")
     expected = descriptor.get("sha256")
-    if not isinstance(value, str) or not value or not isinstance(expected, str) or not SHA256_RE.fullmatch(expected):
+    canonical = canonical_relative_path(value)
+    if canonical is None or not isinstance(expected, str) or not SHA256_RE.fullmatch(expected):
         raise SourceTruthError("ACQUISITION_SOURCE_INVALID")
-    relative = f"00_sources/{value}"
+    relative = f"00_sources/{canonical}"
     path = _safe_file(project, relative)
     observed = _sha256_file(path)
     if observed != expected:
@@ -318,8 +342,18 @@ def _unique_mineru_row(project: Path, pdf_relative: str) -> dict[str, Any]:
         "MINERU_MANIFEST_INVALID",
     )
     rows = _rows(manifest, "completed", "MINERU_MANIFEST_INVALID")
-    expected = pdf_relative.removeprefix("00_sources/")
-    matches = [row for row in rows if row.get("relative_pdf_path") == expected]
+    canonical_pdf_relative = canonical_relative_path(pdf_relative)
+    expected = (
+        canonical_pdf_relative.removeprefix("00_sources/")
+        if canonical_pdf_relative is not None
+        else None
+    )
+    matches = [
+        row
+        for row in rows
+        if expected is not None
+        and canonical_relative_path(row.get("relative_pdf_path")) == expected
+    ]
     if len(matches) != 1:
         raise SourceTruthError("MINERU_BINDING_MISSING" if not matches else "MINERU_BINDING_AMBIGUOUS")
     row = matches[0]

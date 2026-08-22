@@ -153,6 +153,7 @@ from review_writer.project.source_truth import (  # noqa: E402
     SourceTruthAssetSnapshot,
     SourceTruthError,
     build_source_truth_bundle,
+    canonical_relative_path,
     canonical_digest,
     declared_study_ids,
     load_source_truth_bundle,
@@ -4275,8 +4276,8 @@ def _normalized_project_source_id(value: str) -> str:
 def _acquisition_source_relative_path(value: Any) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    portable = value.strip().replace("\\", "/")
-    if portable.startswith("/") or re.match(r"^[A-Za-z]:/", portable):
+    portable = canonical_relative_path(value.strip())
+    if portable is None:
         return None
     parts = portable.split("/")
     if any(part in {"", ".", ".."} for part in parts):
@@ -5717,8 +5718,8 @@ def _publish_public_manual_parse(project: Path, data: object) -> dict[str, Any]:
                         "study_id": study_id,
                         "source_id": source_id,
                         "document_role": "MAIN",
-                        "relative_pdf_path": str(
-                            _receipt_source_relative_from_project(project, study_id)
+                        "relative_pdf_path": _source_manifest_relative_pdf_path(
+                            project, study_id
                         ),
                         "source_pdf_sha256": source_pdf_sha256,
                         "provenance": "MANUAL_IMPORT",
@@ -5748,8 +5749,8 @@ def _publish_public_manual_parse(project: Path, data: object) -> dict[str, Any]:
                         "study_id": study_id,
                         "source_id": source_id,
                         "document_role": "MAIN",
-                        "relative_pdf_path": str(
-                            _receipt_source_relative_from_project(project, study_id)
+                        "relative_pdf_path": _source_manifest_relative_pdf_path(
+                            project, study_id
                         ),
                         "source_pdf_sha256": source_pdf_sha256,
                         "full_md": f"extracted/{slug}/full.md",
@@ -5865,6 +5866,12 @@ def _receipt_source_relative_from_project(project: Path, study_id: str) -> Path:
             "当前来源定位不可用，项目未更改。",
         )
     return relative.relative_to(Path("00_sources"))
+
+
+def _source_manifest_relative_pdf_path(project: Path, study_id: str) -> str:
+    """Serialize a source-relative PDF path independently of host separators."""
+
+    return _receipt_source_relative_from_project(project, study_id).as_posix()
 
 
 def add_project_source_supplement(project: Path, data: Any) -> dict[str, Any]:
