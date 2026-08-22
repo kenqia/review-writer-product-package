@@ -284,3 +284,16 @@ manifest caller now uses `.as_posix()` for persisted `relative_pdf_path`; malfor
 rejected before any project write. The focused regression is
 `tests/test_windows_path_normalization.py`; no Windows-native or QoderWork UI run was available
 in this WSL environment. The exact rollback boundary is one Git revert of this slice.
+
+## CR-014 Windows source snapshot security fallback
+
+This is an internal portability and security maintenance slice; it adds no third-party code,
+service, asset, license or runtime dependency. When POSIX descriptor capabilities are unavailable,
+`review_writer/project/source_truth.py` validates the canonical source with the existing
+`validate_source_file` boundary, resolved containment and reparse checks before `os.open`, then
+revalidates root/file identity with `fstat`. Windows snapshot validation keeps regular-file/
+directory and symlink/junction/reparse checks while skipping POSIX-only mode/owner and `fchmod`
+assumptions. Reparse inspection failures are fail-closed. The focused regression is
+`tests/test_source_truth_windows_security.py`; the WSL run was `4 passed`, and no Windows-native or
+QoderWork UI run was available. This does not create a second source authority or project write
+set; the exact rollback boundary is one Git revert.

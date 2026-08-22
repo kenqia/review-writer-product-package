@@ -93,3 +93,15 @@ current_pointer: .review-writer/version_context/current.json
 的 project-relative path。外部相对路径统一以 canonical POSIX 形式比较和序列化；绝对路径、遍历、
 reparse/link 安全边界继续 fail-closed。WSL focused evidence 不等同于 Windows native、QoderWork、
 Product Use、`PUBLIC_E2E` 或 `HUMAN_ACCEPTANCE`，回滚边界为一次 Git revert。
+
+## CR-014 Windows source snapshot security fallback
+
+本维护切片仅更新 `review_writer/project/source_truth.py`、focused Windows security regression、
+traceability、third-party notice 与 package hash。缺少 POSIX `dir_fd`/`O_NOFOLLOW` 能力时，
+Source Truth 使用 `validate_source_file`、`resolve` containment、reparse 检查、`os.open` 和
+`fstat` 完成 fail-closed 的验证后打开；Windows snapshot 临时目录只要求 existing resolved
+directory，snapshot 路径仍要求 regular file/directory 且拒绝 symlink、junction、reparse。
+POSIX mode/owner 与 `fchmod` 检查只在 POSIX 上执行。该切片不新增依赖、不改变 authority 或
+project write set；`tests/test_source_truth_windows_security.py` 在 WSL focused run 为
+`4 passed`，Windows native、QoderWork、Product Use、`PUBLIC_E2E` 和 `HUMAN_ACCEPTANCE` 仍为
+`HOLD`，回滚边界为一次 Git revert。

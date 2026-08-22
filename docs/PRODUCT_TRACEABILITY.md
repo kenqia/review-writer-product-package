@@ -173,6 +173,18 @@ existing project metadata, and does not migrate or reinterpret source authority.
 revert. Windows-native execution and full Product Use remain unverified in this WSL environment;
 `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`.
 
+## CR-014 traceability — Windows source snapshot security fallback
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| Source snapshot open fallback | `review_writer/project/source_truth.py::_secure_source_fd_fallback`; `_private_snapshot_root`; `_require_private_snapshot_path`; snapshot `fchmod` guard | `tests/test_source_truth_windows_security.py` (`4 passed`); `ruff check`; `git diff --check` | `ADAPTED / ENGINEERING_VERIFIED` | When POSIX `dir_fd`/`O_NOFOLLOW` capabilities are unavailable, validates the canonical source with `validate_source_file`, resolved containment and reparse checks, then reopens with `os.open` and rechecks `fstat`/root identity. Windows skips unreliable POSIX mode/owner checks while retaining ordinary-file/directory and symlink/junction/reparse rejection. Source Truth, VersionContext and Dashboard authority are unchanged. |
+
+The CR-014 write set is limited to the source-truth runtime seam, one focused regression test, this
+traceability row, the corresponding notice and the package hash file. It adds no dependency, does
+not rewrite existing project metadata, and does not expand the project write set. The WSL focused
+run is Engineering evidence only; Windows-native execution, QoderWork, Product Use, `PUBLIC_E2E`,
+`HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain `HOLD`. Rollback is one Git revert.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

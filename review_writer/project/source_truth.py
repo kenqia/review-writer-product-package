@@ -132,6 +132,92 @@ def _safe_file(project: Path, relative: str, code: str = "SOURCE_ASSET_INVALID")
         raise SourceTruthError(code) from exc
 
 
+def _is_reparse_path(path: Path) -> bool:
+    """Return whether *path* itself is a symlink, junction, or reparse point."""
+
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            return True
+        observed = path.lstat()
+    except (OSError, RuntimeError):
+        # An inability to inspect the path must never be treated as a safe
+        # ordinary path.  This is especially important for Windows reparse
+        # metadata, where resolution/lstat can fail for inaccessible targets.
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(getattr(observed, "st_file_attributes", 0) & reparse_flag)
+
+
+def _secure_source_fd_fallback(
+    project: Path,
+    canonical: str,
+    project_identity: tuple[int, int],
+) -> int:
+    """Open a verified source path when POSIX dir-fd flags are unavailable."""
+
+    try:
+        if _is_reparse_path(project):
+            raise SourceTruthError("SOURCE_ASSET_INVALID")
+        project_root = project.resolve(strict=True)
+        root_stat = project_root.stat()
+    except SourceTruthError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise SourceTruthError("SOURCE_ASSET_INVALID") from exc
+    if (
+        not stat.S_ISDIR(root_stat.st_mode)
+        or (root_stat.st_dev, root_stat.st_ino) != project_identity
+    ):
+        raise SourceTruthError("SOURCE_ASSET_INVALID")
+
+    try:
+        path = validate_source_file(project_root, canonical)
+    except (OSError, PathSafetyError) as exc:
+        raise SourceTruthError("SOURCE_ASSET_INVALID") from exc
+    if _is_reparse_path(path) or not path.is_relative_to(project_root):
+        raise SourceTruthError("SOURCE_ASSET_INVALID")
+
+    source_fd: int | None = None
+    try:
+        source_fd = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+        opened_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(opened_stat.st_mode):
+            raise SourceTruthError("SOURCE_ASSET_INVALID")
+
+        # Revalidate after opening to close the path-validation/open race.
+        verified_path = validate_source_file(project_root, canonical)
+        if (
+            _is_reparse_path(verified_path)
+            or not verified_path.is_relative_to(project_root)
+            or verified_path != path
+        ):
+            raise SourceTruthError("SOURCE_ASSET_INVALID")
+        verified_stat = verified_path.stat()
+        current_root_stat = project_root.stat()
+        if (
+            (current_root_stat.st_dev, current_root_stat.st_ino) != project_identity
+            or (opened_stat.st_dev, opened_stat.st_ino)
+            != (verified_stat.st_dev, verified_stat.st_ino)
+        ):
+            raise SourceTruthError("SOURCE_ASSET_INVALID")
+        result = source_fd
+        source_fd = None
+        return result
+    except SourceTruthError:
+        raise
+    except (OSError, PathSafetyError, RuntimeError) as exc:
+        raise SourceTruthError("SOURCE_ASSET_INVALID") from exc
+    finally:
+        if source_fd is not None:
+            os.close(source_fd)
+
+
 def _secure_source_fd(
     project: Path,
     relative: str,
@@ -140,12 +226,16 @@ def _secure_source_fd(
     """Open every relative component beneath a stable project directory handle."""
 
     if (
-        not hasattr(os, "O_NOFOLLOW")
+        os.name != "posix"
+        or not hasattr(os, "O_NOFOLLOW")
         or not hasattr(os, "O_DIRECTORY")
         or not hasattr(os, "supports_dir_fd")
         or os.open not in os.supports_dir_fd
     ):
-        raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
+        canonical = canonical_relative_path(relative)
+        if canonical is None:
+            raise SourceTruthError("SOURCE_ASSET_INVALID")
+        return _secure_source_fd_fallback(project, canonical, project_identity)
     canonical = canonical_relative_path(relative)
     if canonical is None:
         raise SourceTruthError("SOURCE_ASSET_INVALID")
@@ -197,30 +287,29 @@ def _private_snapshot_root() -> Path:
     try:
         root = candidate.resolve(strict=True)
         root_stat = root.stat()
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE") from exc
-    root_mode = stat.S_IMODE(root_stat.st_mode)
-    if (
-        not stat.S_ISDIR(root_stat.st_mode)
-        or (root_mode & 0o022 and not (root_stat.st_mode & stat.S_ISVTX))
-    ):
+    if not stat.S_ISDIR(root_stat.st_mode) or _is_reparse_path(candidate) or _is_reparse_path(root):
         raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
+    if os.name == "posix":
+        root_mode = stat.S_IMODE(root_stat.st_mode)
+        if root_mode & 0o022 and not (root_stat.st_mode & stat.S_ISVTX):
+            raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
     return root
 
 
 def _require_private_snapshot_path(path: Path, mode: int, *, directory: bool) -> None:
     try:
         observed = path.lstat()
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE") from exc
     expected_type = stat.S_ISDIR if directory else stat.S_ISREG
-    owner_matches = not hasattr(os, "geteuid") or observed.st_uid == os.geteuid()
-    if (
-        not expected_type(observed.st_mode)
-        or stat.S_IMODE(observed.st_mode) != mode
-        or not owner_matches
-    ):
+    if not expected_type(observed.st_mode) or _is_reparse_path(path):
         raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
+    if os.name == "posix":
+        owner_matches = not hasattr(os, "geteuid") or observed.st_uid == os.geteuid()
+        if stat.S_IMODE(observed.st_mode) != mode or not owner_matches:
+            raise SourceTruthError("SOURCE_ASSET_SECURITY_UNAVAILABLE")
 
 
 def _file_descriptor(project: Path, relative: str) -> dict[str, Any]:
@@ -820,7 +909,8 @@ def _source_truth_asset_snapshot_locked(
             prefix="review-writer-source-asset-",
             dir=_private_snapshot_root(),
         ) as temp_dir:
-            os.chmod(temp_dir, 0o700)
+            if os.name == "posix":
+                os.chmod(temp_dir, 0o700)
             _require_private_snapshot_path(Path(temp_dir), 0o700, directory=True)
             snapshot_path = Path(temp_dir) / Path(relative).name
             digest = hashlib.sha256()
@@ -830,13 +920,18 @@ def _source_truth_asset_snapshot_locked(
                 try:
                     snapshot_fd = os.open(
                         snapshot_path,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+                        os.O_WRONLY
+                        | os.O_CREAT
+                        | os.O_EXCL
+                        | getattr(os, "O_BINARY", 0)
+                        | getattr(os, "O_CLOEXEC", 0),
                         0o600,
                     )
                     snapshot_handle = os.fdopen(snapshot_fd, "wb")
                     snapshot_fd = None
                     with snapshot_handle:
-                        os.fchmod(snapshot_handle.fileno(), 0o600)
+                        if os.name == "posix" and hasattr(os, "fchmod"):
+                            os.fchmod(snapshot_handle.fileno(), 0o600)
                         _require_private_snapshot_path(snapshot_path, 0o600, directory=False)
                         for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
                             observed_size += len(chunk)
