@@ -13,6 +13,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -90,6 +91,13 @@ _CHEMICAL_GAP_LIMITATION = (
     "Chemical GAP: no verified Chemical Paper binding is available from the PDF-only input; "
     "chemical-field-dependent claims remain unsupported."
 )
+_FALLBACK_CAPABILITY_GAPS = (
+    "MinerU layout capability is unavailable; pdftotext output is text-only.",
+    "MinerU table capability is unavailable; extracted tables require source-PDF review.",
+    "MinerU formula capability is unavailable; extracted chemistry notation requires source-PDF review.",
+    "MinerU OCR capability is unavailable; scanned or image-only text is not supported.",
+)
+_CHEMICAL_GAPS = (_CHEMICAL_GAP_LIMITATION,)
 _MINERU_PARSER: Path | None = None
 _MINERU_PARSER_ENV = "REVIEW_WRITER_MINERU_PARSER"
 _MINERU_PARSER_RELATIVE_PATHS = (
@@ -206,6 +214,63 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _pdftotext_version(executable: Path) -> str:
+    """Return the version reported by the exact fallback executable.
+
+    ``pdftotext -v`` commonly writes its version to stderr.  Keep the parsed
+    value small and deterministic, and never make an otherwise usable local
+    fallback fail solely because the executable does not report a version.
+    """
+
+    try:
+        completed = subprocess.run(
+            [str(executable), "-v"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return "unreported"
+    output_parts: list[str] = []
+    for value in (completed.stdout, completed.stderr):
+        if isinstance(value, bytes):
+            output_parts.append(value.decode("utf-8", errors="replace"))
+        elif isinstance(value, str):
+            output_parts.append(value)
+    output = "\n".join(output_parts)
+    match = re.search(r"\bpdftotext\s+version\s+([^\s]+)", output, re.IGNORECASE)
+    return match.group(1) if match else "unreported"
+
+
+def _parser_source_provenance(
+    row: dict[str, str],
+    *,
+    backend: str,
+    version: str,
+    output_artifact_sha256: str,
+    page_count: int,
+    locators: dict[str, Any],
+    capability_gaps: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Build the source-bound parser record shared by both parser routes."""
+
+    return {
+        "source_id": row["source_id"],
+        "input_pdf_sha256": row["source_pdf_sha256"],
+        # Keep the pre-existing name for consumers that already bind on it.
+        "source_pdf_sha256": row["source_pdf_sha256"],
+        "output_artifact_sha256": output_artifact_sha256,
+        "page_count": page_count,
+        "locators": copy.deepcopy(locators),
+        "backend": backend,
+        "version": version,
+        "capability_gaps": list(capability_gaps),
+        "chemical_gaps": list(_CHEMICAL_GAPS),
+    }
 
 
 def _atomic_json(path: Path, payload: object) -> None:
@@ -388,6 +453,8 @@ def _write_fallback_parse_output(
     fallback_reason: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     layer_root = evidence / "text_layers"
+    pdftotext = Path(shutil.which("pdftotext") or "pdftotext")
+    fallback_version = _pdftotext_version(pdftotext)
     source_paths = [
         (
             row["source_id"],
@@ -399,7 +466,7 @@ def _write_fallback_parse_output(
         build_layers(
             source_paths,
             layer_root,
-            Path(shutil.which("pdftotext") or "pdftotext"),
+            pdftotext,
             force=False,
         )
         layers = json.loads((layer_root / "text_layers.manifest.json").read_text(encoding="utf-8"))
@@ -407,6 +474,16 @@ def _write_fallback_parse_output(
         raise LocalPdfParseError("LOCAL_PDF_PARSE_FAILED") from exc
     if not isinstance(layers, dict) or not isinstance(layers.get("sources"), list):
         raise LocalPdfParseError("LOCAL_PDF_PARSE_FAILED")
+    _atomic_json(
+        layer_root / "text_layers.manifest.json",
+        {
+            **layers,
+            "backend": "pdftotext",
+            "version": fallback_version,
+            "capability_gaps": list(_FALLBACK_CAPABILITY_GAPS),
+            "chemical_gaps": list(_CHEMICAL_GAPS),
+        },
+    )
     by_source = {
         row.get("source_id"): row
         for row in layers["sources"]
@@ -503,6 +580,10 @@ def _write_fallback_parse_output(
             "parse_status": "deterministic_local_text",
             "parser_mode": "FALLBACK",
             "fallback_reason": fallback_reason,
+            "backend": "pdftotext",
+            "version": fallback_version,
+            "capability_gaps": list(_FALLBACK_CAPABILITY_GAPS),
+            "chemical_gaps": list(_CHEMICAL_GAPS),
         }
         mineru_rows.append(common)
         parse_rows.append(
@@ -521,11 +602,19 @@ def _write_fallback_parse_output(
         "provenance": "AGENT_LOCAL_PDFTEXT",
         "parser_mode": "FALLBACK",
         "fallback_reason": fallback_reason,
+        "backend": "pdftotext",
+        "version": fallback_version,
+        "capability_gaps": list(_FALLBACK_CAPABILITY_GAPS),
+        "chemical_gaps": list(_CHEMICAL_GAPS),
     }
     _atomic_json(
         evidence / "mineru" / "manifest.json",
         {
             "schema_version": "source-parse-manifest.v1",
+            "backend": "pdftotext",
+            "version": fallback_version,
+            "capability_gaps": list(_FALLBACK_CAPABILITY_GAPS),
+            "chemical_gaps": list(_CHEMICAL_GAPS),
             "settings": settings,
             "completed_count": len(mineru_rows),
             "failed_count": 0,
@@ -537,6 +626,10 @@ def _write_fallback_parse_output(
         evidence / "parses" / "manifest.json",
         {
             "schema_version": "source-parse-manifest.v1",
+            "backend": "pdftotext",
+            "version": fallback_version,
+            "capability_gaps": list(_FALLBACK_CAPABILITY_GAPS),
+            "chemical_gaps": list(_CHEMICAL_GAPS),
             "settings": settings,
             "completed_count": len(parse_rows),
             "failed_count": 0,
@@ -547,34 +640,33 @@ def _write_fallback_parse_output(
     parser_sources = []
     for row, mineru in zip(rows, mineru_rows, strict=True):
         slug = mineru["slug"]
-        parser_sources.append(
-            {
-                "source_id": row["source_id"],
-                "source_pdf_sha256": row["source_pdf_sha256"],
-                "page_count": by_source[row["source_id"]]["page_count"],
-                "output_artifact_sha256": _sha256_file(
-                    evidence / "mineru" / "raw_zips" / f"{slug}.zip"
+        page_count = by_source[row["source_id"]]["page_count"]
+        markdown_path = evidence / "mineru" / "markdown" / f"{slug}.md"
+        parser_source = _parser_source_provenance(
+            row,
+            backend="pdftotext",
+            version=fallback_version,
+            output_artifact_sha256=_sha256_file(
+                evidence / "mineru" / "raw_zips" / f"{slug}.zip"
+            ),
+            page_count=page_count,
+            locators=_markdown_locators(
+                markdown_path.read_text(encoding="utf-8"),
+                page_count,
+                content=json.loads(
+                    (
+                        evidence
+                        / "parses"
+                        / "extracted"
+                        / slug
+                        / f"{slug}_content_list_v2.json"
+                    ).read_text(encoding="utf-8")
                 ),
-                "markdown_sha256": _sha256_file(
-                    evidence / "mineru" / "markdown" / f"{slug}.md"
-                ),
-                "locators": _markdown_locators(
-                    (evidence / "mineru" / "markdown" / f"{slug}.md").read_text(
-                        encoding="utf-8"
-                    ),
-                    by_source[row["source_id"]]["page_count"],
-                    content=json.loads(
-                        (
-                            evidence
-                            / "parses"
-                            / "extracted"
-                            / slug
-                            / f"{slug}_content_list_v2.json"
-                        ).read_text(encoding="utf-8")
-                    ),
-                ),
-            }
+            ),
+            capability_gaps=_FALLBACK_CAPABILITY_GAPS,
         )
+        parser_source["markdown_sha256"] = _sha256_file(markdown_path)
+        parser_sources.append(parser_source)
     return mineru_rows, parser_sources
 
 
@@ -709,6 +801,10 @@ def _write_mineru_parse_output(
     parser_path = _resolve_mineru_parser()
     if parser_path is None:
         raise _MinerUParseFailure("MINERU_PARSER_UNAVAILABLE")
+    try:
+        parser_version = f"script-sha256:{_sha256_file(parser_path)}"
+    except OSError as exc:
+        raise _MinerUParseFailure("MINERU_PARSER_UNAVAILABLE") from exc
     workspace = Path(tempfile.mkdtemp(prefix=".mineru-agent-parse.", dir=evidence.parent))
     materialized = workspace / "materialized"
     try:
@@ -748,7 +844,16 @@ def _write_mineru_parse_output(
                 raise _MinerUParseFailure("MINERU_EXECUTION_FAILED") from exc
             if completed.returncode != 0:
                 raise _mineru_failure(completed)
-            record, parser_source = _mineru_output_record(output, row)
+            record, raw_parser_source = _mineru_output_record(output, row)
+            parser_source = _parser_source_provenance(
+                row,
+                backend="mineru-precise-parse",
+                version=parser_version,
+                output_artifact_sha256=raw_parser_source["output_artifact_sha256"],
+                page_count=raw_parser_source["page_count"],
+                locators=raw_parser_source["locators"],
+            )
+            parser_source["markdown_sha256"] = raw_parser_source["markdown_sha256"]
             destination_extracted = materialized / "parses" / "extracted" / record["slug"]
             destination_extracted.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(record["extracted"], destination_extracted, copy_function=shutil.copy2)
@@ -780,6 +885,10 @@ def _write_mineru_parse_output(
                     "provenance": "MINERU",
                     "parse_status": "mineru_precise_parse",
                     "raw_zip_sha256": parser_source["output_artifact_sha256"],
+                    "backend": "mineru-precise-parse",
+                    "version": parser_version,
+                    "capability_gaps": [],
+                    "chemical_gaps": list(_CHEMICAL_GAPS),
                 }
             )
             parser_sources.append(parser_source)
@@ -807,7 +916,17 @@ def _write_mineru_parse_output(
                     "layout_method": "mineru-layout-visual-locator-only",
                 }
             )
-            _atomic_json(text_layers, {"schema_version": "pdf-text-layers.v1", "sources": layer_rows})
+            _atomic_json(
+                text_layers,
+                {
+                    "schema_version": "pdf-text-layers.v1",
+                    "backend": "mineru-precise-parse",
+                    "version": parser_version,
+                    "capability_gaps": [],
+                    "chemical_gaps": list(_CHEMICAL_GAPS),
+                    "sources": layer_rows,
+                },
+            )
         settings = {
             "language": "en",
             "model_version": "vlm",
@@ -816,11 +935,19 @@ def _write_mineru_parse_output(
             "ocr": False,
             "parser_mode": "MINERU",
             "provenance": "MINERU",
+            "backend": "mineru-precise-parse",
+            "version": parser_version,
+            "capability_gaps": [],
+            "chemical_gaps": list(_CHEMICAL_GAPS),
         }
         _atomic_json(
             materialized / "mineru" / "manifest.json",
             {
                 "schema_version": "source-parse-manifest.v1",
+                "backend": "mineru-precise-parse",
+                "version": parser_version,
+                "capability_gaps": [],
+                "chemical_gaps": list(_CHEMICAL_GAPS),
                 "settings": settings,
                 "completed_count": len(mineru_rows),
                 "failed_count": 0,
@@ -832,6 +959,10 @@ def _write_mineru_parse_output(
             materialized / "parses" / "manifest.json",
             {
                 "schema_version": "source-parse-manifest.v1",
+                "backend": "mineru-precise-parse",
+                "version": parser_version,
+                "capability_gaps": [],
+                "chemical_gaps": list(_CHEMICAL_GAPS),
                 "settings": settings,
                 "completed_count": len(mineru_rows),
                 "failed_count": 0,
@@ -2149,6 +2280,27 @@ def parse_project_sources(
                 "sources": parser_sources,
             }
             parser_tool = "build_pdf_text_layers"
+        parser_source = parser_sources[0] if parser_sources else {}
+        parser["backend"] = (
+            parser_source.get("backend")
+            if isinstance(parser_source.get("backend"), str)
+            else "unreported"
+        )
+        parser["version"] = (
+            parser_source.get("version")
+            if isinstance(parser_source.get("version"), str)
+            else "unreported"
+        )
+        parser["capability_gaps"] = (
+            copy.deepcopy(parser_source.get("capability_gaps"))
+            if isinstance(parser_source.get("capability_gaps"), list)
+            else []
+        )
+        parser["chemical_gaps"] = (
+            copy.deepcopy(parser_source.get("chemical_gaps"))
+            if isinstance(parser_source.get("chemical_gaps"), list)
+            else []
+        )
         main_rows = [row for row in rows if row["document_role"] == "MAIN"]
         main_study_ids = {row["study_id"] for row in main_rows}
         bundles = [write_source_truth_bundle(staged_project, row["study_id"]) for row in main_rows]

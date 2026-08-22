@@ -31,7 +31,7 @@ PDF，也没有新增对 ChemVellum 的运行时依赖。
 | DOCX render | `skills/review-export-docx/scripts/render_docx.py` | `524e5f2b8094aee1b236153501302025af5e9f4d` | 只读借鉴导出后 render/visual check 的验证责任；不复制渲染产物。 | `skills/review-export-docx/scripts/md2docx.py` 的导出边界及独立质量验证层；不把静态 render 记录当作验收。 |
 | Topic paper discovery | `skills/review-topic-paper-discovery/` | `ced2cf7799adadcd895e5e986f2879866cd6319d` | 只读借鉴 topic → candidate corpus → lawful full text 的流程契约；不复制 skill、查询结果或论文。 | `.agents/skills/review-orchestrator/SKILL.md`、`review_writer/agent/public_entry.py` 与本地 source-bound project root；Agent 仍须接收显式授权目录。 |
 | Review metadata prep | `skills/review-metadata-prep/` | `524e5f2b8094aee1b236153501302025af5e9f4d` | 只读借鉴 metadata registry、path validation 与 repair 的职责；不复制 metadata 或论文。 | `review_writer/acquisition/reusable_library.py`、`review_writer/project/input_provenance.py` 与 project-local Evidence/VersionContext。 |
-| MinerU precise parse | `skills/mineru-precise-parse-chemvellum/` | `53b577be3a617499043f4f11b1204a3721f22558` | 只读借鉴本地 PDF → Markdown 的 batch/provenance 边界；不上传或复制本地 PDF，不复制 token/config。 | `review_writer/agent/local_pdf_parse.py` 与 `.agents/skills/review-orchestrator/SKILL.md`；解析输出仍须经过 parse quality、human decision 与 source binding。 |
+| MinerU precise parse | `skills/mineru-precise-parse-chemvellum/`; exact parser `skills/mineru-precise-parse-chemvellum/scripts/parse_chemvellum_pdfs.py` | repository `main@c94ff72694cc838c19fc22359e3e0b648e2352d6`; skill blob `4da32173a2dbd948bc3f22977caf53726c4b719f`; parser blob `530cdaf15977b44d72efe820852bd5d881c06fd7` | 只读借鉴本地 PDF → Markdown 的 batch/provenance 边界；当前不复制或 vendoring parser、token/config 或本地 PDF。由于 upstream 文件名、CLI 和输出布局不同，clean-room adapter 仍为 `REFERENCE_ONLY / ADAPTER_HOLD`。 | `review_writer/agent/local_pdf_parse.py` 的现有 `parse_review_writer_pdfs.py` resolver、SourceTruth、parse-quality、VersionContext；解析输出仍须经过 parse quality、human decision 与 source binding。 |
 
 ## CR-008 component implementation record — Paper figure inventory builder
 
@@ -117,6 +117,52 @@ workflow/docx/schema readiness gates; it is bounded Engineering evidence, not a 
 full Agent-first N=3 Product Use. A rights hint never clears rights, and this commit does
 not claim Product Use, complete `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or
 `PROMOTE/B2`。
+
+## CR-008 component implementation record — ChemVellum MinerU parser (`REFERENCE_ONLY / ADAPTER_HOLD`)
+
+- upstream URL：<https://github.com/TengJiao33/ChemVellum>
+- pinned upstream repository commit：`c94ff72694cc838c19fc22359e3e0b648e2352d6`
+- exact skill path：`skills/mineru-precise-parse-chemvellum/`；skill blob：`4da32173a2dbd948bc3f22977caf53726c4b719f`
+- exact parser path：`skills/mineru-precise-parse-chemvellum/scripts/parse_chemvellum_pdfs.py`；parser blob：`530cdaf15977b44d72efe820852bd5d881c06fd7`
+- authorization reference：`USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`
+- upstream license：GitHub `license=null`；书面授权不被推断为开源许可证。
+
+### Reuse decision and authority boundary
+
+The upstream file is a batch parser with a different filename (`parse_chemvellum_pdfs.py`),
+CLI contract, input defaults and output layout from review-writer's existing
+`parse_review_writer_pdfs.py` seam. It also resolves token/config inputs that must remain
+outside the product package. Therefore this slice records behavior and contract facts only;
+it does not copy, vendor, execute or import the upstream script, token/config, local PDF,
+template or output artifact.
+
+The review-writer implementation remains the sole parser caller and authority:
+
+```text
+public_entry.start_or_resume_review
+  -> local_pdf_parse._resolve_mineru_parser
+  -> existing review-writer parser CLI (if installed)
+  -> SourceTruth + parse-quality + VersionContext
+  -> existing Dashboard human gate
+```
+
+The current clean-room adapter status is `REFERENCE_ONLY / ADAPTER_HOLD`: the portability
+slice has fresh `tests/test_mineru_parser_portability.py` evidence for the review-writer
+parser path (`6 passed`), but that is not evidence that the ChemVellum batch script itself
+is connected or that any release consumes it. A future adapter must first prove the exact
+CLI/output contract, preserve input/output hashes and capability/chemical gaps, reject
+stale or malformed output before publication, and feed only the existing SourceTruth and
+VersionContext chain. That requires a new implementation slice and focused public-caller
+test; no second parser registry, evidence authority or release writer is permitted.
+
+### Write set, failure and rollback boundary
+
+This record writes only this notice and the corresponding traceability row. It writes no
+project evidence, parser output, token/config, SourceTruth, VersionContext, manuscript or
+release artifact. Reverting the documentation commit removes the record and changes no
+review project. Until the adapter is separately approved and verified, `REAL_RELEASE_CONSUMED`,
+Product Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` remain
+`HOLD`.
 
 ## CR-008 component implementation record — Asset insertion (`HOLD`)
 
