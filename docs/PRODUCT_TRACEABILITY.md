@@ -123,7 +123,7 @@ Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or `PROMOTE/B2`.
 
 At current release commit `a6890cb`, the reparse slice was verified in the canonical clean
 worktree with `25 passed` across public-entry/parser portability tests, the complete
-repository suite passed `154 passed in 156.10s` with `TMPDIR=/tmp/review-writer-pytest.xhqvsi`,
+repository suite passed `154 passed in 145.97s` with `TMPDIR=/tmp/review-writer-pytest.xhqvsi`,
 and `ruff check` plus `git diff --check` were clean. This fresh evidence covers only the
 bounded `repair_parse` seam and preserves the separate Product Use, `PUBLIC_E2E`,
 `HUMAN_ACCEPTANCE`, scientific validity and `PROMOTE/B2` HOLD boundaries.
