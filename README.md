@@ -59,8 +59,9 @@ Extensions → Expert Kits
 
 ## 一次性安装依赖
 
-需要 Python 3.11+、`jsonschema`、`Pillow` 和 `python-docx`。系统还需要本地 `pdftotext`，用于
-PDF 解析 fallback；MinerU 是否可用由 Agent 在运行时检查并如实记录。`latex2word` 只是可选的
+需要 Python 3.11+、`jsonschema`、`Pillow`、`python-docx` 和 `requests`。系统还需要本地
+`pdftotext`，用于 PDF 解析 fallback；产品包现在包含官方 MinerU v4 API adapter，MinerU
+是否可用由 Agent 在运行时检查并如实记录。`latex2word` 只是可选的
 DOCX 数学排版增强。
 
 WSL/Linux 示例：
@@ -97,10 +98,17 @@ Windows `PATH`，然后重新运行诊断：
 `.env.example`；它只记录实际支持的 `REVIEW_WRITER_MINERU_PARSER` 路径变量，产品不会自动
 加载 `.env` 文件。
 
+产品包自带 MinerU adapter，默认走 MinerU 官方 v4 API（`vlm` 模型），不再要求你额外
+clone 一个解析器。它需要 MinerU token；token 只从当前进程的 `MINERU_API_TOKEN` 或包外
+的用户文件读取：Windows 为 `%APPDATA%\ReviewWriter\mineru_api_token`，Linux/WSL 为
+`~/.config/review-writer/mineru_api_token`。诊断只显示凭据是否存在，不显示值。凭据不可用
+或网络失败时，Agent 会记录真实原因并回退到 `pdftotext`，不会把 fallback 标成 MinerU。
+
 接着从 [qoderwork.cn/download](https://qoderwork.cn/download) 安装 QoderWork CN Windows
 客户端，登录后把上面生成的 ZIP 在 `Extensions → Expert Kits` 中导入。QoderWork 的账号、
-模型选择和 Credits 由客户端管理；Review Writer 不需要单独的产品 API key。只有选择外部
-MinerU 解析器时，才需要按该解析器自己的官方说明配置其凭据；凭据不放进仓库、ZIP、`.env`
+模型选择和 Credits 由客户端管理；Review Writer 不需要单独的产品 API key。MinerU adapter
+使用官方 API，请按 [MinerU API 文档](https://mineru.net/apiManage/docs) 申请并配置 token；
+凭据不放进仓库、ZIP、`.env`
 或 project root。没有可用 MinerU 时，产品会如实记录 `pdftotext` fallback 及能力缺口。
 
 注意：Windows QoderWork 进程不会自动读取 WSL/Linux 的 `~/.zshrc`。如果你的 MinerU 配置只

@@ -247,3 +247,19 @@ MinerU token/configuration, QoderWork client, or QoderWork authentication data.
 No license is inferred from these documentation links, and no upstream executable or credential
 was copied. The package setup slice remains subject to the existing QoderWork UI, Product Use,
 `PUBLIC_E2E`, `HUMAN_ACCEPTANCE` and scientific-validity gates.
+
+## CR-012 bundled MinerU v4 API adapter
+
+- Official API reference consulted 2026-08-22: <https://mineru.net/apiManage/docs>
+- Official API flow used: `POST https://mineru.net/api/v4/file-urls/batch`, presigned `PUT`,
+  then `GET https://mineru.net/api/v4/extract-results/batch/{batch_id}` and `full_zip_url`.
+- Adapter path: `skills/mineru-precise-parse-review-writer/scripts/parse_review_writer_pdfs.py`.
+  It is clean-room package code that materializes the existing Review Writer parser contract;
+  the upstream MinerU service, model and API remain third-party services.
+- The package does not include MinerU source code, token, token example, downloaded PDF, model,
+  or service output. `requests` is the only new runtime dependency.
+- Token sources are process-only `MINERU_API_TOKEN` or external user files documented in
+  `.env.example`; error messages redact bearer-like material and tests never use a real token.
+- The adapter rejects unsafe ZIP paths/symlinks, malformed output and output-directory collisions
+  before publication. It does not bypass SourceTruth, VersionContext, parse-quality or Dashboard
+  human gates.

@@ -13,13 +13,16 @@
 
 ## 包含
 
-- 包根的受控集合只有：`.gitignore`、`.env.example`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/windows/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/` 与 `skills/review-export-docx/`。
+- 包根的受控集合只有：`.gitignore`、`.env.example`、`README.md`、`docs-qoderwork-cn.md`、`product-package-manifest.md`、`product-package-sha256.txt`、`requirements.txt`、`docs/PRODUCT_CONTRACT.md`、`docs/PRODUCT_TRACEABILITY.md`、`docs/THIRD_PARTY_NOTICES.md`、`review_writer/`、`view/`、`schemas/`、`scripts/evidence/`、`scripts/windows/`、`scripts/build_qoderwork_plugin_zip.py`、`.agents/skills/review-orchestrator/`、`qoderwork/plugins/review-writer-cn/`、`skills/mineru-precise-parse-review-writer/` 与 `skills/review-export-docx/`。
 - `review_writer/` 全部 Python 源码（排除 `__pycache__`）。
 - `view/serve_review_dashboard.py` 与 `view/assets/dashboard/` 的全部页面、JS、CSS。
 - `schemas/` 的全部 JSON Schema。
 - `scripts/evidence/` 的全部 runtime-imported helper。
 - `scripts/windows/Install-ReviewWriter.ps1` 和 `Test-ReviewWriterEnvironment.ps1`：Windows
   用户的一次性安装与只读诊断入口；它们不读取或打印凭据。
+- `skills/mineru-precise-parse-review-writer/scripts/parse_review_writer_pdfs.py`：官方
+  MinerU v4 API 的本地 PDF adapter；只在外部 token 可用时联网，输出现有
+  `local_pdf_parse` 所要求的 manifest/content-list/layout/Markdown 结构。
 - project-local `.agents/skills/review-orchestrator/SKILL.md` 与 `agents/openai.yaml`。
 - QoderWork CN Expert Kit：`qoderwork/plugins/review-writer-cn/.qoder-plugin/plugin.json`、`qoderwork.md`、`skills/review-writer/SKILL.md` 与插件 README。
 - `review_writer/agent/qoderwork_adapter.py`：只调用现有 `FreshAgentBootstrap` 与 `VersionContext`，不创建第二套 authority。
@@ -56,14 +59,16 @@ current_pointer: .review-writer/version_context/current.json
 - `tests/`、`.worktrees/`、`.playwright-mcp/`、`.gstack/`、`.codex/`、`.ai/`、`.superpowers/`、`.agent-orchestration-runs/`。
 - `projects/`、`review-projects/`、`chem_papers/` 以及任何 review data、source archive、PDF、截图、DOCX 结果、日志或临时 evidence。
 - `docs/superpowers/`、`docs/handoff/`、`AGENTS.md`、`Makefile`、内部 CLI 文档和演示页面。
-- 旧 global skills、MinerU token/config 与外部 parser；本包保留 Codex 兼容的 project-local `review-orchestrator`、QoderWork CN Expert Kit 和必要 DOCX helper。缺少外部 MinerU 时沿用本地 `pdftotext` fallback。
+- MinerU token/config、外部 parser 的凭据和开发库的旧 global skills；本包现在包含一个
+  适配官方 MinerU v4 API 的 parser，但不包含任何 token。若凭据或网络不可用，沿用真实
+  `pdftotext` fallback。
 - `.env`、`.env.production`、auth/token/cookie/session、私钥、真实 URL 或任何未脱敏的本地路径。
 
 源树已按下列精确目录排除而非“复制后清理”：`tests/`、`.worktrees/`、`.playwright-mcp/`、`.gstack/`、`.codex/`、`.ai/`、`.superpowers/`、`.agent-orchestration-runs/`、`projects/`、`review-projects/`、`chem_papers/`、`docs/superpowers/`、`docs/handoff/`、旧 `skills/` 子目录和 `view/assets/demo/`。源根的 `AGENTS.md`、`Makefile`、内部 CLI 入口 `scripts/run_vertical_review.py`、控制台/网络/会话记录均未复制；QoderWork CN 的用户插件与 adapter 是本产品包的显式用户入口，不属于开发控制面。
 
 ## 安装依赖依据
 
-实际 import 审计确认：`jsonschema` 用于 schema 校验，`Pillow` 用于图件策略与比较图，`python-docx` 用于 DOCX helper。`latex2word` 仅在存在时启用数学 OMML 排版，因此没有列为硬依赖。`pdftotext` 是本地 PDF fallback 所需的系统命令；Agent 会在需要时 fail-closed，不会联网下载或猜测来源。
+实际 import 审计确认：`jsonschema` 用于 schema 校验，`Pillow` 用于图件策略与比较图，`python-docx` 用于 DOCX helper，`requests` 用于 MinerU v4 API adapter。`latex2word` 仅在存在时启用数学 OMML 排版，因此没有列为硬依赖。`pdftotext` 是本地 PDF fallback 所需的系统命令；Agent 会在需要时 fail-closed，不会联网下载或猜测来源。
 
 ## 质量边界
 

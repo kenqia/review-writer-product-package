@@ -8,6 +8,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+mineru_api_token*
+config/mineru_api_token*
 
 # Per-review data must live outside this product package.
 projects/

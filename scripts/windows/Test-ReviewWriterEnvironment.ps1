@@ -59,6 +59,19 @@ if ($parserConfigured) {
     Add-Notice "MinerU parser setting" "not configured; this run will use an installed parser if discoverable, otherwise truthful pdftotext fallback"
 }
 
+$tokenPresent = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("MINERU_API_TOKEN", "Process"))
+$tokenPresent = $tokenPresent -or -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("MINERU_API_TOKEN", "User"))
+$tokenFile = if ($env:APPDATA) { Join-Path $env:APPDATA "ReviewWriter\mineru_api_token" } else { $null }
+$tokenFilePresent = $false
+if ($tokenFile -and (Test-Path -LiteralPath $tokenFile -PathType Leaf)) {
+    $tokenFilePresent = ((Get-Item -LiteralPath $tokenFile).Length -gt 0)
+}
+if ($tokenPresent -or $tokenFilePresent) {
+    Add-Check "MinerU credentials" $true "credential source is present (value hidden)"
+} else {
+    Add-Notice "MinerU credentials" "not found; MinerU branch will return a truthful token HOLD and the public parser may use pdftotext fallback"
+}
+
 $checks | Format-Table -AutoSize | Out-Host
 $blocking = @($checks | Where-Object { $_.Status -eq "HOLD" })
 if ($blocking.Count -gt 0) { Write-Host "HOLD: fix the listed blocking checks before starting a review."; exit 2 }

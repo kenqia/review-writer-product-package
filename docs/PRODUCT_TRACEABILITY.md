@@ -148,6 +148,19 @@ existing environment, so the operator should recreate that environment manually 
 Rollback is one Git revert for the package slice, or manual removal of only a `.venv`/`build/`
 directory created by this run; the script never automatically removes an existing environment.
 
+## CR-012 traceability — bundled MinerU v4 API adapter
+
+| item | product-package seam | focused evidence | status | boundary |
+| --- | --- | --- | --- | --- |
+| MinerU parser adapter | `skills/mineru-precise-parse-review-writer/scripts/parse_review_writer_pdfs.py`; existing `review_writer/agent/local_pdf_parse.py::_resolve_mineru_parser` | `tests/test_mineru_portable_parser.py`; existing public parser portability suite | `ADAPTED / PUBLIC_CALLER_CONNECTED / ENGINEERING_VERIFIED` | Uses the official MinerU v4 `file-urls/batch` → presigned PUT → `extract-results/batch` flow and materializes the existing manifest/content-list/layout/Markdown contract. It does not create a second SourceTruth, Evidence, VersionContext or release authority. |
+| Credential boundary | `MINERU_API_TOKEN` process variable; external user-only token file paths documented in `.env.example` | missing-token zero-write test; Windows diagnostic presence-only check | `VERIFIED / PRODUCT_USE_HOLD` | No token is stored in the package or project root. Missing token, network/API failure, unsafe ZIP, stale input or malformed output fails before the existing public parser can publish; `pdftotext` remains the truthful fallback. |
+
+The CR-012 write set is limited to the bundled adapter, `requests` dependency, parser docs,
+manifest/traceability/notices, ignore rules and focused tests. The adapter writes only its staged
+temporary output, then atomically publishes one parser output directory consumed by
+`local_pdf_parse`; failure removes only that temporary directory. Rollback is one Git revert.
+Real MinerU network/Windows/QoderWork execution and `HUMAN_ACCEPTANCE` remain unverified here.
+
 ## Fresh clean-checkout verification
 
 At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh

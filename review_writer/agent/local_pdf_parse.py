@@ -681,7 +681,7 @@ def _safe_mineru_tree(path: Path) -> bool:
 
 def _mineru_failure(completed: subprocess.CompletedProcess[bytes]) -> _MinerUParseFailure:
     message = (completed.stdout + completed.stderr).decode("utf-8", errors="replace")
-    if "Missing MinerU API token" in message:
+    if "Missing MinerU API token" in message or "MINERU_TOKEN_UNAVAILABLE" in message:
         return _MinerUParseFailure("MINERU_TOKEN_UNAVAILABLE")
     return _MinerUParseFailure("MINERU_EXECUTION_FAILED")
 
