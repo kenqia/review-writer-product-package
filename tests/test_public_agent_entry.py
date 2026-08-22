@@ -302,6 +302,63 @@ def test_public_entry_is_discoverable_and_maps_human_action_required(
     }
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_code"),
+    [
+        ("sidecar", None),
+        ("duplicate_hash", "AUTHORIZED_PDF_DUPLICATE_HASH"),
+        ("malformed", "SOURCE_ARCHIVE_PDF_INVALID"),
+    ],
+)
+def test_public_fresh_authorized_pdf_folder_ignores_sidecar_and_rejects_invalid_inputs(
+    tmp_path: Path,
+    case: str,
+    expected_code: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorized = tmp_path / "authorized"
+    authorized.mkdir()
+    if case == "sidecar":
+        _pdf(authorized / "main.pdf")
+        (authorized / "SOURCES.md").write_text("researcher notes\n", encoding="utf-8")
+    elif case == "duplicate_hash":
+        _pdf(authorized / "a.pdf")
+        _pdf(authorized / "b.pdf")
+    else:
+        (authorized / "malformed.pdf").write_bytes(b"%PDF-1.7\nnot a complete PDF")
+    project = tmp_path / "projects" / f"public-{case}"
+    project.parent.mkdir()
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+    result: dict[str, object] | None = None
+    try:
+        if case == "sidecar":
+            monkeypatch.setattr(fresh_bootstrap, "_DASHBOARD_START_TIMEOUT_SECONDS", 10.0)
+            result = start_or_resume_review(
+                "A bounded source-set review",
+                project,
+                authorized,
+            )
+            assert result["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+            assert result["reason_code"] == fresh_bootstrap.SOURCE_ROLE_HUMAN_ACTION_REQUIRED
+            assert result["write_mode"] == "VERSION_CONTEXT"
+            assert result["current"]["project_id"] == project.name
+        else:
+            with pytest.raises(public_entry.PublicReviewEntryError) as error:
+                start_or_resume_review(
+                    "A bounded source-set review",
+                    project,
+                    authorized,
+                )
+            assert error.value.code == expected_code
+            assert error.value.write_mode == "zero_write"
+            assert error.value.current_unchanged is True
+            assert not project.exists()
+            assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before
+    finally:
+        if result is not None:
+            fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(result["dashboard_pid"])
+
+
 def test_resume_reads_current_and_is_zero_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

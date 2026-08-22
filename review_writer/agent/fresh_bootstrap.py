@@ -149,10 +149,11 @@ def _authorized_pdfs(value: str | Path) -> tuple[Path, ...]:
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
     if any(not path.is_file() for path in entries):
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
-    if any(path.suffix.casefold() != ".pdf" for path in entries):
-        raise FreshAgentBootstrapError("AUTHORIZED_PDF_INVALID")
     candidates = tuple(
-        sorted(entries, key=lambda path: (path.name.casefold(), path.name))
+        sorted(
+            (path for path in entries if path.suffix.casefold() == ".pdf"),
+            key=lambda path: (path.name.casefold(), path.name),
+        )
     )
     if not candidates:
         raise FreshAgentBootstrapError("AUTHORIZED_PDF_COUNT_INVALID")
