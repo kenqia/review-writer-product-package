@@ -321,6 +321,71 @@ def test_resume_publishes_same_version_v2_release_after_human_merge(
     }
 
 
+def test_public_resume_stops_on_stale_release_before_generator_continuation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale release is a public no-write boundary, not a new v2 candidate."""
+    continuation = {
+        "status": "HUMAN_ACTION_REQUIRED",
+        "write_mode": "VERSION_CONTEXT",
+        "session_id": "parse-session-1",
+        "candidate": {"version": "v2"},
+        "current": {
+            "project_id": "resume-project",
+            "version_id": "generator-v2-candidate",
+            "revision": 8,
+            "snapshot_digest": "b" * 64,
+        },
+    }
+    project, state, snapshot, calls = _patch_resume_project(
+        monkeypatch,
+        tmp_path,
+        evidence={"workflow_can_continue": True},
+        continuation=continuation,
+    )
+    snapshot["generator_runtime"] = {
+        "schema_version": "review-writer.generator-runtime.v1",
+        "phase": "v2",
+        "candidate": {"version": "v2"},
+        "human_decision": {"actor_type": "human_researcher"},
+    }
+    monkeypatch.setattr(
+        public_entry,
+        "_resume_dashboard",
+        lambda _project, _snapshot: (None, None, None),
+    )
+    monkeypatch.setattr(
+        public_entry,
+        "_release_artifact_state",
+        lambda _project: ("stale", None, None),
+    )
+    monkeypatch.setattr(
+        public_entry,
+        "manuscript_state",
+        lambda _project: {"workflow_can_continue": True},
+        raising=False,
+    )
+
+    result = public_entry._resume(project, ())
+
+    assert calls == []
+    assert result["result"] == "RESUMED"
+    assert result["release_status"] == "RELEASE_OUTDATED"
+    assert result["write_mode"] == "NONE"
+    assert result["current"] == {
+        "project_id": project.name,
+        "version_id": "old-version",
+        "revision": state.revision,
+        "snapshot_digest": "a" * 64,
+    }
+    assert result["next_action"] == {
+        "project_id": project.name,
+        "route": "/final",
+        "type": "REGENERATE_RELEASE",
+        "reason_code": "RELEASE_OUTDATED",
+    }
+
+
 def _prepare_v2_release_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

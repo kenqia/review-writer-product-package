@@ -532,6 +532,22 @@ def _resume(project: Path, authorized_pdfs: tuple[Path, ...]) -> dict[str, Any]:
     dashboard_fields: dict[str, Any] = {"dashboard_url": dashboard_url}
     if dashboard_pid is not None:
         dashboard_fields["dashboard_pid"] = dashboard_pid
+    # A stale release is an existing-version repair boundary.  Check it before
+    # advancing the generator session so a public resume cannot manufacture a
+    # new v2 candidate while the current Markdown/DOCX pair needs regeneration.
+    if _v2_human_approval(snapshot) and _release_artifact_state(project)[0] == "stale":
+        stale_release = _continue_v2_release(project)
+        if stale_release is not None:
+            return {
+                "result": "RESUMED",
+                "status": fresh_bootstrap.HUMAN_ACTION_REQUIRED,
+                "reason_code": "RELEASE_OUTDATED",
+                **copy.deepcopy(stale_release),
+                "current": current_payload,
+                "revision": current_payload["revision"],
+                "write_mode": "NONE",
+                **dashboard_fields,
+            }
     if _source_mapping_complete(project, snapshot) and not _parse_artifacts_exist(project):
         parsed = local_pdf_parse.parse_project_sources(
             project,

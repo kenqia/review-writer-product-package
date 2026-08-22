@@ -19,6 +19,7 @@ from view import serve_review_dashboard as dashboard
 from review_writer.agent import fresh_bootstrap, local_pdf_parse, public_entry
 from review_writer.product_foundation import VersionContext
 from review_writer.project import source_truth
+from tests.support.agent_e2e_harness import run_agent
 
 
 def _write_pdf(folder: Path, name: str, payload: bytes) -> Path:
@@ -792,7 +793,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             connection.close()
 
     try:
-        result = public_entry.start_or_resume_review(
+        result = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -839,7 +840,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert status == 200
         assert mapped["status"] == "mapped"
 
-        resumed = public_entry.start_or_resume_review(
+        resumed = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -863,7 +864,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         unapproved_candidates = sorted(
             project_root.glob("01_evidence/**/paper_evidence_candidates.json")
         )
-        unapproved = public_entry.start_or_resume_review(
+        unapproved = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -922,7 +923,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
                 quality = saved
         assert quality["workflow_can_continue"] is True
 
-        resumed = public_entry.start_or_resume_review(
+        resumed = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -945,7 +946,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             for path in project_root.glob("01_evidence/**/paper_evidence_candidates.json")
         }
         before_idempotent = VersionContext.load(project_root).state()
-        repeated = public_entry.start_or_resume_review(
+        repeated = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -981,7 +982,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
             )
             assert status == 200
         assert paper["summary"]["approved_count"] == 3
-        continued = public_entry.start_or_resume_review(
+        continued = run_agent(
             "A bounded N=3 source-set review",
             project_root,
             folder,
@@ -1008,7 +1009,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert status == 200
         assert protocol["workflow_can_continue"] is True
 
-        continued = public_entry.start_or_resume_review(
+        continued = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(continued)
@@ -1033,7 +1034,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert status == 200
         assert synthesis["workflow_can_continue"] is True
 
-        continued = public_entry.start_or_resume_review(
+        continued = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(continued)
@@ -1058,7 +1059,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         assert status == 200
         assert contracts["workflow_can_continue"] is True
 
-        continued = public_entry.start_or_resume_review(
+        continued = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(continued)
@@ -1098,7 +1099,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
 
         # Public resume must consume that persisted decision and advance the
         # same generator session to a v2 candidate.
-        continued = public_entry.start_or_resume_review(
+        continued = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(continued)
@@ -1175,7 +1176,7 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         # The complete public flow must now publish a bounded self-reviewed
         # Markdown/DOCX pair.  Keep this assertion intentionally strict so a
         # missing release input remains an observed first blocker.
-        released = public_entry.start_or_resume_review(
+        released = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(released)
@@ -1208,21 +1209,25 @@ def test_public_n3_mapping_resume_reaches_parse_quality_gate(
         )
         assert project_fingerprint() != before_stale_fingerprint
 
-        direct_stale = public_entry._continue_v2_release(project_root)
-        assert direct_stale == {
-            "release_status": "RELEASE_OUTDATED",
-            "next_action": {
-                "project_id": project_id,
-                "route": "/final",
-                "type": "REGENERATE_RELEASE",
-                "reason_code": "RELEASE_OUTDATED",
-            },
+        direct_stale = run_agent(
+            "A bounded N=3 source-set review", project_root, folder
+        )
+        assert direct_stale["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+        assert direct_stale["reason_code"] == "RELEASE_OUTDATED"
+        assert direct_stale["release_status"] == "RELEASE_OUTDATED"
+        assert direct_stale["write_mode"] == "NONE"
+        assert "candidate" not in direct_stale
+        assert direct_stale["next_action"] == {
+            "project_id": project_id,
+            "route": "/final",
+            "type": "REGENERATE_RELEASE",
+            "reason_code": "RELEASE_OUTDATED",
         }
         stale_fingerprint = project_fingerprint()
         stale_context = VersionContext.load(project_root).state()
         assert stale_context == before_stale_context
 
-        stale_resume = public_entry.start_or_resume_review(
+        stale_resume = run_agent(
             "A bounded N=3 source-set review", project_root, folder
         )
         adopt_dashboard_url(stale_resume)

@@ -12,16 +12,12 @@ import textwrap
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from review_writer.agent import fresh_bootstrap, public_entry
+from review_writer.agent import fresh_bootstrap
 from tests.test_fresh_bootstrap_source_set import _write_pdf
+from tests.support.agent_e2e_harness import run_agent
 
 
 TOPIC = "A bounded N=3 Agent-first source-set review"
-
-
-def run_agent(topic: str, project_root: Path, authorized_pdf_folder: Path) -> dict[str, object]:
-    """The Agent sees only ordinary-user inputs and the public entry."""
-    return public_entry.start_or_resume_review(topic, project_root, authorized_pdf_folder)
 
 
 def _request(base: str, method: str, route: str, payload: dict[str, object] | None = None) -> tuple[int, dict[str, object]]:
