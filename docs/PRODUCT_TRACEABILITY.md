@@ -106,15 +106,14 @@ adapter evidence cannot promote it.
 
 ## Fresh clean-checkout verification
 
-At clean checkout `origin/main@b19d08326d4544df0b20c8deec612c2fc6d25f48`, fresh layered
-verification recorded the five-suite focused group (`22 passed in 15.78s`), the N-layer
-source-set selection (`6 passed, 18 deselected in 100.70s`) and the complete N=3 public
-vertical (`1 passed in 87.93s`). The canonical Agent caller is the package-level
-`review_writer.agent.start_or_resume_review`. The complete repository test suite was not
-rerun at b19d083; the most recent full-suite record is historical
-`origin/main@d4f1f3a17dba3e98edf7a58f4a9b1b4fc9b43b0f` with `141 passed`. This is fresh
-Engineering evidence for the package and does not promote any row to Product Use,
-`PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or `PROMOTE/B2`.
+At clean clone checkout `origin/main@230daafeca6e63a7aae22ca3eb7b4d795e9375bc`, fresh
+layered verification recorded the five-suite focused group (`22 passed in 15.78s`), the
+N-layer source-set selection (`6 passed, 18 deselected in 100.70s`) and the complete N=3
+public vertical (`1 passed in 87.93s`). The same clean clone's complete repository test
+suite passed `144 passed in 24.72s` with `TMPDIR=/tmp`; no full-suite failure was observed.
+The canonical Agent caller is the package-level `review_writer.agent.start_or_resume_review`.
+This is fresh Engineering evidence for the package and does not promote any row to Product
+Use, `PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or `PROMOTE/B2`.
 
 ## Evidence-layer boundary
 
