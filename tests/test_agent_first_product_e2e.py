@@ -49,14 +49,13 @@ def _artifacts(root: Path) -> dict[str, object]:
 def test_agent_wrapper_ast_has_no_internal_bypass() -> None:
     source = textwrap.dedent(inspect.getsource(run_agent))
     tree = ast.parse(source)
-    forbidden = {"subprocess", "curl", "pytest", "VersionContext", "local_pdf_parse", "generator_runtime", "serve_review_dashboard"}
+    forbidden = {"subprocess", "curl", "pytest", "VersionContext", "local_pdf_parse", "generator_runtime", "serve_review_dashboard", "public_entry"}
     assert not any(isinstance(node, ast.Name) and node.id in forbidden for node in ast.walk(tree))
     assert "/api/" not in source
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
     assert len(calls) == 1
     call = calls[0]
-    assert isinstance(call.func, ast.Attribute) and call.func.attr == "start_or_resume_review"
-    assert isinstance(call.func.value, ast.Name) and call.func.value.id == "public_entry"
+    assert isinstance(call.func, ast.Name) and call.func.id == "start_or_resume_review"
 
 
 def test_agent_first_n3_smoke_stops_at_parse_quality_gate(tmp_path: Path) -> None:
