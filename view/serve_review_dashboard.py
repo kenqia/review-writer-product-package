@@ -146,6 +146,7 @@ from review_writer.project.manuscript_v2 import (  # noqa: E402
     merge_authoritative_manuscript,
 )
 from review_writer.agent.generator_runtime import RUNTIME_KEY, RUNTIME_SCHEMA  # noqa: E402
+from review_writer.agent.decision_bundle import build_decision_bundle  # noqa: E402
 from review_writer.project.paper_evidence_store import project_write_lock  # noqa: E402
 from review_writer.project.source_truth import (  # noqa: E402
     SOURCE_TRUTH_ROOT,
@@ -1455,6 +1456,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.NOT_FOUND, "project route not found")
                 return
             self.handle_project_workspace_get(project_id, "review-figures")
+        elif parsed.path.startswith("/api/project/") and parsed.path.endswith("/decision-bundle"):
+            project_id = project_id_from_route(parsed.path, "decision-bundle")
+            if project_id is None:
+                self.send_error(HTTPStatus.NOT_FOUND, "project route not found")
+                return
+            self.handle_project_decision_bundle_get(
+                project_id,
+                parse_qs(parsed.query, keep_blank_values=True),
+            )
         elif parsed.path.startswith("/api/project/") and parsed.path.endswith("/chemical-paper"):
             project_id = project_id_from_route(parsed.path, "chemical-paper")
             if project_id is None:
@@ -3262,6 +3272,90 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "工作台数据暂不可用"}, status=HTTPStatus.NOT_FOUND)
             return
         self.send_json(payload)
+
+    def handle_project_decision_bundle_get(
+        self, project_id: str, query: dict[str, list[str]]
+    ) -> None:
+        """Serve the canonical read-only Decision Bundle projection."""
+
+        if set(query) - {"expected_revision"}:
+            self.send_json(
+                {
+                    "ok": False,
+                    "error_code": "DECISION_BUNDLE_REQUEST_INVALID",
+                    "write_mode": "zero_write",
+                    "current_unchanged": True,
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+        expected_revision: int | None = None
+        if "expected_revision" in query:
+            values = query["expected_revision"]
+            if (
+                len(values) != 1
+                or re.fullmatch(r"0|[1-9][0-9]*", values[0]) is None
+            ):
+                self.send_json(
+                    {
+                        "ok": False,
+                        "error_code": "DECISION_BUNDLE_REQUEST_INVALID",
+                        "write_mode": "zero_write",
+                        "current_unchanged": True,
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                expected_revision = int(values[0])
+            except (TypeError, ValueError, OverflowError):
+                self.send_json(
+                    {
+                        "ok": False,
+                        "error_code": "DECISION_BUNDLE_REQUEST_INVALID",
+                        "write_mode": "zero_write",
+                        "current_unchanged": True,
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+        try:
+            project = project_dir(self.review_root, project_id)
+        except ValueError:
+            self.send_json(
+                {
+                    "ok": False,
+                    "error_code": "DECISION_BUNDLE_PROJECT_INVALID",
+                    "write_mode": "zero_write",
+                    "current_unchanged": True,
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+        if not project.is_dir():
+            self.send_json(
+                {
+                    "ok": False,
+                    "error_code": "DECISION_BUNDLE_PROJECT_MISSING",
+                    "write_mode": "zero_write",
+                    "current_unchanged": True,
+                },
+                status=HTTPStatus.NOT_FOUND,
+            )
+            return
+        result = build_decision_bundle(
+            project,
+            expected_revision=expected_revision,
+        )
+        result_status = result.get("status") if isinstance(result, dict) else None
+        status = (
+            HTTPStatus.CONFLICT
+            if result_status == "VERSION_CONFLICT"
+            else HTTPStatus.PRECONDITION_FAILED
+            if result_status == "PRECONDITION_FAILED"
+            else HTTPStatus.OK
+        )
+        self.send_json(result, status=status)
 
     def handle_project_workspace_put(self, project_id: str, kind: str) -> None:
         try:
