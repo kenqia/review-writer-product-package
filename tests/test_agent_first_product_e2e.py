@@ -13,7 +13,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from review_writer.agent import fresh_bootstrap
-from tests.test_fresh_bootstrap_source_set import _write_pdf
+from tests.test_fresh_bootstrap_source_set import (
+    _run_child_json as _run_agent_child_json,
+    _write_pdf,
+)
 from tests.support.agent_e2e_harness import run_agent
 
 
@@ -112,4 +115,88 @@ def test_agent_first_n3_smoke_stops_at_parse_quality_gate(tmp_path: Path) -> Non
         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if pid is not None:
             fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(pid)
+    assert json.loads(receipt_path.read_text(encoding="utf-8"))["result"] == "AGENT_E2E_HOLD"
+
+
+def test_agent_first_cold_process_resume_uses_same_root_and_public_wrapper(
+    tmp_path: Path,
+) -> None:
+    """A new Agent process resumes the mapped project through the public seam."""
+    folder = tmp_path / "authorized-pdfs"
+    folder.mkdir()
+    for name, payload in (("a.pdf", b"A"), ("b.pdf", b"B"), ("c.pdf", b"C")):
+        _write_pdf(folder, name, payload)
+    root = tmp_path / "projects" / "agent-cold-n3"
+    root.parent.mkdir()
+
+    child_script = """
+import json
+import sys
+from pathlib import Path
+from review_writer.agent import fresh_bootstrap
+from tests.support.agent_e2e_harness import run_agent
+
+result = run_agent(
+    "A bounded N=3 Agent-first cold resume review",
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+)
+print(json.dumps({
+    "result": result.get("result"),
+    "status": result.get("status"),
+    "reason_code": result.get("reason_code"),
+    "project_id": result.get("project_id"),
+    "dashboard_url": result.get("dashboard_url"),
+    "dashboard_pid": result.get("dashboard_pid"),
+    "current": result.get("current"),
+}))
+pid = result.get("dashboard_pid")
+if isinstance(pid, int):
+    fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(pid)
+"""
+    first = _run_agent_child_json(child_script, root, folder)
+    assert first["result"] == "FRESH"
+    assert first["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    assert first["project_id"] == root.name
+
+    second = _run_agent_child_json(child_script, root, folder)
+    assert second["result"] == "RESUMED"
+    assert second["status"] == fresh_bootstrap.HUMAN_ACTION_REQUIRED
+    assert second["reason_code"] == fresh_bootstrap.SOURCE_ROLE_HUMAN_ACTION_REQUIRED
+    assert second["current"]["project_id"] == root.name
+
+    receipt = {
+        "schema_version": "agent-e2e-receipt.v1",
+        "result": "AGENT_E2E_HOLD",
+        "model": os.environ.get("REVIEW_WRITER_AGENT_MODEL", "not-run"),
+        "provider": os.environ.get("REVIEW_WRITER_AGENT_PROVIDER", "local-test-wrapper"),
+        "version": os.environ.get("REVIEW_WRITER_AGENT_VERSION", "fr027-cold-n3-v1"),
+        "initial_prompt": "A bounded N=3 Agent-first cold resume review",
+        "tool_skill_call_sequence": [
+            "public_agent.start_or_resume_review:fresh:child-process",
+            "owned_dashboard.stop:researcher-observer",
+            "public_agent.start_or_resume_review:resume:child-process",
+            "owned_dashboard.stop:researcher-observer",
+        ],
+        "human_gates": [
+            {"stage": "source_mapping", "status": first["status"], "reason_code": first["reason_code"]},
+            {"stage": "source_mapping", "status": second["status"], "reason_code": second["reason_code"]},
+        ],
+        "researcher_operations": [],
+        "project_root": str(root),
+        "input_pdf_hashes": {
+            path.name: _digest(path) for path in sorted(folder.glob("*.pdf"))
+        },
+        "final_version_context": second["current"],
+        "final_artifacts": {
+            "markdown": {"path": "05_release/self_reviewed_draft.md", "exists": False},
+            "docx": {"path": "05_release/self_reviewed_draft.docx", "exists": False},
+            "release_snapshot": {"path": "05_release/release_snapshot.json", "exists": False},
+        },
+    }
+    receipt_path = tmp_path / "agent-cold-n3-receipt.json"
+    receipt_path.write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     assert json.loads(receipt_path.read_text(encoding="utf-8"))["result"] == "AGENT_E2E_HOLD"

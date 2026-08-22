@@ -686,13 +686,14 @@ def test_cold_process_restart_resumes_with_loopback_dashboard(tmp_path: Path) ->
 import json
 import sys
 from pathlib import Path
-from review_writer.agent import fresh_bootstrap
+from review_writer.agent import fresh_bootstrap, start_or_resume_review
 
 project = Path(sys.argv[1])
 folder = Path(sys.argv[2])
-result = fresh_bootstrap.FreshAgentBootstrap(project).start(
-    topic="Cold resume health probe",
-    authorized_pdf_folder=folder,
+result = start_or_resume_review(
+    "Cold resume health probe",
+    project,
+    folder,
 )
 pid = result["dashboard_pid"]
 fresh_bootstrap.FreshAgentBootstrap.stop_owned_dashboard(pid)
@@ -708,11 +709,11 @@ print(json.dumps({"dashboard_url": result["dashboard_url"], "dashboard_pid": pid
 import json
 import sys
 from pathlib import Path
-from review_writer.agent import fresh_bootstrap, public_entry
+from review_writer.agent import fresh_bootstrap, start_or_resume_review
 
 project = Path(sys.argv[1])
 folder = Path(sys.argv[2])
-result = public_entry.start_or_resume_review(
+result = start_or_resume_review(
     "Cold resume health probe",
     project,
     folder,
@@ -737,6 +738,45 @@ finally:
     assert resumed["dashboard_url"].startswith("http://127.0.0.1:")
     assert isinstance(resumed["dashboard_pid"], int)
     assert resumed["dashboard_pid"] > 0
+
+    # Cold-process evidence is recorded as a separate Agent E2E HOLD receipt:
+    # the child process received only the three ordinary-user inputs and used
+    # the canonical public entry, but this health-only slice is not a complete
+    # review acceptance or model/provider run.
+    receipt = {
+        "schema_version": "agent-e2e-receipt.v1",
+        "result": "AGENT_E2E_HOLD",
+        "model": os.environ.get("REVIEW_WRITER_AGENT_MODEL", "not-run"),
+        "provider": os.environ.get("REVIEW_WRITER_AGENT_PROVIDER", "local-test-wrapper"),
+        "version": os.environ.get("REVIEW_WRITER_AGENT_VERSION", "fr027-cold-resume-v1"),
+        "initial_prompt": "Cold resume health probe",
+        "tool_skill_call_sequence": [
+            "public_agent.start_or_resume_review:fresh:child-process",
+            "owned_dashboard.stop:researcher-observer",
+            "public_agent.start_or_resume_review:resume:child-process",
+        ],
+        "human_gates": [],
+        "researcher_operations": [],
+        "project_root": str(project_root),
+        "input_pdf_hashes": {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(folder.glob("*.pdf"))
+        },
+        "final_version_context": {
+            "result": resumed["result"],
+            "status": resumed["status"],
+            "reason_code": resumed["reason_code"],
+        },
+        "final_artifacts": {
+            "markdown": {"path": "05_release/self_reviewed_draft.md", "exists": False},
+            "docx": {"path": "05_release/self_reviewed_draft.docx", "exists": False},
+            "release_snapshot": {"path": "05_release/release_snapshot.json", "exists": False},
+        },
+    }
+    (project_root.parent / "cold-resume-agent-e2e-receipt.json").write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_public_n3_mapping_resume_reaches_parse_quality_gate(
