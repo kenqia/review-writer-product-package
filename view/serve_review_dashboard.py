@@ -253,6 +253,24 @@ def _is_sidecar_review_data_root(
     Its marker must not turn a sibling review-data directory into a historical
     checkout.  A review root inside a foreign checkout still remains read-only.
     """
+    if review_root.name == "review-projects":
+        try:
+            relative = review_root.relative_to(checkout_root)
+        except ValueError:
+            return False
+        if not code_root.is_relative_to(checkout_root) and len(relative.parts) == 1:
+            return False
+        for depth in range(1, len(relative.parts)):
+            ancestor = checkout_root.joinpath(*relative.parts[:depth])
+            if any(
+                _is_safe_checkout_marker(ancestor / marker)
+                for marker in _CHECKOUT_MARKERS
+            ):
+                return False
+        return not any(
+            _is_safe_checkout_marker(review_root / marker)
+            for marker in _CHECKOUT_MARKERS
+        ) and not code_root.is_relative_to(review_root)
     try:
         common_root = Path(os.path.commonpath((os.fspath(review_root), os.fspath(code_root))))
         common_root.relative_to(checkout_root)

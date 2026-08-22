@@ -542,6 +542,97 @@ class DashboardRuntimeRootTest(unittest.TestCase):
             foreign_context = dashboard.configure_runtime(foreign_projects)
             self.assertEqual(foreign_context.mode, dashboard.HISTORICAL_READ_ONLY)
 
+    def test_cross_checkout_review_projects_root_allows_public_source_mapping(self) -> None:
+        with tempfile.TemporaryDirectory(
+            dir=dashboard.REPO_ROOT.parent,
+            prefix=".runtime-cross-checkout-test-",
+        ) as temporary:
+            aggregate = Path(temporary)
+            (aggregate / ".git").mkdir()
+            review_root = aggregate / "test" / "review-projects"
+            review_root.mkdir(parents=True)
+            foreign_checkout = aggregate / "foreign-checkout"
+            foreign_checkout.mkdir()
+            (foreign_checkout / ".git").mkdir()
+            foreign_projects = foreign_checkout / "projects"
+            foreign_projects.mkdir()
+            foreign_sidecar = foreign_checkout / "review-projects"
+            foreign_sidecar.mkdir()
+
+            context = dashboard.configure_runtime(review_root)
+            self.assertEqual(context.mode, dashboard.WRITABLE)
+            foreign_context = dashboard.configure_runtime(foreign_projects)
+            self.assertEqual(foreign_context.mode, dashboard.HISTORICAL_READ_ONLY)
+            foreign_sidecar_context = dashboard.configure_runtime(foreign_sidecar)
+            self.assertEqual(foreign_sidecar_context.mode, dashboard.HISTORICAL_READ_ONLY)
+
+            archive = aggregate / "source_bundle.zip"
+            with zipfile.ZipFile(archive, "w") as source_bundle:
+                source_bundle.writestr("a.pdf", _valid_pdf_bytes(b"a"))
+
+            dashboard.configure_runtime(review_root)
+            server = dashboard.ThreadingHTTPServer(
+                ("127.0.0.1", 0), dashboard.DashboardHandler
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                project_id = "cross-checkout-source-mapping"
+                status, _ = self._request(
+                    server,
+                    "POST",
+                    "/api/projects",
+                    {
+                        "project_id": project_id,
+                        "brief": {
+                            "topic": "Cross-checkout source mapping",
+                            "review_question": "Can the external user-data root accept mapping?",
+                        },
+                    },
+                )
+                self.assertEqual(status, 201)
+                status, _ = self._request(
+                    server,
+                    "PUT",
+                    f"/api/project/{project_id}/review-state",
+                    {"action": "confirm_brief", "project_id": project_id},
+                )
+                self.assertEqual(status, 200)
+                status, _ = self._binary_request(
+                    server,
+                    f"/api/project/{project_id}/source-archive",
+                    archive.read_bytes(),
+                )
+                self.assertEqual(status, 201)
+                status, sources = self._request(
+                    server, "GET", f"/api/project/{project_id}/sources"
+                )
+                self.assertEqual(status, 200)
+                member = sources["preflight"]["member"]
+                mapping = {
+                    key: member[key]
+                    for key in ("member_id", "download_id", "source_id", "study_id")
+                }
+                mapping.update(
+                    {
+                        "document_role": "MAIN",
+                        "archive_sha256": sources["preflight"]["archive_sha256"],
+                    }
+                )
+                status, mapped = self._request(
+                    server,
+                    "POST",
+                    f"/api/project/{project_id}/source-mapping",
+                    mapping,
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(mapped["status"], "mapped")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
     def test_sidecar_source_mapping_posts_a_main_record(self) -> None:
         with tempfile.TemporaryDirectory(
             dir=dashboard.REPO_ROOT.parent,
