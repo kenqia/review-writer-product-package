@@ -90,6 +90,28 @@ no project data or current pointer needs restoration.
 | `CR-008` | `docs/THIRD_PARTY_NOTICES.md`; upstream URL `https://github.com/TengJiao33/ChemVellum`, repository `main@c94ff72694cc838c19fc22359e3e0b648e2352d6`, exact file `skills/review-citation-assets/scripts/insert_assets.py`, introduced commit `5aed49a0521bc2d92ff97e1ce3900b24c24c03fc`, directory context `524e5f2b8094aee1b236153501302025af5e9f4d`; authorization reference `USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`; GitHub `license=null` | `HOLD` | Existing `figure_policy` + `review_figures` + `build_project_release` already own the equivalent asset/hash/attribution/rights/marker checks and real release write set. No second `insert_assets` writer/manifest is safe without a distinct canonical seam; no upstream code copied. Current equivalent focused tests are not attributed as component reuse. HOLD record write set and rollback boundary are documented in `THIRD_PARTY_NOTICES.md`. |
 | `CR-008` | `docs/THIRD_PARTY_NOTICES.md`; upstream URL `https://github.com/TengJiao33/ChemVellum`, repository `main@c94ff72694cc838c19fc22359e3e0b648e2352d6`, exact skill `skills/mineru-precise-parse-chemvellum/` (blob `4da32173a2dbd948bc3f22977caf53726c4b719f`), exact parser `skills/mineru-precise-parse-chemvellum/scripts/parse_chemvellum_pdfs.py` (blob `530cdaf15977b44d72efe820852bd5d881c06fd7`); authorization reference `USER_ATTESTED_WRITTEN_AUTHORIZATION_2026-08-21`; GitHub `license=null` | `REFERENCE_ONLY / ADAPTER_HOLD` | Upstream is a batch parser with a different filename, CLI contract and output layout; no source/token/config was copied or vendored. Review-writer's existing parser resolver and canonical SourceTruth/VersionContext chain remain authoritative. A clean-room CLI adapter requires a separate implementation slice and contract verification; current portability evidence is for the review-writer parser path only, not upstream code or release consumption. |
 
+## CR-010 traceability — QoderWork CN product-package adapter
+
+| item | product-package seam | status | boundary |
+| --- | --- | --- | --- |
+| QoderWork CN Expert Kit | `qoderwork/plugins/review-writer-cn/.qoder-plugin/plugin.json`, `qoderwork/plugins/review-writer-cn/qoderwork.md`, `qoderwork/plugins/review-writer-cn/skills/review-writer/SKILL.md` | `ADAPTED` | Uses the official Qoder plugin layout and keeps the user contract to topic, explicit project root and authorized PDF folder. |
+| Host adapter | `review_writer/agent/qoderwork_adapter.py::start_review`, `::resume_review` | `PUBLIC_CALLER_CONNECTED` | Calls existing `FreshAgentBootstrap` and `VersionContext`; creates no second Source/Evidence, figure registry, manuscript history or release authority. |
+| Plugin packaging | `scripts/build_qoderwork_plugin_zip.py` | `VERIFIED` | Deterministic ZIP validation rejects symlinks, forbidden local state, unsupported files and secret-like values. |
+| User documentation | `README.md`, `docs-qoderwork-cn.md`, `qoderwork/plugins/review-writer-cn/README.md` | `VERIFIED` | Documents official QoderWork CN installation, human gates, privacy boundary and the fact that UI/HUMAN_ACCEPTANCE still require a real client run. |
+
+Official references used for this adapter (retrieved 2026-08-22):
+
+- https://docs.qoder.cn/qoder-plugins
+- https://docs.qoder.cn/qoderwork/product-overview/what-is-qoderwork-cn
+- https://docs.qoder.cn/user-guide/skills
+
+The adapter write set is limited to the project-scoped writes already performed by
+`FreshAgentBootstrap` and the existing Dashboard producers. Adapter failure returns `HOLD`
+and does not synthesize a decision. Rollback is one Git revert of the adapter/plugin/docs
+commit; no user project data is deleted or rewritten. This slice proves Engineering and
+plugin-contract verification only. It does not claim `QODERWORK_UI_E2E_PASS`, Product Use,
+`PUBLIC_E2E`, `HUMAN_ACCEPTANCE`, scientific validity or `PROMOTE/B2`.
+
 ## FR-027 / CR-009 acceptance binding
 
 The required acceptance chain is explicit and must be evidenced in order:
