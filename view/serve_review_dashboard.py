@@ -8655,24 +8655,40 @@ def has_review_product_data(project: Path) -> bool:
 
 def with_visible_project_labels(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
     topics = [canonical_project_visible_text(project.get("topic")) for project in projects]
-    canonical_labels = [
+    base_labels = [
         canonical_project_visible_text(project.get("project_label"))
         or topic
         for project, topic in zip(projects, topics, strict=True)
     ]
-    has_valid_labels = [bool(label) for label in canonical_labels]
-    labels = [label or "未命名综述项目" for label in canonical_labels]
+    labels = [label or "未命名综述项目" for label in base_labels]
     counts = {label: labels.count(label) for label in set(labels)}
+    disambiguated_labels = []
+    for project, label, base_label in zip(projects, labels, base_labels, strict=True):
+        if not base_label or counts[label] == 1:
+            disambiguated_labels.append(base_label)
+            continue
+        project_id = canonical_project_visible_text(project.get("project_id"))
+        disambiguated_labels.append(
+            canonical_project_visible_text(f"{base_label} · {project_id}")
+            if project_id
+            else ""
+        )
+    visible_counts = {
+        label: disambiguated_labels.count(label)
+        for label in set(disambiguated_labels)
+        if label
+    }
     labeled: list[dict[str, Any]] = []
-    for project, topic, label, has_valid_label in zip(
-        projects, topics, labels, has_valid_labels, strict=True
+    for project, topic, label, base_label in zip(
+        projects, topics, disambiguated_labels, base_labels, strict=True
     ):
-        duplicate = counts[label] > 1
+        has_valid_label = bool(label) and visible_counts.get(label) == 1
+        duplicate = bool(base_label) and counts[base_label or "未命名综述项目"] > 1 and not has_valid_label
         labeled.append(
             {
                 **{key: value for key, value in project.items() if key != "project_label"},
                 "topic": topic,
-                "visible_label": label,
+                "visible_label": label or "未命名综述项目",
                 "has_valid_label": has_valid_label,
                 "selectable": has_valid_label and not duplicate,
                 "selection_message": (

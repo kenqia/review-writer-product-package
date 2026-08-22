@@ -111,6 +111,78 @@ class DashboardRuntimeRootTest(unittest.TestCase):
                 thread.join(timeout=10)
                 self.assertFalse(thread.is_alive())
 
+    def test_duplicate_topic_projects_remain_selectable_and_url_targets_exact_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            dashboard.configure_runtime(Path(temporary))
+            server = dashboard.ThreadingHTTPServer(
+                ("127.0.0.1", 0), dashboard.DashboardHandler
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                topic = "可见光驱动的镍催化偶联"
+                for project_id in ("nickel-coupling-review", "nickel-coupling-review-2"):
+                    status, _ = self._request(
+                        server,
+                        "POST",
+                        "/api/projects",
+                        {
+                            "project_id": project_id,
+                            "brief": {
+                                "topic": topic,
+                                "review_question": f"Question for {project_id}",
+                            },
+                        },
+                    )
+                    self.assertEqual(status, 201)
+
+                status, projects = self._request(server, "GET", "/api/projects")
+                self.assertEqual(status, 200)
+                by_id = {project["project_id"]: project for project in projects}
+                self.assertEqual(
+                    by_id["nickel-coupling-review"]["visible_label"],
+                    f"{topic} · nickel-coupling-review",
+                )
+                self.assertEqual(
+                    by_id["nickel-coupling-review-2"]["visible_label"],
+                    f"{topic} · nickel-coupling-review-2",
+                )
+                self.assertTrue(by_id["nickel-coupling-review"]["selectable"])
+                self.assertTrue(by_id["nickel-coupling-review-2"]["selectable"])
+                self.assertEqual(by_id["nickel-coupling-review"]["selection_message"], "")
+                self.assertEqual(by_id["nickel-coupling-review-2"]["selection_message"], "")
+
+                connection = http.client.HTTPConnection(*server.server_address, timeout=10)
+                try:
+                    connection.request("GET", "/review?project_id=nickel-coupling-review-2")
+                    response = connection.getresponse()
+                    html = response.read().decode("utf-8")
+                finally:
+                    connection.close()
+                self.assertEqual(response.status, 200)
+                self.assertIn('id="project"', html)
+
+                status, selected = self._request(
+                    server,
+                    "GET",
+                    "/api/project/nickel-coupling-review-2/review-state",
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(selected["project_id"], "nickel-coupling-review-2")
+                self.assertEqual(selected["brief"]["topic"], topic)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
+    def test_empty_project_labels_remain_fail_closed(self) -> None:
+        labeled = dashboard.with_visible_project_labels(
+            [{"project_id": "empty-label", "topic": "", "project_label": ""}]
+        )
+        self.assertFalse(labeled[0]["has_valid_label"])
+        self.assertFalse(labeled[0]["selectable"])
+
     def _prepare_n3_archive(
         self,
         server: dashboard.ThreadingHTTPServer,
